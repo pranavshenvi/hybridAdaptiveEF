@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+*.dll
+*.dylib
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Build
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Data files (Indices and embeddings)
+*.hdf5
+*.index
+*.npz
+*.npy
+*.csv
+
+# Specific large files in the root
+custom_1M.index
+msmarco-1M.hdf5
+msmarco_qemb_train.npz
+msmarco_qemb_validation.npz
+
+# VSCode/IDE
+.vscode/
+.idea/
