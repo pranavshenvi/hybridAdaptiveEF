@@ -271,6 +271,62 @@ public:
         return candidates;
     }
 
+    /// True Ada-ef KNN search with runtime quantile binning and EF prediction using a declarative table
+    std::vector<Result> searchKnnTrueAda(const float* query, int k,
+                                         const std::vector<float>& bins,
+                                         const std::vector<float>& weights,
+                                         const std::vector<int>& ef_table,
+                                         int min_ef, int max_ef, int probe_count) {
+        if (entry_point_ == -1) return {};
+        
+        // 1. PHASE 1: Distance Collection at Entry Point (Layer 0)
+        float score = 0;
+        int count = 0;
+        int ep_global = entry_point_;
+        
+        if (!adj_[ep_global].empty()) {
+            for (int n : adj_[ep_global][0]) {
+                float nd = computeDist(query, getDataPtr(n));
+                for (size_t i = 0; i < bins.size(); ++i) {
+                    if (nd <= bins[i]) {
+                        score += weights[i];
+                        break;
+                    }
+                }
+                count++;
+                if (count >= probe_count) break;
+            }
+        }
+        
+        if (count > 0) score /= count;
+        
+        int int_score = static_cast<int>(std::round(score));
+        int pred_ef = max_ef;
+        if (int_score >= 0) {
+            if (int_score < static_cast<int>(ef_table.size())) {
+                pred_ef = ef_table[int_score];
+            } else if (!ef_table.empty()) {
+                pred_ef = ef_table.back();
+            }
+        }
+        
+        int current_ef = std::max(min_ef, std::min(max_ef, pred_ef));
+        
+        // 2. PHASE 2: Standard HNSW Search with predicted EF
+        int ep = entry_point_;
+        
+        // Greedy descent down to layer 1
+        for (int lc = max_level_; lc >= 1; lc--)
+            ep = greedyClosest(query, ep, lc);
+            
+        // Beam search at layer 0
+        auto candidates = searchLayer(query, ep, std::max(current_ef, k), 0);
+        
+        if (static_cast<int>(candidates.size()) > k)
+            candidates.resize(k);
+        return candidates;
+    }
+
     /// Profile a query through all layers.
     /// Returns [(layer, node_id, distance), …] from top layer → layer 0.
     /// Used offline to cache per-centroid entry points at each layer.
