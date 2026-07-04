@@ -114,7 +114,37 @@ def score_queries(probe_dists, mu, sigma):
         scores[i] = score
     return scores
 
-train_score_g = score_queries(train_probe_dists, global_mu, global_sigma)
+print("Computing Dataset Statistics for exact Ada-ef...")
+ada_sample_c = corpus[np.random.choice(len(corpus), 100000, replace=False)]
+global_M = np.mean(corpus, axis=0)
+global_Cov = np.cov(ada_sample_c, rowvar=False)
+
+m_bins = 10
+delta = 0.01
+z_scores_ada = [norm.ppf(delta * i) for i in range(1, m_bins + 1)]
+bin_weights = [100 * np.exp(-i + 1) for i in range(1, m_bins + 1)]
+
+def score_queries_ada(q_set, probe_dists):
+    n = len(q_set)
+    scores = np.zeros(n)
+    for i in range(n):
+        q = q_set[i]
+        mu_ip = np.dot(q, global_M)
+        var_ip = np.dot(q, np.dot(global_Cov, q.T))
+        mu_l2 = 2.0 - 2.0 * mu_ip
+        sigma_l2 = 2.0 * np.sqrt(max(var_ip, 1e-9))
+        
+        bins = [mu_l2 + z * sigma_l2 for z in z_scores_ada]
+        score = 0
+        for d in probe_dists[i]:
+            for b_idx in range(m_bins):
+                lower = bins[b_idx-1] if b_idx > 0 else -float('inf')
+                if lower < d <= bins[b_idx]:
+                    score += bin_weights[b_idx]
+        scores[i] = score
+    return scores
+
+train_score_g = score_queries_ada(train_q, train_probe_dists)
 
 tau = 0.05
 # Note: tau may need scaling if sqeuclidean distances are large.
@@ -128,14 +158,37 @@ sig_local_tr = np.sqrt(sig_local_sq_tr)
 train_score_h = score_queries(train_probe_dists, mu_local_tr, sig_local_tr)
 
 # Add noise to scores to prevent singular matrix if they are perfectly degenerate
-train_score_g += np.random.randn(len(train_score_g)) * 1e-4
 train_score_h += np.random.randn(len(train_score_h)) * 1e-4
 
-# Use polyfit to map score to EF
-poly_g = np.polyfit(train_score_g, train_req_ef, 2).astype(np.float32)
-poly_h = np.polyfit(train_score_h, train_req_ef, 2).astype(np.float32)
+# Build EF-Estimation Table for Ada-ef
+print("Building EF-Estimation Table...")
+from collections import defaultdict
+score_groups = defaultdict(list)
+for i in range(len(train_score_g)):
+    score_groups[int(train_score_g[i])].append(i)
 
-poly_g = list(poly_g)
+ef_est_table = {}
+wae_num = 0
+wae_den = 0
+for score_val, q_indices in score_groups.items():
+    best_ef = 400
+    for ef in [10, 20, 50, 100, 200, 400]:
+        recs = []
+        for idx in q_indices:
+            labs, _ = idx_hnsw.search_knn_adaptive(train_q[idx], 10, idx_hnsw.entry_point, idx_hnsw.max_level, ef)
+            recs.append(len(set(labs) & set(train_gt[idx])) / 10.0)
+        if np.mean(recs) >= 0.9:
+            best_ef = ef
+            break
+    ef_est_table[score_val] = best_ef
+    wae_num += best_ef * len(q_indices)
+    wae_den += len(q_indices)
+
+WAE = wae_num / max(1, wae_den)
+print(f"WAE: {WAE:.1f}")
+
+# Use polyfit to map score to EF for Hybrid Arch
+poly_h = np.polyfit(train_score_h, train_req_ef, 2).astype(np.float32)
 poly_h = list(poly_h)
 
 # --- 3. Online Phase Benchmark ---
@@ -178,10 +231,26 @@ for ef in [20, 50, 100, 200, 400]:
     if ef == 100:
         vanilla_results = {"labs": all_labs, "rec": rec}
 
-# 2. Vanilla Ada-ef
-def get_global_bins(i):
-    return [global_mu + z * global_sigma for z in z_scores]
-ada_labs, ada_rec = eval_search_dynamic("Vanilla Ada-ef", get_global_bins, poly_g)
+# 2. Exact Ada-ef
+print("\nEvaluating Exact Ada-ef...")
+idx_hnsw.reset_dist_count()
+t0 = time.time()
+test_probe_dists = get_graph_probe(test_q)
+test_scores_g = score_queries_ada(test_q, test_probe_dists)
+ada_rec = []
+ada_labs = []
+for i in range(len(test_q)):
+    score = int(test_scores_g[i])
+    ef_val = ef_est_table.get(score, 400)
+    ef_val = max(ef_val, int(WAE))
+    
+    labs, _ = idx_hnsw.search_knn_adaptive(test_q[i], 10, idx_hnsw.entry_point, idx_hnsw.max_level, ef_val)
+    ada_rec.append(len(set(labs) & set(test_gt[i])) / 10.0)
+    ada_labs.append(list(labs))
+
+dt = time.time() - t0
+dc = idx_hnsw.get_dist_count() / len(test_q)
+print(f"Exact Ada-ef        : Mean R={np.mean(ada_rec):.4f} | 5th%={np.percentile(ada_rec, 5):.4f} | 1st%={np.percentile(ada_rec, 1):.4f} | Avg Dist Comps={dc:.0f} | Time={dt:.3f}s")
 
 # 3. Hybrid Anchor-Blend
 def get_local_bins(i):
