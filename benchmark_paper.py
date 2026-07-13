@@ -20,6 +20,7 @@ Both predict ef in Python, then call standard HNSW search.
 """
 
 import os, sys, time
+sys.stdout.reconfigure(encoding='utf-8')
 import h5py
 import numpy as np
 from scipy.spatial.distance import cdist
@@ -39,8 +40,7 @@ K_SEARCH       = 10
 TARGET_RECALL  = 0.95
 EF_SWEEP       = [10, 20, 30, 50, 75, 100, 150, 200, 300, 400, 600, 800]
 N_CALIB        = 2000     # calibration queries
-S_PROBES       = 200      # Ada-ef: number of sampling vectors
-K_CLUSTERS     = 100      # Cluster-aware: number of corpus clusters
+# S_PROBES and K_CLUSTERS are now dynamically calculated based on corpus size
 
 # ═══════════════════════════════════════════════════════════════════════
 #  Helpers
@@ -115,28 +115,50 @@ def ada_ef_score(queries, samp_vecs, mean_v, cov_v):
 #  Data Loading
 # ═══════════════════════════════════════════════════════════════════════
 print("═" * 80)
-print("  Loading MS MARCO 1M Dataset")
+print("  Loading MS MARCO 8.8M Dataset")
 print("═" * 80)
-with h5py.File('msmarco-1M.hdf5', 'r') as f:
-    corpus = f['train'][:].astype(np.float32)
+with h5py.File('msmarco-8.8M-minilm-384d.hdf5', 'r') as f:
+    corpus = f['embeddings'][:].astype(np.float32)
 train_q_full = np.load('msmarco_qemb_train.npz')['emb'].astype(np.float32)
 test_q = np.load('msmarco_qemb_validation.npz')['emb'].astype(np.float32)
 dim = corpus.shape[1]
+n_corpus = corpus.shape[0]
+
+# --- ADA-EF Paper Parameters ---
+# The Ada-ef paper specifies using 200 proxy query vectors for calibration (Table 9)
+# The paper does NOT dynamically scale probing size. We leave S_PROBES fixed to 200.
+N_CALIB = 200
+S_PROBES = 200
+
+# --- Cluster-Aware Parameters (Ours) ---
+# Dynamically scale offline phase parameters based on dataset size
+K_CLUSTERS = int(np.sqrt(n_corpus))     # Cluster-aware centroids
+
 print(f"  Corpus: {corpus.shape} | Train Q: {train_q_full.shape} | "
       f"Test Q: {test_q.shape} | dim={dim}")
+print(f"  Ours Dynamic Param: K_CLUSTERS={K_CLUSTERS}")
 
 calib_q = train_q_full[np.random.choice(len(train_q_full), N_CALIB, replace=False)]
 
-print("\nComputing ground truth...")
-t0 = time.time()
-calib_gt = compute_ground_truth(corpus, calib_q, k=K_SEARCH)
-test_gt  = compute_ground_truth(corpus, test_q,  k=K_SEARCH)
-print(f"  Done in {time.time() - t0:.1f}s")
+gt_path = "ground_truth_paper_8.8M.npz"
+if os.path.exists(gt_path):
+    print("\nLoading ground truth from cache...")
+    gt_data = np.load(gt_path)
+    calib_gt = gt_data['calib_gt']
+    test_gt = gt_data['test_gt']
+else:
+    print("\nComputing ground truth...")
+    t0 = time.time()
+    calib_gt = compute_ground_truth(corpus, calib_q, k=K_SEARCH)
+    test_gt  = compute_ground_truth(corpus, test_q,  k=K_SEARCH)
+    print(f"  Done in {time.time() - t0:.1f}s")
+    print(f"Saving Ground Truth to {gt_path}...")
+    np.savez(gt_path, calib_gt=calib_gt, test_gt=test_gt)
 
 # ═══════════════════════════════════════════════════════════════════════
 #  HNSW Index
 # ═══════════════════════════════════════════════════════════════════════
-index_path = "custom_1M.index"
+index_path = "custom_8.8M.index"
 if os.path.exists(index_path):
     print(f"\nLoading HNSW index from {index_path}...")
     idx = chao_hybrid_ada_ef_cpp.Index(space='l2', dim=dim)

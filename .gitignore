@@ -51,4 +51,4 @@ msmarco_qemb_validation.npz
 # VSCode/IDE
 .vscode/
 .idea/
-detailed_metrics.json
+detailed_metrics.json*.pkl

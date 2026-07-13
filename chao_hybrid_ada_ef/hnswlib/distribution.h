@@ -3,6 +3,7 @@
 #include <Eigen/Core>
 #include <memory>
 #include <thread>
+#include <chrono>
 // #include "boost/math/distributions/normal.hpp"
 #include <iostream>
 #include <fstream>
