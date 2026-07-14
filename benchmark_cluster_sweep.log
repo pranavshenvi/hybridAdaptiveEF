@@ -696,3 +696,39 @@ Loading HNSW index from custom_8.8M.index...
 ────────────────────────────────────────────────────────────────────────────────
   [CACHE] Loading K-Means model from kmeans_cache_k297_8.8M.pkl...
   Computing cluster bins with macro-scale percentiles...
+  Running Online Evaluation...
+  R=0.9899
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware with K=500
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model from kmeans_cache_k500_8.8M.pkl...
+  Computing cluster bins with macro-scale percentiles...
+  Running Online Evaluation...
+  R=0.9901
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware with K=880
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model from kmeans_cache_k880_8.8M.pkl...
+  Computing cluster bins with macro-scale percentiles...
+  Running Online Evaluation...
+  R=0.9904
+
+════════════════════════════════════════════════════════════════════════════════
+  FINAL RESULTS ACROSS K VALUES (target recall = 0.99)
+════════════════════════════════════════════════════════════════════════════════
+
+Method                  Mean R    5th%    1st%  HNSW DC  +Probe   =Total    Time  >=tgt%   AvgEF
+──────────────────────────────────────────────────────────────────────────────────────────
+Vanilla(ef=200)         0.9646  0.8400  0.6200     4242             4242  13.62s   61.4%       -
+Vanilla(ef=400)         0.9802  0.9000  0.7700     8251             8251  19.69s   73.4%       -
+Vanilla(ef=600)         0.9854  0.9300  0.8100    12271            12271  23.75s   78.3%       -
+Vanilla(ef=800)         0.9880  0.9400  0.8500    16299            16299  28.33s   81.0%       -
+Ada-ef (fixed)          0.9868  0.9400  0.8100    26057    +200    26257  49.42s   80.6%  1280.0
+Ours (K=297)            0.9899  0.9500  0.8900    18632    +297    18929  56.39s   81.6%   747.7
+Ours (K=500)            0.9901  0.9500  0.8900    19615    +500    20115  57.28s   81.7%   795.4
+Ours (K=880)            0.9904  0.9500  0.8900    20207    +880    21087  50.45s   82.1%   826.7
+
+Sweep Complete!
+Saved structured results to cluster_sweep_results.json
