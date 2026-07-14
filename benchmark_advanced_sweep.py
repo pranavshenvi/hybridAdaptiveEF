@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Benchmark: Cluster-Aware Adaptive EF Sweep
+Benchmark: Advanced Cluster-Aware Sweep
 Dataset: MS MARCO 8.8M
 """
 
-import os, sys, time, pickle, json, subprocess
+import os, sys, time, pickle, json
 sys.stdout.reconfigure(encoding='utf-8')
 
 class Logger(object):
-    def __init__(self, filename="benchmark_cluster_sweep.log"):
+    def __init__(self, filename="benchmark_advanced_sweep.log"):
         self.terminal = sys.stdout
         self.log = open(filename, "a", encoding="utf-8")
     def write(self, message):
@@ -24,7 +24,7 @@ sys.stdout = Logger()
 import h5py
 import numpy as np
 from scipy.spatial.distance import cdist
-from scipy.stats import norm, entropy as sp_entropy, spearmanr
+from scipy.stats import norm, spearmanr
 from sklearn.cluster import MiniBatchKMeans
 
 sys.path.append(os.path.join(os.path.dirname(__file__), 'chao_hybrid_ada_ef'))
@@ -38,21 +38,27 @@ np.random.seed(42)
 # ═══════════════════════════════════════════════════════════════════════
 K_SEARCH       = 100
 TARGET_RECALL  = 0.99
-EF_SWEEP       = [100, 150, 200, 300, 400, 600, 800, 1000, 1500, 2000]
-N_CALIB        = 1000
+EF_SWEEP       = list(range(200, 3001, 50))
+N_CALIB        = 10000
 S_PROBES       = 200
-CLUSTER_PROBE_COUNT = 100  # In-graph probe size (ef) for our architecture
+CLUSTER_PROBE_COUNT = 100  
 
 # ═══════════════════════════════════════════════════════════════════════
 #  Helpers & Ada-ef scoring
 # ═══════════════════════════════════════════════════════════════════════
-def build_ef_table(scores_int, required_efs):
+def build_ef_table_p90(scores_int, required_efs):
     table = {}
     for s in np.unique(scores_int):
         table[int(s)] = int(np.percentile(required_efs[scores_int == s], 90))
     return table
 
-def lookup_ef(score, table, min_ef=100, max_ef=2000):
+def build_ef_table_mean(scores_int, required_efs):
+    table = {}
+    for s in np.unique(scores_int):
+        table[int(s)] = int(np.mean(required_efs[scores_int == s]))
+    return table
+
+def lookup_ef(score, table, min_ef=10, max_ef=3000):
     if not table: return max_ef
     if score in table: return int(np.clip(table[score], min_ef, max_ef))
     known = sorted(table.keys())
@@ -96,14 +102,14 @@ print(f"  Cluster Sweep Params: K_SWEEP={K_SWEEP}")
 
 calib_q = train_q_full[np.random.choice(len(train_q_full), N_CALIB, replace=False)]
 
-gt_path = f"ground_truth_paper_8.8M_top{K_SEARCH}_calib{N_CALIB}.npz"
+gt_path = "ground_truth_10kq.npz"
 if os.path.exists(gt_path):
-    print("\nLoading ground truth from cache...")
+    print("\nLoading 10k calibration ground truth and test ground truth from cache...")
     gt_data = np.load(gt_path)
     calib_gt = gt_data['calib_gt']
     test_gt = gt_data['test_gt']
 else:
-    print("\nComputing ground truth...")
+    print(f"\nComputing ground truth (topk={K_SEARCH})...")
     t0 = time.time()
     calib_gt = compute_ground_truth(corpus, calib_q, k=K_SEARCH)
     test_gt  = compute_ground_truth(corpus, test_q,  k=K_SEARCH)
@@ -151,6 +157,9 @@ for i in range(N_CALIB):
             break
     else:
         calib_min_ef[i] = EF_SWEEP[-1]
+    
+    if (i + 1) % 1000 == 0:
+        print(f"  ... calibrated {i + 1} queries")
 
 print(f"  Done in {time.time() - t0:.1f}s")
 
@@ -168,10 +177,13 @@ corpus_cov = np.cov(sub, rowvar=False).astype(np.float32)
 samp_vectors = corpus[np.random.choice(len(corpus), S_PROBES, replace=False)]
 ada_calib_scores = ada_ef_score(calib_q, samp_vectors, corpus_mean, corpus_cov)
 ada_scores_int = np.round(ada_calib_scores).astype(int)
-ada_table = build_ef_table(ada_scores_int, calib_min_ef)
+ada_table_p90 = build_ef_table_p90(ada_scores_int, calib_min_ef)
+
+with open("ef_table_ada_ef_p90.json", "w") as f_json:
+    json.dump(ada_table_p90, f_json, indent=4)
+
 t_ada_total = time.time() - t_ada_total
 print(f"  Ada-EF Offline Total: {t_ada_total:.1f}s")
-
 
 # ═══════════════════════════════════════════════════════════════════════
 #  ONLINE EVALUATION HELPERS
@@ -201,7 +213,7 @@ def eval_ada_ef():
     test_ada_int = np.round(test_ada_scores).astype(int)
     t_s = time.time() - t_s
     for i in range(n_test):
-        ef = lookup_ef(test_ada_int[i], ada_table)
+        ef = lookup_ef(test_ada_int[i], ada_table_p90)
         efs.append(ef)
         labs, _ = idx.search_knn_adaptive(test_q[i], K_SEARCH, idx.entry_point, idx.max_level, ef)
         recs.append(len(set(labs) & set(test_gt[i])) / K_SEARCH)
@@ -215,7 +227,6 @@ def eval_ada_ef():
 def eval_cluster_aware(name, K_VAL, centroids, cluster_bins, ef_table_list):
     idx.reset_dist_count()
     recs = []
-    efs = []
     t0 = time.time()
     t_s = time.time()
     test_cdists = cdist(test_q, centroids, metric='sqeuclidean')
@@ -224,18 +235,13 @@ def eval_cluster_aware(name, K_VAL, centroids, cluster_bins, ef_table_list):
     for i in range(n_test):
         k_id = test_nearest[i]
         bins = cluster_bins[k_id].tolist()
-        
-        score = int(idx.get_dynamic_probe_score(test_q[i], bins, CLUSTER_PROBE_COUNT))
-        ef_used = ef_table_list[min(score, len(ef_table_list) - 1)]
-        efs.append(ef_used)
-
-        labs, _ = idx.search_knn_dynamic(test_q[i], K_SEARCH, bins, ef_table_list, 100, 2000, CLUSTER_PROBE_COUNT)
+        labs, _ = idx.search_knn_dynamic(test_q[i], K_SEARCH, bins, ef_table_list, 10, 3000, CLUSTER_PROBE_COUNT)
         recs.append(len(set(labs) & set(test_gt[i])) / K_SEARCH)
     dt = time.time() - t0
     dc = idx.get_dist_count() / n_test
     r = np.array(recs)
     return dict(name=name, mean_r=np.mean(r), p5=np.percentile(r, 5), p1=np.percentile(r, 1),
-                hnsw_dc=dc, probe_dc=K_VAL, time=dt, score_time=t_s, avg_ef=np.mean(efs), med_ef=np.median(efs),
+                hnsw_dc=dc, probe_dc=K_VAL, time=dt, score_time=t_s,
                 pct_target=np.mean(r >= TARGET_RECALL) * 100)
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -245,7 +251,7 @@ print(f"\n{'═' * 80}")
 print(f"  ONLINE EVALUATION  (Recall@{K_SEARCH}, target={TARGET_RECALL})")
 print(f"{'═' * 80}")
 
-for ef in [200, 400, 600, 800]:
+for ef in [200, 400, 600, 800, 1000]:
     print(f"  Vanilla(ef={ef})...", end=" ", flush=True)
     r = eval_vanilla(f"Vanilla(ef={ef})", ef)
     print(f"R={r['mean_r']:.4f}")
@@ -264,29 +270,27 @@ for K_CLUSTERS in K_SWEEP:
     t_clust_total = time.time()
     cache_file = f"kmeans_cache_k{K_CLUSTERS}_8.8M.pkl"
     if os.path.exists(cache_file):
-        print(f"  [CACHE] Loading K-Means model from {cache_file}...")
+        print(f"  [CACHE] Loading K-Means model and bins from {cache_file}...")
         with open(cache_file, 'rb') as f_cache:
-            km, centroids, labels, _ = pickle.load(f_cache)
+            km, centroids, labels, cluster_bins = pickle.load(f_cache)
     else:
-        print(f"  [COMPUTE] Running K-Means for K={K_CLUSTERS}...")
+        print(f"  [COMPUTE] Running K-Means and computing bins for K={K_CLUSTERS}...")
         km = MiniBatchKMeans(n_clusters=K_CLUSTERS, random_state=42, n_init=3, batch_size=4096)
         km.fit(corpus)
         centroids = km.cluster_centers_.astype(np.float32)
         labels = km.labels_
-        print(f"  Saving K-Means model to {cache_file}...")
+        Z_QUANTILES_PCT = [20, 40, 60, 80]
+        cluster_bins = np.zeros((K_CLUSTERS, 4), dtype=np.float32)
+        for k in range(K_CLUSTERS):
+            pts = corpus[labels == k]
+            if len(pts) > 0:
+                dists = cdist(pts, centroids[k:k+1], metric='sqeuclidean').flatten()
+                cluster_bins[k] = np.percentile(dists, Z_QUANTILES_PCT)
+            else:
+                cluster_bins[k] = np.array([0.5, 1.0, 1.5, 2.0])
+        print(f"  Saving K-Means model and bins to {cache_file}...")
         with open(cache_file, 'wb') as f_cache:
-            pickle.dump((km, centroids, labels, None), f_cache)
-
-    print("  Computing cluster bins with macro-scale percentiles...")
-    Z_QUANTILES_PCT = [20, 40, 60, 80]
-    cluster_bins = np.zeros((K_CLUSTERS, len(Z_QUANTILES_PCT)), dtype=np.float32)
-    for k in range(K_CLUSTERS):
-        pts = corpus[labels == k]
-        if len(pts) > 0:
-            dists = cdist(pts, centroids[k:k+1], metric='sqeuclidean').flatten()
-            cluster_bins[k] = np.percentile(dists, Z_QUANTILES_PCT)
-        else:
-            cluster_bins[k] = np.array([0.5, 1.0, 1.5, 2.0])
+            pickle.dump((km, centroids, labels, cluster_bins), f_cache)
 
     calib_cdists = cdist(calib_q, centroids, metric='sqeuclidean')
     calib_nearest = np.argmin(calib_cdists, axis=1)
@@ -297,14 +301,32 @@ for K_CLUSTERS in K_SWEEP:
         clust_calib_scores[i] = idx.get_dynamic_probe_score(calib_q[i], bins, CLUSTER_PROBE_COUNT)
 
     clust_calib_int = np.round(clust_calib_scores).astype(int)
-    clust_table = build_ef_table(clust_calib_int, calib_min_ef)
-    max_score = max(clust_table.keys()) if clust_table else 0
-    ef_table_list = [lookup_ef(s, clust_table) for s in range(max_score + 1)] if clust_table else [10]
+    
+    # 1. P90 Table
+    clust_table_p90 = build_ef_table_p90(clust_calib_int, calib_min_ef)
+    with open(f"ef_table_k{K_CLUSTERS}_p90.json", "w") as f_json:
+        json.dump(clust_table_p90, f_json, indent=4)
+        
+    max_score_p90 = max(clust_table_p90.keys()) if clust_table_p90 else 0
+    ef_table_list_p90 = [lookup_ef(s, clust_table_p90) for s in range(max_score_p90 + 1)] if clust_table_p90 else [10]
 
-    print(f"  Running Online Evaluation...")
-    r = eval_cluster_aware(f"Ours (K={K_CLUSTERS})", K_CLUSTERS, centroids, cluster_bins, ef_table_list)
-    print(f"  R={r['mean_r']:.4f}")
-    all_results.append(r)
+    # 2. Mean Table
+    clust_table_mean = build_ef_table_mean(clust_calib_int, calib_min_ef)
+    with open(f"ef_table_k{K_CLUSTERS}_mean.json", "w") as f_json:
+        json.dump(clust_table_mean, f_json, indent=4)
+        
+    max_score_mean = max(clust_table_mean.keys()) if clust_table_mean else 0
+    ef_table_list_mean = [lookup_ef(s, clust_table_mean) for s in range(max_score_mean + 1)] if clust_table_mean else [10]
+
+    print(f"  Running Online Evaluation (P90)...")
+    r_p90 = eval_cluster_aware(f"Ours (K={K_CLUSTERS}, P90)", K_CLUSTERS, centroids, cluster_bins, ef_table_list_p90)
+    print(f"  R={r_p90['mean_r']:.4f}")
+    all_results.append(r_p90)
+
+    print(f"  Running Online Evaluation (Mean)...")
+    r_mean = eval_cluster_aware(f"Ours (K={K_CLUSTERS}, Mean)", K_CLUSTERS, centroids, cluster_bins, ef_table_list_mean)
+    print(f"  R={r_mean['mean_r']:.4f}")
+    all_results.append(r_mean)
 
 # ═══════════════════════════════════════════════════════════════════════
 #  Final Results
@@ -315,40 +337,18 @@ print(f"{'═' * 80}\n")
 
 hdr = (f"{'Method':<22} {'Mean R':>7} {'5th%':>7} {'1st%':>7} "
        f"{'HNSW DC':>8} {'+Probe':>7} {'=Total':>8} "
-       f"{'Time':>7} {'>=tgt%':>7} {'AvgEF':>7}")
+       f"{'Time':>7} {'>=tgt%':>7}")
 print(hdr)
-print("─" * 90)
+print("─" * 80)
 for r in all_results:
     probe = f"+{r['probe_dc']}" if r['probe_dc'] > 0 else ""
     total = r['hnsw_dc'] + r['probe_dc']
-    avg_ef_str = f"{r['avg_ef']:>7.1f}" if 'avg_ef' in r else f"{'-':>7}"
     print(f"{r['name']:<22} {r['mean_r']:>7.4f} {r['p5']:>7.4f} {r['p1']:>7.4f} "
           f"{r['hnsw_dc']:>8.0f} {probe:>7} {total:>8.0f} "
-          f"{r['time']:>6.2f}s {r['pct_target']:>6.1f}% {avg_ef_str}")
+          f"{r['time']:>6.2f}s {r['pct_target']:>6.1f}%")
 
 print("\nSweep Complete!")
 
-# Save structured results to JSON
-results_file = "cluster_sweep_results.json"
-with open(results_file, "w") as f:
+# Dump results to JSON
+with open("advanced_sweep_results.json", "w") as f:
     json.dump(all_results, f, indent=4)
-print(f"Saved structured results to {results_file}")
-
-# Optional: Automate Git Push
-# WARNING: This will block and ask for credentials if you haven't set up 
-# SSH keys or cached a GitHub Personal Access Token.
-def auto_push_results():
-    try:
-        print("\nAttempting to push results to GitHub...")
-        subprocess.run(["git", "add", "benchmark_cluster_sweep.log", results_file], check=True)
-        subprocess.run(["git", "commit", "-m", "Auto-update benchmark results"], check=True)
-        # We use a timeout to prevent it from hanging forever if it asks for a password
-        subprocess.run(["git", "push"], check=True, timeout=30)
-        print("Successfully pushed to GitHub!")
-    except subprocess.TimeoutExpired:
-        print("Git push timed out (likely blocked asking for credentials). Please setup SSH keys or a PAT.")
-    except Exception as e:
-        print(f"Git push failed: {e}")
-
-# Uncomment the line below if you have SSH keys or a PAT configured
-# auto_push_results()
