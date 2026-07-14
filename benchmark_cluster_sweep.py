@@ -36,10 +36,10 @@ np.random.seed(42)
 # ═══════════════════════════════════════════════════════════════════════
 #  Configuration
 # ═══════════════════════════════════════════════════════════════════════
-K_SEARCH       = 10
+K_SEARCH       = 100
 TARGET_RECALL  = 0.99
-EF_SWEEP       = [10, 20, 30, 50, 75, 100, 150, 200, 300, 400, 600, 800]
-N_CALIB        = 200
+EF_SWEEP       = [100, 150, 200, 300, 400, 600, 800, 1000, 1500, 2000]
+N_CALIB        = 1000
 S_PROBES       = 200
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -51,7 +51,7 @@ def build_ef_table(scores_int, required_efs):
         table[int(s)] = int(np.percentile(required_efs[scores_int == s], 90))
     return table
 
-def lookup_ef(score, table, min_ef=10, max_ef=800):
+def lookup_ef(score, table, min_ef=100, max_ef=2000):
     if not table: return max_ef
     if score in table: return int(np.clip(table[score], min_ef, max_ef))
     known = sorted(table.keys())
@@ -95,7 +95,7 @@ print(f"  Cluster Sweep Params: K_SWEEP={K_SWEEP}")
 
 calib_q = train_q_full[np.random.choice(len(train_q_full), N_CALIB, replace=False)]
 
-gt_path = "ground_truth_paper_8.8M.npz"
+gt_path = f"ground_truth_paper_8.8M_top{K_SEARCH}_calib{N_CALIB}.npz"
 if os.path.exists(gt_path):
     print("\nLoading ground truth from cache...")
     gt_data = np.load(gt_path)
@@ -224,11 +224,11 @@ def eval_cluster_aware(name, K_VAL, centroids, cluster_bins, ef_table_list):
         k_id = test_nearest[i]
         bins = cluster_bins[k_id].tolist()
         
-        score = int(idx.get_dynamic_probe_score(test_q[i], bins, 20))
+        score = int(idx.get_dynamic_probe_score(test_q[i], bins, 200))
         ef_used = ef_table_list[min(score, len(ef_table_list) - 1)]
         efs.append(ef_used)
 
-        labs, _ = idx.search_knn_dynamic(test_q[i], K_SEARCH, bins, ef_table_list, 10, 800, 20)
+        labs, _ = idx.search_knn_dynamic(test_q[i], K_SEARCH, bins, ef_table_list, 100, 2000, 200)
         recs.append(len(set(labs) & set(test_gt[i])) / K_SEARCH)
     dt = time.time() - t0
     dc = idx.get_dist_count() / n_test
@@ -244,7 +244,7 @@ print(f"\n{'═' * 80}")
 print(f"  ONLINE EVALUATION  (Recall@{K_SEARCH}, target={TARGET_RECALL})")
 print(f"{'═' * 80}")
 
-for ef in [50, 100, 200, 400]:
+for ef in [200, 400, 600, 800]:
     print(f"  Vanilla(ef={ef})...", end=" ", flush=True)
     r = eval_vanilla(f"Vanilla(ef={ef})", ef)
     print(f"R={r['mean_r']:.4f}")
@@ -293,7 +293,7 @@ for K_CLUSTERS in K_SWEEP:
     for i in range(N_CALIB):
         k_id = calib_nearest[i]
         bins = cluster_bins[k_id].tolist()
-        clust_calib_scores[i] = idx.get_dynamic_probe_score(calib_q[i], bins, 20)
+        clust_calib_scores[i] = idx.get_dynamic_probe_score(calib_q[i], bins, 200)
 
     clust_calib_int = np.round(clust_calib_scores).astype(int)
     clust_table = build_ef_table(clust_calib_int, calib_min_ef)

@@ -424,3 +424,275 @@ Ours (K=880)            0.9690  0.8000  0.5000     3103    +880     3983  12.58s
 
 Sweep Complete!
 Saved structured results to cluster_sweep_results.json
+════════════════════════════════════════════════════════════════════════════════
+  Loading MS MARCO 8.8M Dataset
+════════════════════════════════════════════════════════════════════════════════
+  Corpus: (8841823, 384) | Train Q: (50000, 384) | Test Q: (6980, 384) | dim=384
+  Cluster Sweep Params: K_SWEEP=[297, 500, 880]
+
+Computing ground truth...
+  Computing brute-force ground truth (200 queries x 8841823 corpus) ...
+  Done in 25.6s
+  Computing brute-force ground truth (6980 queries x 8841823 corpus) ...
+  Done in 885.0s
+  Done in 910.7s
+Saving Ground Truth to ground_truth_paper_8.8M_top100.npz...
+
+Loading HNSW index from custom_8.8M.index...
+
+════════════════════════════════════════════════════════════════════════════════
+  Shared Calibration: min ef for 200 queries (target=0.99)
+════════════════════════════════════════════════════════════════════════════════
+  Done in 2.2s
+
+════════════════════════════════════════════════════════════════════════════════
+  ADA-EF: Offline Phase
+════════════════════════════════════════════════════════════════════════════════
+  Ada-EF Offline Total: 4.0s
+
+════════════════════════════════════════════════════════════════════════════════
+  ONLINE EVALUATION  (Recall@100, target=0.99)
+════════════════════════════════════════════════════════════════════════════════
+  Vanilla(ef=200)... R=0.9646
+  Vanilla(ef=400)... R=0.9802
+  Vanilla(ef=600)... R=0.9854
+  Vanilla(ef=800)... R=0.9880
+  Ada-ef (fixed)... R=0.9725
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware with K=297
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model from kmeans_cache_k297_8.8M.pkl...
+  Computing cluster bins with macro-scale percentiles...
+  Running Online Evaluation...
+  R=0.5505
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware with K=500
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model from kmeans_cache_k500_8.8M.pkl...
+  Computing cluster bins with macro-scale percentiles...
+  Running Online Evaluation...
+  R=0.5485
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware with K=880
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model from kmeans_cache_k880_8.8M.pkl...
+  Computing cluster bins with macro-scale percentiles...
+  Running Online Evaluation...
+  R=0.5487
+
+════════════════════════════════════════════════════════════════════════════════
+  FINAL RESULTS ACROSS K VALUES (target recall = 0.99)
+════════════════════════════════════════════════════════════════════════════════
+
+Method                  Mean R    5th%    1st%  HNSW DC  +Probe   =Total    Time  >=tgt%   AvgEF
+──────────────────────────────────────────────────────────────────────────────────────────
+Vanilla(ef=200)         0.9646  0.8400  0.6200     4242             4242  10.49s   61.4%       -
+Vanilla(ef=400)         0.9802  0.9000  0.7700     8251             8251  18.95s   73.4%       -
+Vanilla(ef=600)         0.9854  0.9300  0.8100    12271            12271  26.63s   78.3%       -
+Vanilla(ef=800)         0.9880  0.9400  0.8500    16299            16299  32.71s   81.0%       -
+Ada-ef (fixed)          0.9725  0.8600  0.6479    17143    +200    17343  30.68s   69.4%   838.2
+Ours (K=297)            0.5505  0.3800  0.3400    15495    +297    15792  45.98s    2.5%   709.5
+Ours (K=500)            0.5485  0.3800  0.3400    14498    +500    14998  37.27s    2.6%   664.0
+Ours (K=880)            0.5487  0.3800  0.3400    16349    +880    17229  36.66s    2.6%   759.1
+
+Sweep Complete!
+Saved structured results to cluster_sweep_results.json
+════════════════════════════════════════════════════════════════════════════════
+  Loading MS MARCO 8.8M Dataset
+════════════════════════════════════════════════════════════════════════════════
+  Corpus: (8841823, 384) | Train Q: (50000, 384) | Test Q: (6980, 384) | dim=384
+  Cluster Sweep Params: K_SWEEP=[297, 500, 880]
+
+Loading ground truth from cache...
+
+Loading HNSW index from custom_8.8M.index...
+
+════════════════════════════════════════════════════════════════════════════════
+  Shared Calibration: min ef for 200 queries (target=0.99)
+════════════════════════════════════════════════════════════════════════════════
+  Done in 1.9s
+
+════════════════════════════════════════════════════════════════════════════════
+  ADA-EF: Offline Phase
+════════════════════════════════════════════════════════════════════════════════
+  Ada-EF Offline Total: 3.0s
+
+════════════════════════════════════════════════════════════════════════════════
+  ONLINE EVALUATION  (Recall@100, target=0.99)
+════════════════════════════════════════════════════════════════════════════════
+  Vanilla(ef=200)... R=0.9646
+  Vanilla(ef=400)... R=0.9802
+  Vanilla(ef=600)... R=0.9854
+  Vanilla(ef=800)... R=0.9880
+  Ada-ef (fixed)... R=0.9725
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware with K=297
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model from kmeans_cache_k297_8.8M.pkl...
+  Computing cluster bins with macro-scale percentiles...
+  Running Online Evaluation...
+  R=0.5505
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware with K=500
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model from kmeans_cache_k500_8.8M.pkl...
+  Computing cluster bins with macro-scale percentiles...
+  Running Online Evaluation...
+  R=0.5485
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware with K=880
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model from kmeans_cache_k880_8.8M.pkl...
+  Computing cluster bins with macro-scale percentiles...
+  Running Online Evaluation...
+  R=0.5487
+
+════════════════════════════════════════════════════════════════════════════════
+  FINAL RESULTS ACROSS K VALUES (target recall = 0.99)
+════════════════════════════════════════════════════════════════════════════════
+
+Method                  Mean R    5th%    1st%  HNSW DC  +Probe   =Total    Time  >=tgt%   AvgEF
+──────────────────────────────────────────────────────────────────────────────────────────
+Vanilla(ef=200)         0.9646  0.8400  0.6200     4242             4242   9.36s   61.4%       -
+Vanilla(ef=400)         0.9802  0.9000  0.7700     8251             8251  15.60s   73.4%       -
+Vanilla(ef=600)         0.9854  0.9300  0.8100    12271            12271  21.64s   78.3%       -
+Vanilla(ef=800)         0.9880  0.9400  0.8500    16299            16299  29.47s   81.0%       -
+Ada-ef (fixed)          0.9725  0.8600  0.6479    17143    +200    17343  31.67s   69.4%   838.2
+Ours (K=297)            0.5505  0.3800  0.3400    15495    +297    15792  37.16s    2.5%   709.5
+Ours (K=500)            0.5485  0.3800  0.3400    14498    +500    14998  36.02s    2.6%   664.0
+Ours (K=880)            0.5487  0.3800  0.3400    16349    +880    17229  40.68s    2.6%   759.1
+
+Sweep Complete!
+Saved structured results to cluster_sweep_results.json
+════════════════════════════════════════════════════════════════════════════════
+  Loading MS MARCO 8.8M Dataset
+════════════════════════════════════════════════════════════════════════════════
+════════════════════════════════════════════════════════════════════════════════
+  Loading MS MARCO 8.8M Dataset
+════════════════════════════════════════════════════════════════════════════════
+  Corpus: (8841823, 384) | Train Q: (50000, 384) | Test Q: (6980, 384) | dim=384
+  Cluster Sweep Params: K_SWEEP=[297, 500, 880]
+
+Loading ground truth from cache...
+
+Loading HNSW index from custom_8.8M.index...
+
+════════════════════════════════════════════════════════════════════════════════
+  Shared Calibration: min ef for 200 queries (target=0.99)
+════════════════════════════════════════════════════════════════════════════════
+  Done in 1.7s
+
+════════════════════════════════════════════════════════════════════════════════
+  ADA-EF: Offline Phase
+════════════════════════════════════════════════════════════════════════════════
+  Ada-EF Offline Total: 3.2s
+
+════════════════════════════════════════════════════════════════════════════════
+  ONLINE EVALUATION  (Recall@100, target=0.99)
+════════════════════════════════════════════════════════════════════════════════
+  Vanilla(ef=200)... R=0.9646
+  Vanilla(ef=400)... R=0.9802
+  Vanilla(ef=600)... R=0.9854
+  Vanilla(ef=800)... R=0.9880
+  Ada-ef (fixed)... R=0.9725
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware with K=297
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model from kmeans_cache_k297_8.8M.pkl...
+  Computing cluster bins with macro-scale percentiles...
+  Running Online Evaluation...
+  R=0.9842
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware with K=500
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model from kmeans_cache_k500_8.8M.pkl...
+  Computing cluster bins with macro-scale percentiles...
+  Running Online Evaluation...
+  R=0.9839
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware with K=880
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model from kmeans_cache_k880_8.8M.pkl...
+  Computing cluster bins with macro-scale percentiles...
+  Running Online Evaluation...
+  R=0.9831
+
+════════════════════════════════════════════════════════════════════════════════
+  FINAL RESULTS ACROSS K VALUES (target recall = 0.99)
+════════════════════════════════════════════════════════════════════════════════
+
+Method                  Mean R    5th%    1st%  HNSW DC  +Probe   =Total    Time  >=tgt%   AvgEF
+──────────────────────────────────────────────────────────────────────────────────────────
+Vanilla(ef=200)         0.9646  0.8400  0.6200     4242             4242   9.93s   61.4%       -
+Vanilla(ef=400)         0.9802  0.9000  0.7700     8251             8251  15.85s   73.4%       -
+Vanilla(ef=600)         0.9854  0.9300  0.8100    12271            12271  22.08s   78.3%       -
+Vanilla(ef=800)         0.9880  0.9400  0.8500    16299            16299  25.14s   81.0%       -
+Ada-ef (fixed)          0.9725  0.8600  0.6479    17143    +200    17343  28.62s   69.4%   838.2
+Ours (K=297)            0.9842  0.9300  0.8400    13389    +297    13686  32.13s   72.0%   557.8
+Ours (K=500)            0.9839  0.9300  0.8400    13697    +500    14197  34.63s   71.8%   580.0
+Ours (K=880)            0.9831  0.9300  0.8200    13480    +880    14360  34.93s   71.7%   573.0
+
+Sweep Complete!
+Saved structured results to cluster_sweep_results.json
+════════════════════════════════════════════════════════════════════════════════
+  Loading MS MARCO 8.8M Dataset
+════════════════════════════════════════════════════════════════════════════════
+  Corpus: (8841823, 384) | Train Q: (50000, 384) | Test Q: (6980, 384) | dim=384
+  Cluster Sweep Params: K_SWEEP=[297, 500, 880]
+
+Loading ground truth from cache...
+
+Loading HNSW index from custom_8.8M.index...
+
+════════════════════════════════════════════════════════════════════════════════
+  Shared Calibration: min ef for 1000 queries (target=0.99)
+════════════════════════════════════════════════════════════════════════════════
+════════════════════════════════════════════════════════════════════════════════
+  Loading MS MARCO 8.8M Dataset
+════════════════════════════════════════════════════════════════════════════════
+  Corpus: (8841823, 384) | Train Q: (50000, 384) | Test Q: (6980, 384) | dim=384
+  Cluster Sweep Params: K_SWEEP=[297, 500, 880]
+
+Computing ground truth...
+  Computing brute-force ground truth (1000 queries x 8841823 corpus) ...
+  Done in 116.2s
+  Computing brute-force ground truth (6980 queries x 8841823 corpus) ...
+  Done in 876.2s
+  Done in 992.4s
+Saving Ground Truth to ground_truth_paper_8.8M_top100_calib1000.npz...
+
+Loading HNSW index from custom_8.8M.index...
+
+════════════════════════════════════════════════════════════════════════════════
+  Shared Calibration: min ef for 1000 queries (target=0.99)
+════════════════════════════════════════════════════════════════════════════════
+  Done in 9.8s
+
+════════════════════════════════════════════════════════════════════════════════
+  ADA-EF: Offline Phase
+════════════════════════════════════════════════════════════════════════════════
+  Ada-EF Offline Total: 3.3s
+
+════════════════════════════════════════════════════════════════════════════════
+  ONLINE EVALUATION  (Recall@100, target=0.99)
+════════════════════════════════════════════════════════════════════════════════
+  Vanilla(ef=200)... R=0.9646
+  Vanilla(ef=400)... R=0.9802
+  Vanilla(ef=600)... R=0.9854
+  Vanilla(ef=800)... R=0.9880
+  Ada-ef (fixed)... R=0.9868
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware with K=297
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model from kmeans_cache_k297_8.8M.pkl...
+  Computing cluster bins with macro-scale percentiles...
