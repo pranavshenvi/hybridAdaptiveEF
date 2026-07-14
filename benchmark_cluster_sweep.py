@@ -4,8 +4,23 @@ Benchmark: Cluster-Aware Adaptive EF Sweep
 Dataset: MS MARCO 8.8M
 """
 
-import os, sys, time, pickle
+import os, sys, time, pickle, json, subprocess
 sys.stdout.reconfigure(encoding='utf-8')
+
+class Logger(object):
+    def __init__(self, filename="benchmark_cluster_sweep.log"):
+        self.terminal = sys.stdout
+        self.log = open(filename, "a", encoding="utf-8")
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+        self.log.flush()
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
+
+sys.stdout = Logger()
+
 import h5py
 import numpy as np
 from scipy.spatial.distance import cdist
@@ -22,7 +37,7 @@ np.random.seed(42)
 #  Configuration
 # ═══════════════════════════════════════════════════════════════════════
 K_SEARCH       = 10
-TARGET_RECALL  = 0.95
+TARGET_RECALL  = 0.99
 EF_SWEEP       = [10, 20, 30, 50, 75, 100, 150, 200, 300, 400, 600, 800]
 N_CALIB        = 200
 S_PROBES       = 200
@@ -199,6 +214,7 @@ def eval_ada_ef():
 def eval_cluster_aware(name, K_VAL, centroids, cluster_bins, ef_table_list):
     idx.reset_dist_count()
     recs = []
+    efs = []
     t0 = time.time()
     t_s = time.time()
     test_cdists = cdist(test_q, centroids, metric='sqeuclidean')
@@ -207,13 +223,18 @@ def eval_cluster_aware(name, K_VAL, centroids, cluster_bins, ef_table_list):
     for i in range(n_test):
         k_id = test_nearest[i]
         bins = cluster_bins[k_id].tolist()
+        
+        score = int(idx.get_dynamic_probe_score(test_q[i], bins, 20))
+        ef_used = ef_table_list[min(score, len(ef_table_list) - 1)]
+        efs.append(ef_used)
+
         labs, _ = idx.search_knn_dynamic(test_q[i], K_SEARCH, bins, ef_table_list, 10, 800, 20)
         recs.append(len(set(labs) & set(test_gt[i])) / K_SEARCH)
     dt = time.time() - t0
     dc = idx.get_dist_count() / n_test
     r = np.array(recs)
     return dict(name=name, mean_r=np.mean(r), p5=np.percentile(r, 5), p1=np.percentile(r, 1),
-                hnsw_dc=dc, probe_dc=K_VAL, time=dt, score_time=t_s,
+                hnsw_dc=dc, probe_dc=K_VAL, time=dt, score_time=t_s, avg_ef=np.mean(efs), med_ef=np.median(efs),
                 pct_target=np.mean(r >= TARGET_RECALL) * 100)
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -242,27 +263,29 @@ for K_CLUSTERS in K_SWEEP:
     t_clust_total = time.time()
     cache_file = f"kmeans_cache_k{K_CLUSTERS}_8.8M.pkl"
     if os.path.exists(cache_file):
-        print(f"  [CACHE] Loading K-Means model and bins from {cache_file}...")
+        print(f"  [CACHE] Loading K-Means model from {cache_file}...")
         with open(cache_file, 'rb') as f_cache:
-            km, centroids, labels, cluster_bins = pickle.load(f_cache)
+            km, centroids, labels, _ = pickle.load(f_cache)
     else:
-        print(f"  [COMPUTE] Running K-Means and computing bins for K={K_CLUSTERS}...")
+        print(f"  [COMPUTE] Running K-Means for K={K_CLUSTERS}...")
         km = MiniBatchKMeans(n_clusters=K_CLUSTERS, random_state=42, n_init=3, batch_size=4096)
         km.fit(corpus)
         centroids = km.cluster_centers_.astype(np.float32)
         labels = km.labels_
-        Z_QUANTILES_PCT = [20, 40, 60, 80]
-        cluster_bins = np.zeros((K_CLUSTERS, 4), dtype=np.float32)
-        for k in range(K_CLUSTERS):
-            pts = corpus[labels == k]
-            if len(pts) > 0:
-                dists = cdist(pts, centroids[k:k+1], metric='sqeuclidean').flatten()
-                cluster_bins[k] = np.percentile(dists, Z_QUANTILES_PCT)
-            else:
-                cluster_bins[k] = np.array([0.5, 1.0, 1.5, 2.0])
-        print(f"  Saving K-Means model and bins to {cache_file}...")
+        print(f"  Saving K-Means model to {cache_file}...")
         with open(cache_file, 'wb') as f_cache:
-            pickle.dump((km, centroids, labels, cluster_bins), f_cache)
+            pickle.dump((km, centroids, labels, None), f_cache)
+
+    print("  Computing cluster bins with macro-scale percentiles...")
+    Z_QUANTILES_PCT = [20, 40, 60, 80]
+    cluster_bins = np.zeros((K_CLUSTERS, len(Z_QUANTILES_PCT)), dtype=np.float32)
+    for k in range(K_CLUSTERS):
+        pts = corpus[labels == k]
+        if len(pts) > 0:
+            dists = cdist(pts, centroids[k:k+1], metric='sqeuclidean').flatten()
+            cluster_bins[k] = np.percentile(dists, Z_QUANTILES_PCT)
+        else:
+            cluster_bins[k] = np.array([0.5, 1.0, 1.5, 2.0])
 
     calib_cdists = cdist(calib_q, centroids, metric='sqeuclidean')
     calib_nearest = np.argmin(calib_cdists, axis=1)
@@ -291,14 +314,40 @@ print(f"{'═' * 80}\n")
 
 hdr = (f"{'Method':<22} {'Mean R':>7} {'5th%':>7} {'1st%':>7} "
        f"{'HNSW DC':>8} {'+Probe':>7} {'=Total':>8} "
-       f"{'Time':>7} {'>=tgt%':>7}")
+       f"{'Time':>7} {'>=tgt%':>7} {'AvgEF':>7}")
 print(hdr)
-print("─" * 80)
+print("─" * 90)
 for r in all_results:
     probe = f"+{r['probe_dc']}" if r['probe_dc'] > 0 else ""
     total = r['hnsw_dc'] + r['probe_dc']
+    avg_ef_str = f"{r['avg_ef']:>7.1f}" if 'avg_ef' in r else f"{'-':>7}"
     print(f"{r['name']:<22} {r['mean_r']:>7.4f} {r['p5']:>7.4f} {r['p1']:>7.4f} "
           f"{r['hnsw_dc']:>8.0f} {probe:>7} {total:>8.0f} "
-          f"{r['time']:>6.2f}s {r['pct_target']:>6.1f}%")
+          f"{r['time']:>6.2f}s {r['pct_target']:>6.1f}% {avg_ef_str}")
 
 print("\nSweep Complete!")
+
+# Save structured results to JSON
+results_file = "cluster_sweep_results.json"
+with open(results_file, "w") as f:
+    json.dump(all_results, f, indent=4)
+print(f"Saved structured results to {results_file}")
+
+# Optional: Automate Git Push
+# WARNING: This will block and ask for credentials if you haven't set up 
+# SSH keys or cached a GitHub Personal Access Token.
+def auto_push_results():
+    try:
+        print("\nAttempting to push results to GitHub...")
+        subprocess.run(["git", "add", "benchmark_cluster_sweep.log", results_file], check=True)
+        subprocess.run(["git", "commit", "-m", "Auto-update benchmark results"], check=True)
+        # We use a timeout to prevent it from hanging forever if it asks for a password
+        subprocess.run(["git", "push"], check=True, timeout=30)
+        print("Successfully pushed to GitHub!")
+    except subprocess.TimeoutExpired:
+        print("Git push timed out (likely blocked asking for credentials). Please setup SSH keys or a PAT.")
+    except Exception as e:
+        print(f"Git push failed: {e}")
+
+# Uncomment the line below if you have SSH keys or a PAT configured
+# auto_push_results()
