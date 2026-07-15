@@ -265,7 +265,7 @@ def eval_cluster_aware(name, K_VAL, centroids, cluster_bins, ef_table_list):
         score = int(idx.get_dynamic_probe_score(test_q[i], bins, CLUSTER_PROBE_COUNT))
         ef_used = ef_table_list[min(score, len(ef_table_list) - 1)]
         efs.append(ef_used)
-        labs, _ = idx.search_knn_dynamic(test_q[i], K_SEARCH, bins, ef_table_list, 10, 3000, CLUSTER_PROBE_COUNT)
+        labs, _ = idx.search_knn_adaptive(test_q[i], K_SEARCH, idx.entry_point, idx.max_level, ef_used)
         recs.append(len(set(labs) & set(test_gt[i])) / K_SEARCH)
     dt = time.time() - t0
     dc = idx.get_dist_count() / n_test

@@ -38,7 +38,7 @@ np.random.seed(42)
 # ═══════════════════════════════════════════════════════════════════════
 K_SEARCH       = 100
 TARGET_RECALL  = 0.99
-EF_SWEEP       = list(range(200, 3001, 50))
+EF_SWEEP       = list(range(100, 3001, 50))
 N_CALIB        = 10000
 S_PROBES       = 200
 CLUSTER_PROBE_COUNT = 100  
