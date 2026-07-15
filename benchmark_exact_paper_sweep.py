@@ -5,10 +5,16 @@ Dataset: MS MARCO 8.8M
 """
 
 import os, sys, time, pickle, json
+from datetime import datetime
+
+TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
+RESULTS_DIR = f"results_{TIMESTAMP}"
+os.makedirs(RESULTS_DIR, exist_ok=True)
+
 sys.stdout.reconfigure(encoding='utf-8')
 
 class Logger(object):
-    def __init__(self, filename="benchmark_exact_sweep.log"):
+    def __init__(self, filename=os.path.join(RESULTS_DIR, "benchmark_exact_sweep.log")):
         self.terminal = sys.stdout
         self.log = open(filename, "a", encoding="utf-8")
     def write(self, message):
@@ -50,6 +56,18 @@ def build_ef_table_mean(scores_int, required_efs):
     table = {}
     for s in np.unique(scores_int):
         table[int(s)] = int(np.mean(required_efs[scores_int == s]))
+    return table
+
+def build_ef_table_p90(scores_int, required_efs):
+    table = {}
+    for s in np.unique(scores_int):
+        table[int(s)] = int(np.percentile(required_efs[scores_int == s], 90))
+    return table
+
+def build_ef_table_p70(scores_int, required_efs):
+    table = {}
+    for s in np.unique(scores_int):
+        table[int(s)] = int(np.percentile(required_efs[scores_int == s], 70))
     return table
 
 def lookup_ef(score, table, min_ef=10, max_ef=3000):
@@ -204,7 +222,7 @@ for s in np.unique(ada_scores_int):
 WAE = int(wae_sum / total_queries) if total_queries > 0 else EF_SWEEP[-1]
 print(f"  Calculated WAE for Ada-ef: {WAE}")
 
-with open("ef_table_ada_exact.json", "w") as f_json:
+with open(os.path.join(RESULTS_DIR, "ef_table_ada_exact.json"), "w") as f_json:
     json.dump(ada_table_exact, f_json, indent=4)
 
 t_ada_total = time.time() - t_ada_total
@@ -332,7 +350,7 @@ for K_CLUSTERS in K_SWEEP:
     clust_calib_int = np.round(clust_calib_scores).astype(int)
     
     clust_table_mean = build_ef_table_mean(clust_calib_int, calib_min_ef)
-    with open(f"ef_table_k{K_CLUSTERS}_mean.json", "w") as f_json:
+    with open(os.path.join(RESULTS_DIR, f"ef_table_k{K_CLUSTERS}_mean.json"), "w") as f_json:
         json.dump(clust_table_mean, f_json, indent=4)
         
     max_score_mean = max(clust_table_mean.keys()) if clust_table_mean else 0
@@ -342,6 +360,30 @@ for K_CLUSTERS in K_SWEEP:
     r_mean = eval_cluster_aware(f"Ours (K={K_CLUSTERS}, Mean)", K_CLUSTERS, centroids, cluster_bins, ef_table_list_mean)
     print(f"  R={r_mean['mean_r']:.4f}")
     all_results.append(r_mean)
+
+    clust_table_p90 = build_ef_table_p90(clust_calib_int, calib_min_ef)
+    with open(os.path.join(RESULTS_DIR, f"ef_table_k{K_CLUSTERS}_p90.json"), "w") as f_json:
+        json.dump(clust_table_p90, f_json, indent=4)
+        
+    max_score_p90 = max(clust_table_p90.keys()) if clust_table_p90 else 0
+    ef_table_list_p90 = [lookup_ef(s, clust_table_p90) for s in range(max_score_p90 + 1)] if clust_table_p90 else [10]
+
+    print(f"  Running Online Evaluation (P90)...")
+    r_p90 = eval_cluster_aware(f"Ours (K={K_CLUSTERS}, P90)", K_CLUSTERS, centroids, cluster_bins, ef_table_list_p90)
+    print(f"  R={r_p90['mean_r']:.4f}")
+    all_results.append(r_p90)
+
+    clust_table_p70 = build_ef_table_p70(clust_calib_int, calib_min_ef)
+    with open(os.path.join(RESULTS_DIR, f"ef_table_k{K_CLUSTERS}_p70.json"), "w") as f_json:
+        json.dump(clust_table_p70, f_json, indent=4)
+        
+    max_score_p70 = max(clust_table_p70.keys()) if clust_table_p70 else 0
+    ef_table_list_p70 = [lookup_ef(s, clust_table_p70) for s in range(max_score_p70 + 1)] if clust_table_p70 else [10]
+
+    print(f"  Running Online Evaluation (P70)...")
+    r_p70 = eval_cluster_aware(f"Ours (K={K_CLUSTERS}, P70)", K_CLUSTERS, centroids, cluster_bins, ef_table_list_p70)
+    print(f"  R={r_p70['mean_r']:.4f}")
+    all_results.append(r_p70)
 
 # ═══════════════════════════════════════════════════════════════════════
 #  Final Results
@@ -366,5 +408,5 @@ for r in all_results:
 print("\nSweep Complete!")
 
 # Dump results to JSON
-with open("exact_sweep_results.json", "w") as f:
+with open(os.path.join(RESULTS_DIR, "exact_sweep_results.json"), "w") as f:
     json.dump(all_results, f, indent=4)
