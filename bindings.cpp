@@ -173,6 +173,51 @@ PYBIND11_MODULE(adaptive_hnsw_cpp, m) {
             py::arg("probe_count"),
             "Dynamic KNN search with in-flight EF prediction.")
 
+        // ── search_knn_true_ada (single query) ──────────────────────────
+        .def("search_knn_true_ada",
+            [](Index& self,
+               py::array_t<float, py::array::c_style> query,
+               int k,
+               std::vector<float> bins,
+               std::vector<float> weights,
+               std::vector<int> ef_table,
+               int min_ef, int max_ef, int probe_count) {
+
+                auto buf = query.request();
+                if (buf.ndim != 1)
+                    throw std::runtime_error("Expected 1-D query vector");
+                if (static_cast<int>(buf.shape[0]) != self.dim())
+                    throw std::runtime_error("Dim mismatch");
+
+                auto res = self.searchKnnTrueAda(
+                    static_cast<const float*>(buf.ptr),
+                    k, bins, weights, ef_table, min_ef, max_ef, probe_count);
+
+                py::array_t<int>   labels(k);
+                py::array_t<float> dists(k);
+                auto lb = labels.mutable_unchecked<1>();
+                auto db = dists .mutable_unchecked<1>();
+                for (int j = 0; j < k; j++) {
+                    if (j < static_cast<int>(res.size())) {
+                        lb(j) = res[j].second;
+                        db(j) = res[j].first;
+                    } else {
+                        lb(j) = -1;
+                        db(j) = 1e30f;
+                    }
+                }
+                return py::make_tuple(labels, dists);
+            },
+            py::arg("query"),
+            py::arg("k"),
+            py::arg("bins"),
+            py::arg("weights"),
+            py::arg("ef_table"),
+            py::arg("min_ef"),
+            py::arg("max_ef"),
+            py::arg("probe_count"),
+            "True Ada-ef 1-pass KNN search using exponential weights and declarative EF table.")
+
         // ── profile_query ───────────────────────────────────────────────
         .def("profile_query",
             [](Index& self,

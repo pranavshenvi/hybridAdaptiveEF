@@ -1,5 +1,6 @@
 import sys
-import time
+import os, sys, time
+sys.stdout.reconfigure(encoding='utf-8')
 import h5py
 import numpy as np
 import scipy.spatial.distance as dist
@@ -26,9 +27,9 @@ def gmm_blending_correct(weights, mu_k, sigma_k_sq):
 
 np.random.seed(42)
 
-print("Loading 1M MS MARCO dataset...")
-with h5py.File('msmarco-1M.hdf5', 'r') as f:
-    corpus = f['train'][:]
+print("Loading 8.8M MS MARCO dataset...")
+with h5py.File('msmarco-8.8M-minilm-384d.hdf5', 'r') as f:
+    corpus = f['embeddings'][:]
     corpus = corpus.astype(np.float32)
 
 print("Loading Queries...")
@@ -43,14 +44,24 @@ print(f"Train Queries full shape: {train_queries_full.shape}")
 sample_idx = np.random.choice(train_queries_full.shape[0], 1000, replace=False)
 train_q = train_queries_full[sample_idx]
 
-print("Computing Ground Truth...")
-t0 = time.time()
-train_gt = compute_ground_truth(corpus, train_q, k=10)
-test_gt = compute_ground_truth(corpus, test_q, k=10)
-print(f"Ground Truth computed in {time.time()-t0:.2f}s")
+import os
+gt_path = "ground_truth_8.8M.npz"
+if os.path.exists(gt_path):
+    print("Loading Ground Truth from cache...")
+    gt_data = np.load(gt_path)
+    train_gt = gt_data['train_gt']
+    test_gt = gt_data['test_gt']
+else:
+    print("Computing Ground Truth...")
+    t0 = time.time()
+    train_gt = compute_ground_truth(corpus, train_q, k=10)
+    test_gt = compute_ground_truth(corpus, test_q, k=10)
+    print(f"Ground Truth computed in {time.time()-t0:.2f}s")
+    print(f"Saving Ground Truth to {gt_path}...")
+    np.savez(gt_path, train_gt=train_gt, test_gt=test_gt)
 
 import os
-index_path = "custom_1M.index"
+index_path = "custom_8.8M.index"
 if os.path.exists(index_path):
     print(f"Loading cached HNSW index from {index_path}...")
     idx_hnsw = adaptive_hnsw_cpp.AdaptiveHNSW(corpus.shape[1], corpus.shape[0], 16, 200)

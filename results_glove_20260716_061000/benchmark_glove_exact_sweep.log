@@ -1,0 +1,90 @@
+════════════════════════════════════════════════════════════════════════════════
+  Loading GloVe 100d Dataset (Normalized for L2)
+════════════════════════════════════════════════════════════════════════════════
+  Normalizing vectors for angular distance approximation...
+  Corpus: (1183514, 100) | Train Q: (350000, 100) | Test Q: (10000, 100) | dim=100
+  Cluster Sweep Params: K_SWEEP=[50, 100, 200]
+
+Loading 2000 calibration ground truth and test ground truth from cache...
+
+Building HNSW index (~30 min)...
+
+════════════════════════════════════════════════════════════════════════════════
+  Shared Calibration for Our Arch (Individual Query Min-EF)
+════════════════════════════════════════════════════════════════════════════════
+  ... calibrated 500 queries
+  ... calibrated 1000 queries
+  ... calibrated 1500 queries
+  ... calibrated 2000 queries
+  Done in 147.3s
+
+════════════════════════════════════════════════════════════════════════════════
+  ADA-EF: Exact Paper Offline Phase (Bucket-Average Probing)
+════════════════════════════════════════════════════════════════════════════════
+  Calculated WAE for Ada-ef: 3196
+  Ada-EF Offline Total: 169.8s
+
+════════════════════════════════════════════════════════════════════════════════
+  ONLINE EVALUATION  (Recall@100, target=0.95)
+════════════════════════════════════════════════════════════════════════════════
+  Vanilla(ef=50)... R=0.3426
+  Vanilla(ef=100)... R=0.3426
+  Vanilla(ef=200)... R=0.4718
+  Vanilla(ef=400)... R=0.6183
+  Ada-ef (exact)... R=0.9620
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware with K=50
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k50_glove.pkl...
+  Running Online Evaluation (Mean)...
+  R=0.9518
+  Running Online Evaluation (P90)...
+  R=0.9728
+  Running Online Evaluation (P70)...
+  R=0.9728
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware with K=100
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k100_glove.pkl...
+  Running Online Evaluation (Mean)...
+  R=0.9518
+  Running Online Evaluation (P90)...
+  R=0.9728
+  Running Online Evaluation (P70)...
+  R=0.9728
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware with K=200
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k200_glove.pkl...
+  Running Online Evaluation (Mean)...
+  R=0.9519
+  Running Online Evaluation (P90)...
+  R=0.9728
+  Running Online Evaluation (P70)...
+  R=0.9728
+
+════════════════════════════════════════════════════════════════════════════════
+  FINAL RESULTS ACROSS K VALUES (target recall = 0.95)
+════════════════════════════════════════════════════════════════════════════════
+
+Method                  Mean R    5th%    1st%  HNSW DC  +Probe   =Total    Time  Avg EF  >=tgt%
+────────────────────────────────────────────────────────────────────────────────
+Vanilla(ef=50)          0.3426  0.1600  0.1100     5391             5391   9.15s    50.0    0.0%
+Vanilla(ef=100)         0.3426  0.1600  0.1100     5391             5391   9.45s   100.0    0.0%
+Vanilla(ef=200)         0.4718  0.2900  0.2300     9860             9860  15.80s   200.0    0.1%
+Vanilla(ef=400)         0.6183  0.4500  0.4000    18740            18740  26.88s   400.0    0.5%
+Ada-ef (exact)          0.9620  0.9200  0.8900   154234    +200   154434 186.86s  3380.5   77.4%
+Ours (K=50, Mean)       0.9518  0.9000  0.8800   133084     +50   133134 169.56s  2915.4   62.9%
+Ours (K=50, P90)        0.9728  0.9400  0.9200   182250     +50   182300 204.96s  3997.3   91.2%
+Ours (K=50, P70)        0.9728  0.9400  0.9200   182250     +50   182300 221.31s  3997.3   91.2%
+Ours (K=100, Mean)      0.9518  0.9000  0.8800   133077    +100   133177 168.89s  2915.2   62.9%
+Ours (K=100, P90)       0.9728  0.9400  0.9200   182309    +100   182409 178.58s  3998.6   91.2%
+Ours (K=100, P70)       0.9728  0.9400  0.9200   182309    +100   182409 222.38s  3998.6   91.2%
+Ours (K=200, Mean)      0.9519  0.9000  0.8800   133114    +200   133314 133.61s  2916.0   63.0%
+Ours (K=200, P90)       0.9728  0.9400  0.9200   182377    +200   182577 168.26s  4000.0   91.3%
+Ours (K=200, P70)       0.9728  0.9400  0.9200   182377    +200   182577 145.63s  4000.0   91.3%
+
+Sweep Complete!

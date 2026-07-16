@@ -47,7 +47,13 @@ custom_1M.index
 msmarco-1M.hdf5
 msmarco_qemb_train.npz
 msmarco_qemb_validation.npz
+glove.6B.*
+*.zip
 
 # VSCode/IDE
 .vscode/
 .idea/
+detailed_metrics.json
+
+# Cache files
+*.pkl
