@@ -51,7 +51,7 @@ EF_SWEEP       = list(range(100, 3001, 25))
 # naturally spreads queries across more distinct values, so it needs more
 # calibration data per bucket than a less discriminative one (e.g. Ada-ef's) to
 # avoid noisy, outlier-driven ef assignments -- see build_isotonic_ef_table.
-N_CALIB        = 50000
+N_CALIB        = 20000
 # The bucket-average-recall sweep (build_ef_table_target_recall) re-runs real
 # HNSW searches per EF_SWEEP checkpoint per bucket, so its cost scales directly
 # with calibration size. It's kept at the original size (independent of
