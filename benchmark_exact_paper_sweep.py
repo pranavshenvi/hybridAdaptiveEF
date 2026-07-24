@@ -80,6 +80,41 @@ def build_ef_table_p70(scores_int, required_efs):
         table[int(s)] = int(np.percentile(required_efs[scores_int == s], 70))
     return table
 
+def build_ef_table_target_recall(scores_int, calib_queries, calib_gt_arr):
+    """Paper-exact calibration: for each unique score bucket, sweep EF_SWEEP and
+    pick the smallest ef where the bucket's AVERAGE recall reaches TARGET_RECALL.
+    This is the same procedure used for Ada-ef's own table; applying it here to
+    whichever bins produced `scores_int` isolates the effect of the bin source
+    (global Gaussian vs. per-cluster empirical) with the calibration rule held
+    fixed, instead of also varying the calibration rule (Mean/P90/P70) at the
+    same time.
+    """
+    table = {}
+    wae_sum = 0
+    total = 0
+    for s in np.unique(scores_int):
+        bucket_mask = (scores_int == s)
+        bucket_queries = calib_queries[bucket_mask]
+        bucket_gt = calib_gt_arr[bucket_mask]
+        n_bucket = len(bucket_queries)
+
+        bucket_ef = EF_SWEEP[-1]
+        for ef in EF_SWEEP:
+            bucket_recs = []
+            for i in range(n_bucket):
+                labs, _ = idx.search_knn_adaptive(bucket_queries[i], K_SEARCH, idx.entry_point, idx.max_level, ef)
+                bucket_recs.append(len(set(labs) & set(bucket_gt[i])) / K_SEARCH)
+            if np.mean(bucket_recs) >= TARGET_RECALL:
+                bucket_ef = ef
+                break
+
+        table[int(s)] = int(bucket_ef)
+        wae_sum += n_bucket * bucket_ef
+        total += n_bucket
+
+    wae = int(wae_sum / total) if total > 0 else EF_SWEEP[-1]
+    return table, wae
+
 def lookup_ef(score, table, min_ef=10, max_ef=3000):
     if not table: return max_ef
     if score in table: return int(np.clip(table[score], min_ef, max_ef))
@@ -215,33 +250,7 @@ ada_calib_scores = np.array([
 ada_scores_int = np.round(ada_calib_scores).astype(int)
 
 # 2. Iterate through each unique score bucket to find EF that hits target avg recall
-ada_table_exact = {}
-total_queries = 0
-wae_sum = 0
-
-for s in np.unique(ada_scores_int):
-    bucket_mask = (ada_scores_int == s)
-    bucket_queries = calib_q[bucket_mask]
-    bucket_gt = calib_gt[bucket_mask]
-    n_bucket = len(bucket_queries)
-    
-    bucket_ef = EF_SWEEP[-1]
-    for ef in EF_SWEEP:
-        bucket_recs = []
-        for i in range(n_bucket):
-            labs, _ = idx.search_knn_adaptive(bucket_queries[i], K_SEARCH, idx.entry_point, idx.max_level, ef)
-            bucket_recs.append(len(set(labs) & set(bucket_gt[i])) / K_SEARCH)
-        
-        avg_recall = np.mean(bucket_recs)
-        if avg_recall >= TARGET_RECALL:
-            bucket_ef = ef
-            break
-            
-    ada_table_exact[int(s)] = int(bucket_ef)
-    wae_sum += n_bucket * bucket_ef
-    total_queries += n_bucket
-
-WAE = int(wae_sum / total_queries) if total_queries > 0 else EF_SWEEP[-1]
+ada_table_exact, WAE = build_ef_table_target_recall(ada_scores_int, calib_q, calib_gt)
 print(f"  Calculated WAE for Ada-ef: {WAE}")
 
 with open(os.path.join(RESULTS_DIR, "ef_table_ada_exact.json"), "w") as f_json:
@@ -384,7 +393,25 @@ for K_CLUSTERS in K_SWEEP:
         clust_calib_scores[i] = idx.get_dynamic_probe_score_weighted(calib_q[i], bins, BIN_WEIGHTS, PROBE_COUNT)
 
     clust_calib_int = np.round(clust_calib_scores).astype(int)
-    
+
+    # Matched-calibration variant: same bucket-average-recall-target procedure
+    # as Ada-ef's own table, applied to these per-cluster bins instead of the
+    # percentile-of-required-ef aggregation below. This isolates whether
+    # cluster-aware bins beat the global Gaussian bins, with the calibration
+    # rule held identical between the two.
+    clust_table_target, clust_wae_target = build_ef_table_target_recall(clust_calib_int, calib_q, calib_gt)
+    with open(os.path.join(RESULTS_DIR, f"ef_table_k{K_CLUSTERS}_target.json"), "w") as f_json:
+        json.dump(clust_table_target, f_json, indent=4)
+
+    max_score_target = max(clust_table_target.keys()) if clust_table_target else 0
+    ef_table_list_target = [max(lookup_ef(s, clust_table_target), clust_wae_target) for s in range(max_score_target + 1)] \
+        if clust_table_target else [clust_wae_target]
+
+    print(f"  Running Online Evaluation (TargetRecall, matched to Ada-ef's calibration)...")
+    r_target = eval_cluster_aware(f"Ours (K={K_CLUSTERS}, TargetRecall)", K_CLUSTERS, centroids, cluster_bins, ef_table_list_target)
+    print(f"  R={r_target['mean_r']:.4f}")
+    all_results.append(r_target)
+
     clust_table_mean = build_ef_table_mean(clust_calib_int, calib_min_ef)
     with open(os.path.join(RESULTS_DIR, f"ef_table_k{K_CLUSTERS}_mean.json"), "w") as f_json:
         json.dump(clust_table_mean, f_json, indent=4)
