@@ -1,0 +1,285 @@
+════════════════════════════════════════════════════════════════════════════════
+  Loading MSMARCO Dataset
+════════════════════════════════════════════════════════════════════════════════
+  Corpus: (8841823, 384) | Train Q: (50000, 384) | Test Q: (6980, 384) | dim=384
+  Dense K Sweep: [30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 390, 420, 450, 480, 510, 540, 570, 600, 630, 660, 690, 720, 750, 780, 810, 840, 870, 900]
+
+Loading 10000 calibration ground truth and test ground truth from cache ground_truth_10kq.npz...
+
+Loading HNSW index from custom_8.8M.index...
+
+Loading cached calibration min-EF array from calib_min_ef_10kq.npy...
+
+════════════════════════════════════════════════════════════════════════════════
+  ADA-EF: Exact Paper Offline Phase (Bucket-Average Probing)
+════════════════════════════════════════════════════════════════════════════════
+  Calculated WAE for Ada-ef: 794
+  Ada-EF Offline Total: 849.2s
+
+════════════════════════════════════════════════════════════════════════════════
+  EVALUATIONS (Target Recall = 0.99)
+════════════════════════════════════════════════════════════════════════════════
+  Vanilla(ef=200)... R=0.9646
+  Vanilla(ef=400)... R=0.9802
+  Vanilla(ef=600)... R=0.9854
+  Vanilla(ef=800)... R=0.9880
+  Vanilla(ef=1000)... R=0.9895
+  Vanilla(ef=1200)... R=0.9910
+  Ada-ef (exact)... R=0.9889
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=30
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k30_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9876
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=60
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k60_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9875
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=90
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k90_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9877
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=120
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k120_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9875
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=150
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k150_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9874
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=180
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k180_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9874
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=210
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k210_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9877
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=240
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k240_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9879
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=270
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k270_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9874
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=300
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k300_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9874
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=330
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k330_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9877
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=360
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k360_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9879
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=390
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k390_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9876
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=420
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k420_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9877
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=450
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k450_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9876
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=480
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k480_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9875
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=510
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k510_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9875
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=540
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k540_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9875
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=570
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k570_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9878
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=600
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k600_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9876
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=630
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k630_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9874
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=660
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k660_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9877
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=690
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k690_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9874
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=720
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k720_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9874
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=750
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k750_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9876
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=780
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k780_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9874
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=810
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k810_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9877
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=840
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k840_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9876
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=870
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k870_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9874
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware GLOBAL TABLES with K=900
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k900_8.8M.pkl...
+  Running Online Evaluation (Global Mean)...
+  R=0.9873
+
+════════════════════════════════════════════════════════════════════════════════
+  FINAL RESULTS ACROSS K VALUES (target recall = 0.99)
+════════════════════════════════════════════════════════════════════════════════
+
+Method                     Mean R    5th%    1st%  HNSW DC  +Probe   =Total    Time  Avg EF  >=tgt%
+────────────────────────────────────────────────────────────────────────────────
+Vanilla(ef=200)            0.9646  0.8400  0.6200     4242             4242  12.04s   200.0   61.4%
+Vanilla(ef=400)            0.9802  0.9000  0.7700     8251             8251  16.32s   400.0   73.4%
+Vanilla(ef=600)            0.9854  0.9300  0.8100    12271            12271  22.48s   600.0   78.3%
+Vanilla(ef=800)            0.9880  0.9400  0.8500    16299            16299  32.03s   800.0   81.0%
+Vanilla(ef=1000)           0.9895  0.9500  0.8700    20330            20330  37.41s  1000.0   82.7%
+Vanilla(ef=1200)           0.9910  0.9500  0.8900    24367            24367  42.12s  1200.0   84.2%
+Ada-ef (exact)             0.9889  0.9500  0.8600    19163    +200    19363  34.62s   942.7   81.9%
+Ours-Global (K=30, Mean)   0.9876  0.9500  0.8900    11977     +30    12007  27.94s   560.2   74.2%
+Ours-Global (K=60, Mean)   0.9875  0.9500  0.8900    11836     +60    11896  27.93s   554.4   74.8%
+Ours-Global (K=90, Mean)   0.9877  0.9500  0.8900    11832     +90    11922  27.16s   554.9   75.0%
+Ours-Global (K=120, Mean)  0.9875  0.9500  0.8900    11942    +120    12062  27.24s   559.9   74.9%
+Ours-Global (K=150, Mean)  0.9874  0.9500  0.8900    11913    +150    12063  27.54s   560.2   75.1%
+Ours-Global (K=180, Mean)  0.9874  0.9500  0.8879    11808    +180    11988  27.10s   555.4   75.4%
+Ours-Global (K=210, Mean)  0.9877  0.9500  0.8879    11845    +210    12055  26.47s   557.6   75.6%
+Ours-Global (K=240, Mean)  0.9879  0.9500  0.8900    11844    +240    12084  27.04s   558.0   75.9%
+Ours-Global (K=270, Mean)  0.9874  0.9500  0.8800    11826    +270    12096  26.71s   556.8   75.4%
+Ours-Global (K=300, Mean)  0.9874  0.9500  0.8800    11809    +300    12109  26.32s   556.7   75.6%
+Ours-Global (K=330, Mean)  0.9877  0.9500  0.8900    11768    +330    12098  26.55s   555.1   76.2%
+Ours-Global (K=360, Mean)  0.9879  0.9500  0.8900    11747    +360    12107  25.98s   554.5   76.7%
+Ours-Global (K=390, Mean)  0.9876  0.9500  0.8800    11753    +390    12143  26.79s   555.0   76.2%
+Ours-Global (K=420, Mean)  0.9877  0.9500  0.8800    11676    +420    12096  26.48s   551.6   75.8%
+Ours-Global (K=450, Mean)  0.9876  0.9500  0.8800    11691    +450    12141  26.46s   552.4   76.5%
+Ours-Global (K=480, Mean)  0.9875  0.9500  0.8800    11668    +480    12148  26.24s   551.9   76.6%
+Ours-Global (K=510, Mean)  0.9875  0.9500  0.8800    11641    +510    12151  26.61s   551.2   76.5%
+Ours-Global (K=540, Mean)  0.9875  0.9500  0.8800    11708    +540    12248  26.45s   553.9   76.8%
+Ours-Global (K=570, Mean)  0.9878  0.9500  0.8800    11711    +570    12281  26.71s   555.1   77.1%
+Ours-Global (K=600, Mean)  0.9876  0.9500  0.8800    11654    +600    12254  26.44s   552.7   77.0%
+Ours-Global (K=630, Mean)  0.9874  0.9500  0.8700    11660    +630    12290  26.75s   552.6   76.6%
+Ours-Global (K=660, Mean)  0.9877  0.9500  0.8800    11700    +660    12360  26.63s   555.0   77.1%
+Ours-Global (K=690, Mean)  0.9874  0.9500  0.8700    11618    +690    12308  26.45s   552.0   76.9%
+Ours-Global (K=720, Mean)  0.9874  0.9400  0.8700    11573    +720    12293  26.27s   549.7   76.8%
+Ours-Global (K=750, Mean)  0.9876  0.9500  0.8800    11644    +750    12394  26.53s   552.8   77.0%
+Ours-Global (K=780, Mean)  0.9874  0.9500  0.8700    11495    +780    12275  26.57s   546.1   76.6%
+Ours-Global (K=810, Mean)  0.9877  0.9500  0.8700    11713    +810    12523  26.84s   556.6   77.4%
+Ours-Global (K=840, Mean)  0.9876  0.9500  0.8700    11587    +840    12427  26.77s   550.9   77.2%
+Ours-Global (K=870, Mean)  0.9874  0.9500  0.8700    11565    +870    12435  26.52s   550.2   76.9%
+Ours-Global (K=900, Mean)  0.9873  0.9495  0.8700    11544    +900    12444  26.41s   549.7   77.1%
+
+Sweep Complete!
+Saved Pareto plot to results_pareto_msmarco_20260716_094044/pareto_front.png
