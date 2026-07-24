@@ -41,6 +41,8 @@ MANIFEST
 *.npz
 *.npy
 *.csv
+*.h5
+
 
 # Specific large files in the root
 custom_1M.index
