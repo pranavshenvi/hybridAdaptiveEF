@@ -33,7 +33,7 @@ from scipy.spatial.distance import cdist
 from scipy.stats import norm
 from sklearn.cluster import MiniBatchKMeans
 
-sys.path.append(os.path.join(os.path.dirname(__file__), 'chao_hybrid_ada_ef'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'chao_hybrid_ada_ef'))
 import chao_hybrid_ada_ef_cpp
 from benchmark_skewed import compute_ground_truth
 
