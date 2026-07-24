@@ -32,6 +32,7 @@ import numpy as np
 from scipy.spatial.distance import cdist
 from scipy.stats import norm
 from sklearn.cluster import MiniBatchKMeans
+from sklearn.isotonic import IsotonicRegression
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'chao_hybrid_ada_ef'))
 import chao_hybrid_ada_ef_cpp
@@ -45,7 +46,18 @@ np.random.seed(42)
 K_SEARCH       = 100
 TARGET_RECALL  = 0.99
 EF_SWEEP       = list(range(100, 3001, 25))
-N_CALIB        = 10000
+# Full calibration pool used for ground-truth min-ef labels and for fitting the
+# isotonic score->ef curves. A more discriminative score (e.g. cluster-aware's)
+# naturally spreads queries across more distinct values, so it needs more
+# calibration data per bucket than a less discriminative one (e.g. Ada-ef's) to
+# avoid noisy, outlier-driven ef assignments -- see build_isotonic_ef_table.
+N_CALIB        = 50000
+# The bucket-average-recall sweep (build_ef_table_target_recall) re-runs real
+# HNSW searches per EF_SWEEP checkpoint per bucket, so its cost scales directly
+# with calibration size. It's kept at the original size (independent of
+# N_CALIB above) so Ada-ef's exact-paper comparison point doesn't get 5x more
+# expensive as a side effect of fixing the cluster-aware method's bucket size.
+N_CALIB_TARGET_RECALL = 10000
 # Shared probe budget for both methods (analogous to the paper's "statics_length":
 # both methods score off a single ef=PROBE_COUNT traversal, then continue the
 # SAME traversal to the final decided ef -- see search_knn_dynamic_weighted).
@@ -115,6 +127,24 @@ def build_ef_table_target_recall(scores_int, calib_queries, calib_gt_arr):
     wae = int(wae_sum / total) if total > 0 else EF_SWEEP[-1]
     return table, wae
 
+def build_isotonic_ef_table(scores_int, required_efs, min_ef, max_ef):
+    """Fit one smooth, monotonic score->required-ef curve across ALL calibration
+    queries (isotonic regression), instead of discretizing into per-integer-score
+    buckets like build_ef_table_mean/p90/p70. Those bucket-based tables go noisy
+    exactly when the score is discriminative enough to spread queries across
+    many distinct values (fewer calibration queries land in each bucket, so one
+    or two unusually hard queries can drag a whole bucket's assigned ef up).
+    Isotonic regression borrows statistical strength across nearby scores
+    instead of treating each rounded score as an independent island, so it
+    scales better with a more informative score -- which is exactly the
+    situation the cluster-aware score is in (see diagnose_score_correlation.py).
+    """
+    iso = IsotonicRegression(increasing='auto', out_of_bounds='clip')
+    iso.fit(scores_int, required_efs)
+    max_score = int(scores_int.max()) if len(scores_int) else 0
+    predicted = iso.predict(np.arange(max_score + 1))
+    return [int(np.clip(v, min_ef, max_ef)) for v in predicted]
+
 def lookup_ef(score, table, min_ef=10, max_ef=3000):
     if not table: return max_ef
     if score in table: return int(np.clip(table[score], min_ef, max_ef))
@@ -166,9 +196,9 @@ print(f"  Cluster Sweep Params: K_SWEEP={K_SWEEP}")
 
 calib_q = train_q_full[np.random.choice(len(train_q_full), N_CALIB, replace=False)]
 
-gt_path = "ground_truth_10kq.npz"
+gt_path = f"ground_truth_{N_CALIB}q.npz"  # sized by N_CALIB so a stale smaller cache is never silently reused
 if os.path.exists(gt_path):
-    print("\nLoading 10k calibration ground truth and test ground truth from cache...")
+    print(f"\nLoading {N_CALIB} calibration ground truth and test ground truth from cache...")
     gt_data = np.load(gt_path)
     calib_gt = gt_data['calib_gt']
     test_gt = gt_data['test_gt']
@@ -249,8 +279,12 @@ ada_calib_scores = np.array([
 ], dtype=np.float64)
 ada_scores_int = np.round(ada_calib_scores).astype(int)
 
-# 2. Iterate through each unique score bucket to find EF that hits target avg recall
-ada_table_exact, WAE = build_ef_table_target_recall(ada_scores_int, calib_q, calib_gt)
+# 2. Iterate through each unique score bucket to find EF that hits target avg
+#    recall. Capped to N_CALIB_TARGET_RECALL queries (see config comment above)
+#    so this stays as expensive as before, independent of the larger N_CALIB
+#    pool now used for the isotonic-regression variant below.
+ada_table_exact, WAE = build_ef_table_target_recall(
+    ada_scores_int[:N_CALIB_TARGET_RECALL], calib_q[:N_CALIB_TARGET_RECALL], calib_gt[:N_CALIB_TARGET_RECALL])
 print(f"  Calculated WAE for Ada-ef: {WAE}")
 
 with open(os.path.join(RESULTS_DIR, "ef_table_ada_exact.json"), "w") as f_json:
@@ -398,8 +432,10 @@ for K_CLUSTERS in K_SWEEP:
     # as Ada-ef's own table, applied to these per-cluster bins instead of the
     # percentile-of-required-ef aggregation below. This isolates whether
     # cluster-aware bins beat the global Gaussian bins, with the calibration
-    # rule held identical between the two.
-    clust_table_target, clust_wae_target = build_ef_table_target_recall(clust_calib_int, calib_q, calib_gt)
+    # rule held identical between the two. Capped to N_CALIB_TARGET_RECALL for
+    # the same cost reason as Ada-ef's own table above.
+    clust_table_target, clust_wae_target = build_ef_table_target_recall(
+        clust_calib_int[:N_CALIB_TARGET_RECALL], calib_q[:N_CALIB_TARGET_RECALL], calib_gt[:N_CALIB_TARGET_RECALL])
     with open(os.path.join(RESULTS_DIR, f"ef_table_k{K_CLUSTERS}_target.json"), "w") as f_json:
         json.dump(clust_table_target, f_json, indent=4)
 
@@ -411,6 +447,21 @@ for K_CLUSTERS in K_SWEEP:
     r_target = eval_cluster_aware(f"Ours (K={K_CLUSTERS}, TargetRecall)", K_CLUSTERS, centroids, cluster_bins, ef_table_list_target)
     print(f"  R={r_target['mean_r']:.4f}")
     all_results.append(r_target)
+
+    # Isotonic variant: fit on the FULL N_CALIB pool (cheap -- no extra HNSW
+    # searches beyond what calib_min_ef and clust_calib_int already computed).
+    # Directly targets the bucket-sparsity problem the diagnostic pointed at:
+    # cluster-aware's score is informative enough to spread queries across many
+    # distinct values, so per-bucket aggregation (Mean/P90/P70 below) gets noisy;
+    # isotonic regression borrows strength across nearby scores instead.
+    iso_ef_table = build_isotonic_ef_table(clust_calib_int, calib_min_ef, K_SEARCH, EF_SWEEP[-1])
+    with open(os.path.join(RESULTS_DIR, f"ef_table_k{K_CLUSTERS}_isotonic.json"), "w") as f_json:
+        json.dump(iso_ef_table, f_json, indent=4)
+
+    print(f"  Running Online Evaluation (Isotonic)...")
+    r_iso = eval_cluster_aware(f"Ours (K={K_CLUSTERS}, Isotonic)", K_CLUSTERS, centroids, cluster_bins, iso_ef_table)
+    print(f"  R={r_iso['mean_r']:.4f}")
+    all_results.append(r_iso)
 
     clust_table_mean = build_ef_table_mean(clust_calib_int, calib_min_ef)
     with open(os.path.join(RESULTS_DIR, f"ef_table_k{K_CLUSTERS}_mean.json"), "w") as f_json:
