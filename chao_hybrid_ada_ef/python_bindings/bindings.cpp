@@ -1031,6 +1031,33 @@ PYBIND11_PLUGIN(chao_hybrid_ada_ef_cpp) {
             if (buf.ndim != 1) throw std::runtime_error("Expected 1-D query vector");
             return self.appr_alg->getDynamicProbeScore(static_cast<const float*>(buf.ptr), bins, probe_count);
         })
+        .def("search_knn_dynamic_weighted", [](Index<float>& self, py::array_t<float, py::array::c_style> query, int k, std::vector<float> bins, std::vector<float> weights, std::vector<int> ef_table, int min_ef, int max_ef, int probe_count) {
+            auto buf = query.request();
+            if (buf.ndim != 1) throw std::runtime_error("Expected 1-D query vector");
+            auto res_pair = self.appr_alg->searchKnnDynamicWeighted(static_cast<const float*>(buf.ptr), k, bins, weights, ef_table, min_ef, max_ef, probe_count);
+            auto& res = res_pair.first;
+            int ef_used = res_pair.second;
+            py::array_t<hnswlib::labeltype> labels(k);
+            py::array_t<float> dists(k);
+            auto lb = labels.mutable_unchecked<1>();
+            auto db = dists.mutable_unchecked<1>();
+            for (int j = k - 1; j >= 0; j--) {
+                if (!res.empty()) {
+                    lb(j) = res.top().second;
+                    db(j) = res.top().first;
+                    res.pop();
+                } else {
+                    lb(j) = -1;
+                    db(j) = 1e30f;
+                }
+            }
+            return py::make_tuple(labels, dists, ef_used);
+        })
+        .def("get_dynamic_probe_score_weighted", [](Index<float>& self, py::array_t<float, py::array::c_style> query, std::vector<float> bins, std::vector<float> weights, int probe_count) {
+            auto buf = query.request();
+            if (buf.ndim != 1) throw std::runtime_error("Expected 1-D query vector");
+            return self.appr_alg->getDynamicProbeScoreWeighted(static_cast<const float*>(buf.ptr), bins, weights, probe_count);
+        })
         .def("search_knn_true_ada", [](Index<float>& self, py::array_t<float, py::array::c_style> query, int k, std::vector<float> bins, std::vector<float> weights, std::vector<int> ef_table, int min_ef, int max_ef, int probe_count) {
             auto buf = query.request();
             if (buf.ndim != 1) throw std::runtime_error("Expected 1-D query vector");

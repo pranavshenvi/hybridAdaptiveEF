@@ -46,8 +46,18 @@ K_SEARCH       = 100
 TARGET_RECALL  = 0.99
 EF_SWEEP       = list(range(100, 3001, 25))
 N_CALIB        = 10000
-S_PROBES       = 200
-CLUSTER_PROBE_COUNT = 100  
+# Shared probe budget for both methods (analogous to the paper's "statics_length":
+# both methods score off a single ef=PROBE_COUNT traversal, then continue the
+# SAME traversal to the final decided ef -- see search_knn_dynamic_weighted).
+PROBE_COUNT    = 100
+
+# Paper-exact scoring parameters (hnsw-ada-ef's ApproximatedScoreCalculator,
+# msmarco config in their run.cpp: metric="cd", quantile_step=1e-3, num_bins=5,
+# exponential weight decay). Bins are ascending, low-tail thresholds; a probed
+# distance is assigned to the first (smallest) threshold it falls under and
+# contributes that bin's weight; the score is the mean weight over all probes.
+NUM_BINS       = 5
+QUANTILE_STEP  = 1e-3
 
 # ═══════════════════════════════════════════════════════════════════════
 #  Helpers & Ada-ef scoring
@@ -82,17 +92,24 @@ def lookup_ef(score, table, min_ef=10, max_ef=3000):
     frac = (score - lo) / (hi - lo)
     return int(np.clip(table[lo] + frac * (table[hi] - table[lo]), min_ef, max_ef))
 
-Z_QUANTILES = [norm.ppf(0.2), norm.ppf(0.4), norm.ppf(0.6), norm.ppf(0.8)]
-def ada_ef_score(queries, samp_vecs, mean_v, cov_v):
-    mu_ip = queries @ mean_v                                     
-    mu_l2 = 2 - 2 * mu_ip                                       
-    sig_ip_sq = np.sum((queries @ cov_v) * queries, axis=1)      
-    sig_l2 = 2 * np.sqrt(np.clip(sig_ip_sq, 0, None))           
-    z = np.array(Z_QUANTILES)[None, :]
-    bins = mu_l2[:, None] + z * sig_l2[:, None]
-    probe_dists = cdist(queries, samp_vecs, metric='sqeuclidean')
-    scores = (probe_dists[:, :, None] > bins[:, None, :]).sum(axis=(1, 2))
-    return scores.astype(np.float64)
+# Ascending, low-tail z-quantiles: quantile_step*(i+1) for i=0..NUM_BINS-1
+# (paper's "bottom-based" branch, used for distance-like metrics).
+Z_QUANTILES = np.array([norm.ppf(QUANTILE_STEP * (i + 1)) for i in range(NUM_BINS)])
+# Exponential decay weights, bin 0 (most extreme low-tail) weighted highest.
+BIN_WEIGHTS = [float(100.0 * np.exp(-i)) for i in range(NUM_BINS)]
+
+def ada_ef_bins(queries, mean_v, cov_v):
+    """Per-query bin thresholds from the paper's InnerProductEstimator practical
+    distribution (mean = q.mean_v, var = q^T cov_v q), re-expressed in squared-L2
+    units. This re-expression is exact (not approximate) because queries/corpus
+    are unit-normalized: ||a-b||^2 = 2 - 2<a,b> and Var(L2^2) = 4*Var(IP) exactly.
+    """
+    mu_ip = queries @ mean_v
+    mu_l2 = 2 - 2 * mu_ip
+    sig_ip_sq = np.sum((queries @ cov_v) * queries, axis=1)
+    sig_l2 = 2 * np.sqrt(np.clip(sig_ip_sq, 0, None))
+    bins = mu_l2[:, None] + Z_QUANTILES[None, :] * sig_l2[:, None]
+    return bins.astype(np.float32)
 
 # ═══════════════════════════════════════════════════════════════════════
 #  Data Loading
@@ -186,10 +203,15 @@ t_ada_total = time.time()
 corpus_mean = np.mean(corpus, axis=0)
 sub = corpus[np.random.choice(len(corpus), min(100_000, len(corpus)), replace=False)]
 corpus_cov = np.cov(sub, rowvar=False).astype(np.float32)
-samp_vectors = corpus[np.random.choice(len(corpus), S_PROBES, replace=False)]
 
-# 1. Score all calibration queries
-ada_calib_scores = ada_ef_score(calib_q, samp_vectors, corpus_mean, corpus_cov)
+# 1. Score all calibration queries using the paper-exact single-pass mechanism:
+#    an ef=PROBE_COUNT traversal is scored with the query's own Gaussian-derived
+#    bins (no separate brute-force probe against a fixed sample set).
+calib_bins = ada_ef_bins(calib_q, corpus_mean, corpus_cov)
+ada_calib_scores = np.array([
+    idx.get_dynamic_probe_score_weighted(calib_q[i], calib_bins[i].tolist(), BIN_WEIGHTS, PROBE_COUNT)
+    for i in range(N_CALIB)
+], dtype=np.float64)
 ada_scores_int = np.round(ada_calib_scores).astype(int)
 
 # 2. Iterate through each unique score bucket to find EF that hits target avg recall
@@ -225,6 +247,12 @@ print(f"  Calculated WAE for Ada-ef: {WAE}")
 with open(os.path.join(RESULTS_DIR, "ef_table_ada_exact.json"), "w") as f_json:
     json.dump(ada_table_exact, f_json, indent=4)
 
+# Dense score->ef lookup table for the online single-pass search (WAE floor
+# baked in, mirroring the previous `ef = max(ef, WAE)` fallback).
+max_score_ada = max(ada_table_exact.keys()) if ada_table_exact else 0
+ada_ef_table_list = [max(lookup_ef(s, ada_table_exact), WAE) for s in range(max_score_ada + 1)] \
+    if ada_table_exact else [WAE]
+
 t_ada_total = time.time() - t_ada_total
 print(f"  Ada-EF Offline Total: {t_ada_total:.1f}s")
 
@@ -253,20 +281,21 @@ def eval_ada_ef():
     recs, efs = [], []
     t0 = time.time()
     t_s = time.time()
-    test_ada_scores = ada_ef_score(test_q, samp_vectors, corpus_mean, corpus_cov)
-    test_ada_int = np.round(test_ada_scores).astype(int)
+    test_bins = ada_ef_bins(test_q, corpus_mean, corpus_cov)
     t_s = time.time() - t_s
     for i in range(n_test):
-        ef = lookup_ef(test_ada_int[i], ada_table_exact)
-        ef = max(ef, WAE)  # WAE Fallback
-        efs.append(ef)
-        labs, _ = idx.search_knn_adaptive(test_q[i], K_SEARCH, idx.entry_point, idx.max_level, ef)
+        # Single traversal: scores off the ef=PROBE_COUNT stopping point, then
+        # continues the SAME traversal to the final ef -- no separate probe.
+        labs, _, ef_used = idx.search_knn_dynamic_weighted(
+            test_q[i], K_SEARCH, test_bins[i].tolist(), BIN_WEIGHTS, ada_ef_table_list,
+            K_SEARCH, EF_SWEEP[-1], PROBE_COUNT)
+        efs.append(ef_used)
         recs.append(len(set(labs) & set(test_gt[i])) / K_SEARCH)
     dt = time.time() - t0
     dc = idx.get_dist_count() / n_test
     r = np.array(recs)
     return dict(name='Ada-ef (exact)', mean_r=np.mean(r), p5=np.percentile(r, 5), p1=np.percentile(r, 1),
-                hnsw_dc=dc, probe_dc=S_PROBES, time=dt, score_time=t_s, avg_ef=np.mean(efs),
+                hnsw_dc=dc, probe_dc=0, time=dt, score_time=t_s, avg_ef=np.mean(efs),
                 pct_target=np.mean(r >= TARGET_RECALL) * 100)
 
 def eval_cluster_aware(name, K_VAL, centroids, cluster_bins, ef_table_list):
@@ -280,10 +309,12 @@ def eval_cluster_aware(name, K_VAL, centroids, cluster_bins, ef_table_list):
     for i in range(n_test):
         k_id = test_nearest[i]
         bins = cluster_bins[k_id].tolist()
-        score = int(idx.get_dynamic_probe_score(test_q[i], bins, CLUSTER_PROBE_COUNT))
-        ef_used = ef_table_list[min(score, len(ef_table_list) - 1)]
+        # Same single-pass mechanism as Ada-ef: score off the ef=PROBE_COUNT
+        # stopping point, then continue the SAME traversal to the final ef.
+        labs, _, ef_used = idx.search_knn_dynamic_weighted(
+            test_q[i], K_SEARCH, bins, BIN_WEIGHTS, ef_table_list,
+            K_SEARCH, EF_SWEEP[-1], PROBE_COUNT)
         efs.append(ef_used)
-        labs, _ = idx.search_knn_adaptive(test_q[i], K_SEARCH, idx.entry_point, idx.max_level, ef_used)
         recs.append(len(set(labs) & set(test_gt[i])) / K_SEARCH)
     dt = time.time() - t0
     dc = idx.get_dist_count() / n_test
@@ -315,7 +346,10 @@ for K_CLUSTERS in K_SWEEP:
     print(f"\n{'─' * 80}")
     print(f"  Cluster-Aware with K={K_CLUSTERS}")
     print(f"{'─' * 80}")
-    cache_file = f"kmeans_cache_k{K_CLUSTERS}_8.8M.pkl"
+    # _v2bins suffix: bin format/percentiles changed (5 low-tail bins instead of
+    # the old 4 evenly-spaced ones) -- forces recompute instead of silently
+    # loading incompatible cached bins from a previous run.
+    cache_file = f"kmeans_cache_k{K_CLUSTERS}_8.8M_v2bins.pkl"
     if os.path.exists(cache_file):
         print(f"  [CACHE] Loading K-Means model and bins from {cache_file}...")
         with open(cache_file, 'rb') as f_cache:
@@ -326,15 +360,17 @@ for K_CLUSTERS in K_SWEEP:
         km.fit(corpus)
         centroids = km.cluster_centers_.astype(np.float32)
         labels = km.labels_
-        Z_QUANTILES_PCT = [20, 40, 60, 80]
-        cluster_bins = np.zeros((K_CLUSTERS, 4), dtype=np.float32)
+        # Same low-tail percentiles as the paper's bins (quantile_step*(i+1)),
+        # but computed empirically per-cluster instead of assuming a Gaussian.
+        CLUSTER_PCTS = [QUANTILE_STEP * (i + 1) * 100 for i in range(NUM_BINS)]
+        cluster_bins = np.zeros((K_CLUSTERS, NUM_BINS), dtype=np.float32)
         for k in range(K_CLUSTERS):
             pts = corpus[labels == k]
             if len(pts) > 0:
                 dists = cdist(pts, centroids[k:k+1], metric='sqeuclidean').flatten()
-                cluster_bins[k] = np.percentile(dists, Z_QUANTILES_PCT)
+                cluster_bins[k] = np.percentile(dists, CLUSTER_PCTS)
             else:
-                cluster_bins[k] = np.array([0.5, 1.0, 1.5, 2.0])
+                cluster_bins[k] = np.array([0.05, 0.1, 0.15, 0.2, 0.25], dtype=np.float32)
         print(f"  Saving K-Means model and bins to {cache_file}...")
         with open(cache_file, 'wb') as f_cache:
             pickle.dump((km, centroids, labels, cluster_bins), f_cache)
@@ -345,7 +381,7 @@ for K_CLUSTERS in K_SWEEP:
     for i in range(N_CALIB):
         k_id = calib_nearest[i]
         bins = cluster_bins[k_id].tolist()
-        clust_calib_scores[i] = idx.get_dynamic_probe_score(calib_q[i], bins, CLUSTER_PROBE_COUNT)
+        clust_calib_scores[i] = idx.get_dynamic_probe_score_weighted(calib_q[i], bins, BIN_WEIGHTS, PROBE_COUNT)
 
     clust_calib_int = np.round(clust_calib_scores).astype(int)
     

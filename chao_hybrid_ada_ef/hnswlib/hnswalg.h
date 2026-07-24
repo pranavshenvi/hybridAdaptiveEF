@@ -2417,6 +2417,236 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         return final_score;
     }
 
+    // -------------------------------------------------------------------------
+    // Paper-exact scoring: first-matching-bin assignment + exponential-decay
+    // weights, mirroring hnsw-ada-ef's ApproximatedScoreCalculator::calculate_score
+    // (bottom-based branch: ascending bins, score = mean over probes of the
+    // weight of the first (smallest) bin threshold each distance falls under).
+    // -------------------------------------------------------------------------
+    static float scoreFromDists(const std::vector<dist_t>& dists, const std::vector<float>& bins, const std::vector<float>& weights) {
+        float score = 0;
+        for (dist_t d : dists) {
+            for (size_t bi = 0; bi < bins.size(); ++bi) {
+                if (d < bins[bi]) {
+                    score += weights[bi];
+                    break;
+                }
+            }
+        }
+        if (!dists.empty()) score /= (float)dists.size();
+        return score;
+    }
+
+    // Same single-pass "score mid-traversal, then continue the same traversal"
+    // design as searchKnnDynamic, but using the paper-exact scoring above, and
+    // returning the ef actually used so callers can report it.
+    std::pair<std::priority_queue<std::pair<dist_t, labeltype>>, int>
+    searchKnnDynamicWeighted(const void *query_data, size_t k, const std::vector<float>& bins, const std::vector<float>& weights, const std::vector<int>& ef_table, int min_ef, int max_ef, int probe_count) const {
+        std::priority_queue<std::pair<dist_t, labeltype>> result;
+        if (cur_element_count == 0) return {result, min_ef};
+
+        tableint currObj = enterpoint_node_;
+        dist_t curdist = fstdistfunc_(query_data, getDataByInternalId(enterpoint_node_), dist_func_param_);
+
+        for (int level = maxlevel_; level > 0; level--) {
+            bool changed = true;
+            while (changed) {
+                changed = false;
+                unsigned int *data = (unsigned int *) get_linklist(currObj, level);
+                int size = getListCount(data);
+                metric_distance_computations += size;
+                tableint *datal = (tableint *) (data + 1);
+                for (int i = 0; i < size; i++) {
+                    tableint cand = datal[i];
+                    dist_t d = fstdistfunc_(query_data, getDataByInternalId(cand), dist_func_param_);
+                    if (d < curdist) {
+                        curdist = d;
+                        currObj = cand;
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        VisitedList *vl = visited_list_pool_->getFreeVisitedList();
+        vl_type *visited_array = vl->mass;
+        vl_type visited_array_tag = vl->curV;
+
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> candidate_set;
+
+        char* ep_data = getDataByInternalId(currObj);
+        dist_t dist = fstdistfunc_(query_data, ep_data, dist_func_param_);
+        dist_t lowerBound = dist;
+        top_candidates.emplace(dist, currObj);
+        candidate_set.emplace(-dist, currObj);
+        visited_array[currObj] = visited_array_tag;
+
+        int current_ef = probe_count;
+        bool ef_updated = false;
+
+        while (!candidate_set.empty()) {
+            std::pair<dist_t, tableint> current_node_pair = candidate_set.top();
+            dist_t candidate_dist = -current_node_pair.first;
+
+            if (candidate_dist > lowerBound) {
+                if (!ef_updated) {
+                    std::vector<dist_t> top_dists;
+                    auto temp_q = top_candidates;
+                    while (!temp_q.empty()) {
+                        top_dists.push_back(temp_q.top().first);
+                        temp_q.pop();
+                    }
+                    float score = scoreFromDists(top_dists, bins, weights);
+                    int score_idx = std::max(0, (int)std::round(score));
+                    if (score_idx < (int)ef_table.size()) {
+                        current_ef = ef_table[score_idx];
+                    } else {
+                        current_ef = ef_table.empty() ? max_ef : ef_table.back();
+                    }
+                    current_ef = std::max(min_ef, std::min(max_ef, current_ef));
+                    ef_updated = true;
+
+                    if (top_candidates.size() < (size_t)current_ef) {
+                        lowerBound = std::numeric_limits<dist_t>::max();
+                        continue;
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+            candidate_set.pop();
+
+            tableint current_node_id = current_node_pair.second;
+            int *data = (int *) get_linklist0(current_node_id);
+            size_t size = getListCount((linklistsizeint*)data);
+            metric_distance_computations += size;
+
+            for (size_t j = 1; j <= size; j++) {
+                int candidate_id = *(data + j);
+                if (!(visited_array[candidate_id] == visited_array_tag)) {
+                    visited_array[candidate_id] = visited_array_tag;
+
+                    char *currObj1 = getDataByInternalId(candidate_id);
+                    dist_t nd = fstdistfunc_(query_data, currObj1, dist_func_param_);
+
+                    if (top_candidates.size() < (size_t)current_ef || lowerBound > nd) {
+                        candidate_set.emplace(-nd, candidate_id);
+                        top_candidates.emplace(nd, candidate_id);
+                        if (top_candidates.size() > (size_t)current_ef) {
+                            top_candidates.pop();
+                        }
+                        if (!top_candidates.empty())
+                            lowerBound = top_candidates.top().first;
+                    }
+                }
+            }
+        }
+        visited_list_pool_->releaseVisitedList(vl);
+
+        while (top_candidates.size() > k) top_candidates.pop();
+        while (!top_candidates.empty()) {
+            std::pair<dist_t, tableint> rez = top_candidates.top();
+            result.push(std::pair<dist_t, labeltype>(rez.first, getExternalLabel(rez.second)));
+            top_candidates.pop();
+        }
+        return {result, current_ef};
+    }
+
+    // Offline-calibration counterpart of searchKnnDynamicWeighted: computes the
+    // paper-exact score for a probe_count-sized traversal without continuing to
+    // a full search. Used only to bucket calibration queries; not counted toward
+    // online distance-computation totals (matches how calibration is treated
+    // for both the Ada-ef and cluster-aware methods).
+    float
+    getDynamicProbeScoreWeighted(const void *query_data, const std::vector<float>& bins, const std::vector<float>& weights, int probe_count) const {
+        if (cur_element_count == 0) return 0.0f;
+
+        tableint currObj = enterpoint_node_;
+        dist_t curdist = fstdistfunc_(query_data, getDataByInternalId(enterpoint_node_), dist_func_param_);
+
+        for (int level = maxlevel_; level > 0; level--) {
+            bool changed = true;
+            while (changed) {
+                changed = false;
+                unsigned int *data = (unsigned int *) get_linklist(currObj, level);
+                int size = getListCount(data);
+                tableint *datal = (tableint *) (data + 1);
+                for (int i = 0; i < size; i++) {
+                    tableint cand = datal[i];
+                    dist_t d = fstdistfunc_(query_data, getDataByInternalId(cand), dist_func_param_);
+                    if (d < curdist) {
+                        curdist = d;
+                        currObj = cand;
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        VisitedList *vl = visited_list_pool_->getFreeVisitedList();
+        vl_type *visited_array = vl->mass;
+        vl_type visited_array_tag = vl->curV;
+
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
+        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> candidate_set;
+
+        char* ep_data = getDataByInternalId(currObj);
+        dist_t dist = fstdistfunc_(query_data, ep_data, dist_func_param_);
+        dist_t lowerBound = dist;
+        top_candidates.emplace(dist, currObj);
+        candidate_set.emplace(-dist, currObj);
+        visited_array[currObj] = visited_array_tag;
+
+        int current_ef = probe_count;
+        float final_score = 0;
+
+        while (!candidate_set.empty()) {
+            std::pair<dist_t, tableint> current_node_pair = candidate_set.top();
+            dist_t candidate_dist = -current_node_pair.first;
+
+            if (candidate_dist > lowerBound) {
+                std::vector<dist_t> top_dists;
+                auto temp_q = top_candidates;
+                while (!temp_q.empty()) {
+                    top_dists.push_back(temp_q.top().first);
+                    temp_q.pop();
+                }
+                final_score = scoreFromDists(top_dists, bins, weights);
+                break;
+            }
+            candidate_set.pop();
+
+            tableint current_node_id = current_node_pair.second;
+            int *data = (int *) get_linklist0(current_node_id);
+            size_t size = getListCount((linklistsizeint*)data);
+
+            for (size_t j = 1; j <= size; j++) {
+                int candidate_id = *(data + j);
+                if (!(visited_array[candidate_id] == visited_array_tag)) {
+                    visited_array[candidate_id] = visited_array_tag;
+
+                    char *currObj1 = getDataByInternalId(candidate_id);
+                    dist_t nd = fstdistfunc_(query_data, currObj1, dist_func_param_);
+
+                    if (top_candidates.size() < (size_t)current_ef || lowerBound > nd) {
+                        candidate_set.emplace(-nd, candidate_id);
+                        top_candidates.emplace(nd, candidate_id);
+                        if (top_candidates.size() > (size_t)current_ef) {
+                            top_candidates.pop();
+                        }
+                        if (!top_candidates.empty())
+                            lowerBound = top_candidates.top().first;
+                    }
+                }
+            }
+        }
+        visited_list_pool_->releaseVisitedList(vl);
+        return final_score;
+    }
+
     std::priority_queue<std::pair<dist_t, labeltype>>
     searchKnnTrueAda(const void *query_data, size_t k, const std::vector<float>& bins, const std::vector<float>& weights, const std::vector<int>& ef_table, int min_ef, int max_ef, int probe_count) const {
         std::priority_queue<std::pair<dist_t, labeltype>> result;
