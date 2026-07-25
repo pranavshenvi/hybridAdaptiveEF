@@ -14,6 +14,7 @@ import numpy as np
 import h5py
 from scipy.spatial.distance import cdist
 from scipy.stats import norm, spearmanr
+from sklearn.cluster import MiniBatchKMeans
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'chao_hybrid_ada_ef'))
 import chao_hybrid_ada_ef_cpp
@@ -27,7 +28,11 @@ N_CALIB       = 10000
 PROBE_COUNT   = 100
 NUM_BINS      = 5
 QUANTILE_STEP = 1e-3
-K_SWEEP       = [297, 500, 880]
+# Small-K sweep to see whether the K=880->500->297 correlation trend (fewer,
+# larger clusters -> more points per cluster -> less noisy percentile bins)
+# keeps improving below 297. 297 kept as a continuity anchor against the
+# earlier sweep; it's already cached so it costs nothing extra to include.
+K_SWEEP       = list(range(15, 201, 15)) + [297]
 
 Z_QUANTILES = np.array([norm.ppf(QUANTILE_STEP * (i + 1)) for i in range(NUM_BINS)])
 BIN_WEIGHTS = [float(100.0 * np.exp(-i)) for i in range(NUM_BINS)]
@@ -102,12 +107,32 @@ print(f"  Ada-ef score vs true min-EF: Spearman rho = {rho_ada:.4f} (p={p_ada:.2
 # ---------------------------------------------------------------------------
 results = [("Ada-ef (global Gaussian)", rho_ada, p_ada)]
 for K_CLUSTERS in K_SWEEP:
+    # Same cache naming/format as benchmark_exact_paper_sweep.py, so a cache
+    # built here is reusable there and vice versa.
     cache_file = f"kmeans_cache_k{K_CLUSTERS}_8.8M_v2bins.pkl"
-    if not os.path.exists(cache_file):
-        print(f"  [SKIP] {cache_file} not found -- run the main sweep first to produce it.")
-        continue
-    with open(cache_file, 'rb') as f_cache:
-        km, centroids, labels, cluster_bins = pickle.load(f_cache)
+    if os.path.exists(cache_file):
+        print(f"\n  [CACHE] Loading K-Means model and bins for K={K_CLUSTERS} from {cache_file}...")
+        with open(cache_file, 'rb') as f_cache:
+            km, centroids, labels, cluster_bins = pickle.load(f_cache)
+    else:
+        print(f"\n  [COMPUTE] Running K-Means and computing bins for K={K_CLUSTERS} "
+              f"(small K, should be fast)...")
+        km = MiniBatchKMeans(n_clusters=K_CLUSTERS, random_state=42, n_init=3, batch_size=4096)
+        km.fit(corpus)
+        centroids = km.cluster_centers_.astype(np.float32)
+        labels = km.labels_
+        CLUSTER_PCTS = [QUANTILE_STEP * (i + 1) * 100 for i in range(NUM_BINS)]
+        cluster_bins = np.zeros((K_CLUSTERS, NUM_BINS), dtype=np.float32)
+        for k in range(K_CLUSTERS):
+            pts = corpus[labels == k]
+            if len(pts) > 0:
+                dists = cdist(pts, centroids[k:k+1], metric='sqeuclidean').flatten()
+                cluster_bins[k] = np.percentile(dists, CLUSTER_PCTS)
+            else:
+                cluster_bins[k] = np.array([0.05, 0.1, 0.15, 0.2, 0.25], dtype=np.float32)
+        with open(cache_file, 'wb') as f_cache:
+            pickle.dump((km, centroids, labels, cluster_bins), f_cache)
+        print(f"  Saved K-Means model and bins to {cache_file}")
 
     calib_cdists = cdist(calib_q, centroids, metric='sqeuclidean')
     calib_nearest = np.argmin(calib_cdists, axis=1)
