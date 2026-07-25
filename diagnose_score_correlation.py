@@ -58,6 +58,26 @@ K_SWEEP       = [1]
 Z_QUANTILES = np.array([norm.ppf(QUANTILE_STEP * (i + 1)) for i in range(NUM_BINS)])
 BIN_WEIGHTS = [float(100.0 * np.exp(-i)) for i in range(NUM_BINS)]
 
+def cluster_centroid_sqdists(corpus, labels, k, centroid, chunk=300_000):
+    """Squared distances from cluster k's members to their centroid, computed
+    in chunks so peak memory stays bounded regardless of cluster size.
+    `corpus[labels == k]` on its own copies the whole matched subset at once,
+    which is as large as the full corpus when one cluster holds most of it
+    (K=1 especially, but any very small K too) -- that copy sitting alongside
+    the already-loaded corpus and HNSW index is what OOM-killed the K=1 run.
+    """
+    centroid = centroid.reshape(1, -1)
+    parts = []
+    n = corpus.shape[0]
+    for start in range(0, n, chunk):
+        end = min(start + chunk, n)
+        mask = labels[start:end] == k
+        if not mask.any():
+            continue
+        sub = corpus[start:end][mask]
+        parts.append(cdist(sub, centroid, metric='sqeuclidean').flatten())
+    return np.concatenate(parts) if parts else np.array([], dtype=np.float32)
+
 def ada_ef_bins(queries, mean_v, cov_v):
     mu_ip = queries @ mean_v
     mu_l2 = 2 - 2 * mu_ip
@@ -145,9 +165,8 @@ for K_CLUSTERS in K_SWEEP:
         CLUSTER_PCTS = [QUANTILE_STEP * (i + 1) * 100 for i in range(NUM_BINS)]
         cluster_bins = np.zeros((K_CLUSTERS, NUM_BINS), dtype=np.float32)
         for k in range(K_CLUSTERS):
-            pts = corpus[labels == k]
-            if len(pts) > 0:
-                dists = cdist(pts, centroids[k:k+1], metric='sqeuclidean').flatten()
+            dists = cluster_centroid_sqdists(corpus, labels, k, centroids[k])
+            if len(dists) > 0:
                 cluster_bins[k] = np.percentile(dists, CLUSTER_PCTS)
             else:
                 cluster_bins[k] = np.array([0.05, 0.1, 0.15, 0.2, 0.25], dtype=np.float32)
