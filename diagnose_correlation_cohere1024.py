@@ -55,10 +55,13 @@ N_CALIB       = 1500
 PROBE_COUNT   = 100
 NUM_BINS      = 5
 QUANTILE_STEP = 1e-3
-# Same range that was informative on the 384-dim corpus: K=1 isolates the
-# empirical-vs-Gaussian question; 8/15/30 re-check whether the "clustering is
-# a minor secondary effect" finding also holds on this corpus/dimension.
-K_SWEEP       = [1, 8, 15, 30]
+# 1/8/15/30 already run: correlation degraded monotonically from K=1 (-0.51)
+# all the way down to K=30 (-0.30), unlike the 384-dim corpus where K=8-10
+# beat K=1. Checking whether that's a smooth monotonic decline from K=1, or
+# whether there's a small peak between 1 and 8 we skipped over (plausible
+# since this corpus is ~5x smaller than the 384-dim one, so a given K has far
+# fewer points per cluster). Only the new values -- 1/8/15/30 already cached.
+K_SWEEP       = [2, 3, 5]
 
 Z_QUANTILES = np.array([norm.ppf(QUANTILE_STEP * (i + 1)) for i in range(NUM_BINS)])
 BIN_WEIGHTS = [float(100.0 * np.exp(-i)) for i in range(NUM_BINS)]
