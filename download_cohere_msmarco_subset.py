@@ -11,10 +11,10 @@ queries) is a single small shard, downloaded in full regardless.
 Run this on the server, not a laptop -- shard 0 alone is ~7.75GB.
 
 Requires: pip install huggingface_hub pyarrow pandas numpy
-Requires an HF token with access to the dataset:
+Requires an HF token (generate at https://huggingface.co/settings/tokens):
     export HF_TOKEN=hf_xxxxxxxx
-(generate at https://huggingface.co/settings/tokens; accept the dataset's
-terms on its HF page first if it's gated)
+This dataset does not appear to be gated (no terms-acceptance page found) --
+if you get a 401/403 rather than a 404, that's the thing to check for.
 """
 import os
 import numpy as np
@@ -48,7 +48,7 @@ def fetch_parquet(rel_path):
 # Queries (small: 1677 rows, single shard)
 # ---------------------------------------------------------------------------
 print("Downloading query shard...")
-q_df = fetch_parquet("queries/test/0.parquet")
+q_df = fetch_parquet("queries/test/0000.parquet")
 print(f"  columns: {list(q_df.columns)}")
 print(f"  {len(q_df)} queries")
 
@@ -64,7 +64,7 @@ print(f"  saved queries.npz: emb shape {query_emb.shape}")
 all_emb, all_ids = [], []
 for i in range(N_PASSAGE_SHARDS):
     print(f"Downloading passage shard {i}/{N_PASSAGE_SHARDS - 1}...")
-    p_df = fetch_parquet(f"passages/train/{i}.parquet")
+    p_df = fetch_parquet(f"passages/train/{i:04d}.parquet")
     if i == 0:
         print(f"  columns: {list(p_df.columns)}")  # sanity check field names here
     emb = np.stack(p_df["emb"].to_numpy()).astype(np.float32)
