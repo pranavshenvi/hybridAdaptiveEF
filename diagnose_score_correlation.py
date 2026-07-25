@@ -46,11 +46,14 @@ N_CALIB       = 10000
 PROBE_COUNT   = 100
 NUM_BINS      = 5
 QUANTILE_STEP = 1e-3
-# Small-K sweep to see whether the K=880->500->297 correlation trend (fewer,
-# larger clusters -> more points per cluster -> less noisy percentile bins)
-# keeps improving below 297. 297 kept as a continuity anchor against the
-# earlier sweep; it's already cached so it costs nothing extra to include.
-K_SWEEP       = list(range(15, 201, 15)) + [297]
+# Testing whether the K=880->15 correlation trend (fewer, larger clusters ->
+# more points per cluster -> less noisy empirical percentile bins) keeps
+# improving all the way down, or turns over before reaching Ada-ef's
+# degenerate K=1 case (rho~0 -- a single global cluster loses all the
+# per-neighborhood separation that makes cluster-awareness work in the first
+# place, on top of Ada-ef using a parametric Gaussian fit instead of empirical
+# percentiles). Only the new, not-yet-tested values -- 15..297 already ran.
+K_SWEEP       = [2, 3, 5, 8, 10]
 
 Z_QUANTILES = np.array([norm.ppf(QUANTILE_STEP * (i + 1)) for i in range(NUM_BINS)])
 BIN_WEIGHTS = [float(100.0 * np.exp(-i)) for i in range(NUM_BINS)]
