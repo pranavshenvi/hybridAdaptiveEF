@@ -145,6 +145,23 @@ def build_isotonic_ef_table(scores_int, required_efs, min_ef, max_ef):
     predicted = iso.predict(np.arange(max_score + 1))
     return [int(np.clip(v, min_ef, max_ef)) for v in predicted]
 
+def load_or_build_target_recall_table(cache_path, scores_int, calib_queries, calib_gt_arr):
+    """Cached wrapper around build_ef_table_target_recall -- this procedure
+    reruns real HNSW searches per EF_SWEEP checkpoint per bucket, so it's the
+    single most expensive step in the whole offline phase. It depends only on
+    the scores/queries/ground truth passed in, not on anything that changes
+    between runs testing different K values, so it's safe (and much faster)
+    to reuse across runs instead of recomputing every time.
+    """
+    if os.path.exists(cache_path):
+        with open(cache_path) as f_cache:
+            cached = json.load(f_cache)
+        return {int(k): v for k, v in cached["table"].items()}, cached["wae"]
+    table, wae = build_ef_table_target_recall(scores_int, calib_queries, calib_gt_arr)
+    with open(cache_path, "w") as f_cache:
+        json.dump({"table": table, "wae": wae}, f_cache, indent=4)
+    return table, wae
+
 def lookup_ef(score, table, min_ef=10, max_ef=3000):
     if not table: return max_ef
     if score in table: return int(np.clip(table[score], min_ef, max_ef))
@@ -269,22 +286,31 @@ print(f"\n{'═' * 80}")
 print(f"  Shared Calibration for Our Arch (Individual Query Min-EF)")
 print(f"{'═' * 80}")
 
-t0 = time.time()
-calib_min_ef = np.zeros(N_CALIB, dtype=np.float32)
-for i in range(N_CALIB):
-    for ef in EF_SWEEP:
-        labs, _ = idx.search_knn_adaptive(calib_q[i], K_SEARCH, idx.entry_point, idx.max_level, ef)
-        rec = len(set(labs) & set(calib_gt[i])) / K_SEARCH
-        if rec >= TARGET_RECALL:
-            calib_min_ef[i] = ef
-            break
-    else:
-        calib_min_ef[i] = EF_SWEEP[-1]
-    
-    if (i + 1) % 1000 == 0:
-        print(f"  ... calibrated {i + 1} queries")
+# Cached across runs: this depends only on calib_q/calib_gt/EF_SWEEP/TARGET_RECALL
+# (all fixed by N_CALIB + the seed), not on which K values are being swept, so
+# re-running to test more K's shouldn't have to redo this every time.
+minef_cache_path = f"calib_min_ef_cache_{N_CALIB}q.npz"
+if os.path.exists(minef_cache_path):
+    print(f"  Loading calib_min_ef from cache {minef_cache_path}...")
+    calib_min_ef = np.load(minef_cache_path)['calib_min_ef']
+else:
+    t0 = time.time()
+    calib_min_ef = np.zeros(N_CALIB, dtype=np.float32)
+    for i in range(N_CALIB):
+        for ef in EF_SWEEP:
+            labs, _ = idx.search_knn_adaptive(calib_q[i], K_SEARCH, idx.entry_point, idx.max_level, ef)
+            rec = len(set(labs) & set(calib_gt[i])) / K_SEARCH
+            if rec >= TARGET_RECALL:
+                calib_min_ef[i] = ef
+                break
+        else:
+            calib_min_ef[i] = EF_SWEEP[-1]
 
-print(f"  Done in {time.time() - t0:.1f}s")
+        if (i + 1) % 1000 == 0:
+            print(f"  ... calibrated {i + 1} queries")
+
+    print(f"  Done in {time.time() - t0:.1f}s")
+    np.savez(minef_cache_path, calib_min_ef=calib_min_ef)
 
 # ═══════════════════════════════════════════════════════════════════════
 #  ADA-EF Offline Phase (Exact Paper Bucket Iteration)
@@ -311,8 +337,10 @@ ada_scores_int = np.round(ada_calib_scores).astype(int)
 # 2. Iterate through each unique score bucket to find EF that hits target avg
 #    recall. Capped to N_CALIB_TARGET_RECALL queries (see config comment above)
 #    so this stays as expensive as before, independent of the larger N_CALIB
-#    pool now used for the isotonic-regression variant below.
-ada_table_exact, WAE = build_ef_table_target_recall(
+#    pool now used for the isotonic-regression variant below. Cached: this
+#    table is fully determined by Ada-ef's own (fixed) scores, not by K.
+ada_table_exact, WAE = load_or_build_target_recall_table(
+    f"cache_target_recall_ada_n{N_CALIB_TARGET_RECALL}.json",
     ada_scores_int[:N_CALIB_TARGET_RECALL], calib_q[:N_CALIB_TARGET_RECALL], calib_gt[:N_CALIB_TARGET_RECALL])
 print(f"  Calculated WAE for Ada-ef: {WAE}")
 
@@ -461,8 +489,11 @@ for K_CLUSTERS in K_SWEEP:
     # percentile-of-required-ef aggregation below. This isolates whether
     # cluster-aware bins beat the global Gaussian bins, with the calibration
     # rule held identical between the two. Capped to N_CALIB_TARGET_RECALL for
-    # the same cost reason as Ada-ef's own table above.
-    clust_table_target, clust_wae_target = build_ef_table_target_recall(
+    # the same cost reason as Ada-ef's own table above. Cached per K so a
+    # later run sweeping a different (possibly overlapping) K_SWEEP doesn't
+    # redo this for K values it's already computed before.
+    clust_table_target, clust_wae_target = load_or_build_target_recall_table(
+        f"cache_target_recall_k{K_CLUSTERS}_n{N_CALIB_TARGET_RECALL}.json",
         clust_calib_int[:N_CALIB_TARGET_RECALL], calib_q[:N_CALIB_TARGET_RECALL], calib_gt[:N_CALIB_TARGET_RECALL])
     with open(os.path.join(RESULTS_DIR, f"ef_table_k{K_CLUSTERS}_target.json"), "w") as f_json:
         json.dump(clust_table_target, f_json, indent=4)
