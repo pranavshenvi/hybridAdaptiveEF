@@ -10,11 +10,29 @@ artifacts from benchmark_exact_paper_sweep.py -- does NOT rerun the
 expensive per-K bucket calibration or online eval sweeps.
 """
 import os, sys, time, pickle
+from datetime import datetime
 import numpy as np
 import h5py
 from scipy.spatial.distance import cdist
 from scipy.stats import norm, spearmanr
 from sklearn.cluster import MiniBatchKMeans
+
+LOG_PATH = f"diagnose_correlation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+
+class Logger(object):
+    def __init__(self, filename=LOG_PATH):
+        self.terminal = sys.stdout
+        self.log = open(filename, "a", encoding="utf-8")
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+        self.log.flush()
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
+
+sys.stdout = Logger()
+print(f"Logging to {LOG_PATH}")
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'chao_hybrid_ada_ef'))
 import chao_hybrid_ada_ef_cpp
