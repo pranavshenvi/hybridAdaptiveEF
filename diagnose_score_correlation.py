@@ -43,7 +43,15 @@ K_SEARCH      = 100
 TARGET_RECALL = 0.99
 EF_SWEEP      = list(range(100, 3001, 25))
 N_CALIB       = 10000
-PROBE_COUNT   = 100
+# Matches the paper's own default for M=16: "1 + 32 + 31*32" = 1025,
+# the number of nodes reachable within 2 hops of the entry point on the base
+# layer (repo_clone/experiments_driver/run.cpp). Was previously 100 -- a
+# >10x smaller probe budget than the paper actually uses, which plausibly
+# explains why Ada-ef's measured correlation looked far worse than the
+# paper's reported results: with only 100 traversed distances instead of
+# 1025, estimating how many fall into narrow tail bins (the paper's bins
+# start at the 0.1st percentile) is far noisier.
+PROBE_COUNT   = 1025
 NUM_BINS      = 5
 QUANTILE_STEP = 1e-3
 # K=2..880 already tested (roughly flat ~-0.73 to -0.75 from K=2 to K=15, then
