@@ -209,7 +209,16 @@ test_q = np.load('msmarco_qemb_validation.npz')['emb'].astype(np.float32)
 dim = corpus.shape[1]
 n_corpus = corpus.shape[0]
 
-K_SWEEP = [297, 500, 880]
+# K=1: no clustering at all, one global empirical-percentile table (the
+#      correlation diagnostic showed this alone gets nearly all the way to
+#      the K=8-10 peak -- clustering turned out to be a minor refinement on
+#      top of "use real data instead of a Gaussian fit", not the main effect).
+# K=8: near the correlation peak found by the small-K sweep.
+# K=30: a mid-range point between the peak and the original 297/500/880 range.
+# K=297: kept from the original sweep as a continuity anchor.
+# All four already have cached k-means models from the correlation diagnostic,
+# so this reuses them rather than re-clustering.
+K_SWEEP = [1, 8, 30, 297]
 
 print(f"  Corpus: {corpus.shape} | Train Q: {train_q_full.shape} | Test Q: {test_q.shape} | dim={dim}")
 print(f"  Cluster Sweep Params: K_SWEEP={K_SWEEP}")
