@@ -906,9 +906,64 @@ class BFIndex {
     }
 };
 
+// -----------------------------------------------------------------------
+// Paper-exact Ada-ef scorer/sketch: thin OWNING wrappers around the
+// UNMODIFIED hnswdis::Estimator / ApproximatedScoreCalculator / Sketch
+// classes (vendored byte-for-byte from https://github.com/chaozhang-cs/
+// hnsw-ada-ef -- see hnswlib/distribution.h and hnswlib/sketch.h) so that,
+// combined with HierarchicalNSW::adaptiveSearchKnn (also unmodified, see
+// hnswlib/hnswalg.h), the online probing + scoring + ef-lookup is their
+// exact algorithm. No algorithmic code is added here, only glue to expose
+// what was already vendored but never bound to Python.
+// -----------------------------------------------------------------------
+class AdaEfPaperScorer {
+public:
+    std::shared_ptr<hnswdis::Estimator> estimator;
+    std::shared_ptr<hnswdis::ApproximatedScoreCalculator> score_cal;
+
+    AdaEfPaperScorer(py::array_t<float, py::array::c_style | py::array::forcecast> corpus, float quantile_step) {
+        auto buf = corpus.request();
+        if (buf.ndim != 2) throw std::runtime_error("Expected 2-D corpus array (n, dim)");
+        size_t n = buf.shape[0], d = buf.shape[1];
+        hnswdis::MatrixXf data(n, d);
+        std::memcpy(data.data(), buf.ptr, n * d * sizeof(float));
+        // CosineDistanceEstimator: matches the paper's msmarco config
+        // (metric="cd"), and requires unit-normalized vectors, which our
+        // corpus/queries already are (verified separately).
+        estimator = std::make_shared<hnswdis::CosineDistanceEstimator>(data);
+        score_cal = std::make_shared<hnswdis::ApproximatedScoreCalculator>(estimator, quantile_step);
+    }
+};
+
+class AdaEfPaperSketch {
+public:
+    std::vector<std::pair<int, std::vector<std::pair<int, float>>>> ef_recall_estimators;
+    float expected_recall;
+    std::shared_ptr<hnswdis::Sketch> sketch;
+
+    AdaEfPaperSketch(std::vector<std::pair<int, std::vector<std::pair<int, float>>>> table, float expected_recall_)
+        : ef_recall_estimators(std::move(table)), expected_recall(expected_recall_)
+    {
+        std::sort(ef_recall_estimators.begin(), ef_recall_estimators.end(),
+                  [](const auto& a, const auto& b) { return a.first < b.first; });
+        // Sketch stores a reference to ef_recall_estimators, not a copy --
+        // safe here since ef_recall_estimators is a member of this object
+        // and outlives sketch (declared first, so initialized first).
+        sketch = std::make_shared<hnswdis::Sketch>(ef_recall_estimators, expected_recall);
+    }
+};
+
 
 PYBIND11_PLUGIN(chao_hybrid_ada_ef_cpp) {
         py::module m("chao_hybrid_ada_ef_cpp");
+
+        py::class_<AdaEfPaperScorer, std::shared_ptr<AdaEfPaperScorer>>(m, "AdaEfPaperScorer")
+        .def(py::init<py::array_t<float, py::array::c_style | py::array::forcecast>, float>(),
+             py::arg("corpus"), py::arg("quantile_step"));
+
+        py::class_<AdaEfPaperSketch, std::shared_ptr<AdaEfPaperSketch>>(m, "AdaEfPaperSketch")
+        .def(py::init<std::vector<std::pair<int, std::vector<std::pair<int, float>>>>, float>(),
+             py::arg("ef_recall_estimators"), py::arg("expected_recall"));
 
         py::class_<Index<float>>(m, "Index")
         .def(py::init(&Index<float>::createFromParams), py::arg("params"))
@@ -1078,6 +1133,42 @@ PYBIND11_PLUGIN(chao_hybrid_ada_ef_cpp) {
             }
             return py::make_tuple(labels, dists);
         })
+        .def("adaptive_search_knn_paper", [](Index<float>& self, py::array_t<float, py::array::c_style> query, int k,
+                                              int statics_length, std::shared_ptr<AdaEfPaperScorer> scorer,
+                                              std::shared_ptr<AdaEfPaperSketch> sketch_wrapper) {
+            // Directly calls the unmodified HierarchicalNSW::adaptiveSearchKnn
+            // (hnswlib/hnswalg.h) -- the paper's exact online mechanism: an
+            // unpruned best-first probe collecting `statics_length` raw
+            // distances, scored via their ApproximatedScoreCalculator, then
+            // (if a sketch is given) Sketch::estimate_ef2 picks the real ef
+            // and the SAME traversal continues as a normal pruned search.
+            auto buf = query.request();
+            if (buf.ndim != 1) throw std::runtime_error("Expected 1-D query vector");
+            hnswdis::Sketch* sketch_ptr = sketch_wrapper ? sketch_wrapper->sketch.get() : nullptr;
+            auto res_pair = self.appr_alg->adaptiveSearchKnn(
+                static_cast<const float*>(buf.ptr), (size_t)k, (size_t)statics_length, *scorer->score_cal, sketch_ptr);
+            auto& res = res_pair.first;
+            float score = res_pair.second;
+            // ef_used is purely for reporting: re-derives what adaptiveSearchKnn
+            // already computed internally via the same (unmodified) estimate_ef2,
+            // it does not re-run or alter the search that already happened above.
+            int ef_used = sketch_ptr ? (int)sketch_ptr->estimate_ef2(score) : (int)k;
+            py::array_t<hnswlib::labeltype> labels(k);
+            py::array_t<float> dists(k);
+            auto lb = labels.mutable_unchecked<1>();
+            auto db = dists.mutable_unchecked<1>();
+            for (int j = k - 1; j >= 0; j--) {
+                if (!res.empty()) {
+                    lb(j) = res.top().second;
+                    db(j) = res.top().first;
+                    res.pop();
+                } else {
+                    lb(j) = -1;
+                    db(j) = 1e30f;
+                }
+            }
+            return py::make_tuple(labels, dists, score, ef_used);
+        }, py::arg("query"), py::arg("k"), py::arg("statics_length"), py::arg("scorer"), py::arg("sketch") = nullptr)
         .def("profile_query", [](Index<float>& self, py::array_t<float, py::array::c_style> query) {
             auto buf = query.request();
             if (buf.ndim != 1) throw std::runtime_error("Expected 1-D query vector");

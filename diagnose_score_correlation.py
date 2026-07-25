@@ -43,15 +43,23 @@ K_SEARCH      = 100
 TARGET_RECALL = 0.99
 EF_SWEEP      = list(range(100, 3001, 25))
 N_CALIB       = 10000
-# Matches the paper's own default for M=16: "1 + 32 + 31*32" = 1025,
+# Probe budget for OUR OWN cluster-aware scoring (search_knn_dynamic_weighted),
+# which actively prunes toward the query's true neighbors as the budget grows
+# -- unrelated to Ada-ef's statics_length below, which uses an intentionally
+# UNPRUNED probe (see STATICS_LENGTH comment). Do not raise this to match
+# statics_length: our pruned mechanism would hit the same saturate-to-constant
+# failure mode diagnosed for Ada-ef, just via a different route. 100 already
+# gives strong, non-degenerate correlation in the K=1..880 sweep.
+PROBE_COUNT   = 100
+# Ada-ef's own probe budget, used only with AdaEfPaperScorer/adaptive_search_knn_paper
+# below. Matches the paper's exact default for M=16: "1 + 32 + 31*32" = 1025,
 # the number of nodes reachable within 2 hops of the entry point on the base
-# layer (repo_clone/experiments_driver/run.cpp). Was previously 100 -- a
-# >10x smaller probe budget than the paper actually uses, which plausibly
-# explains why Ada-ef's measured correlation looked far worse than the
-# paper's reported results: with only 100 traversed distances instead of
-# 1025, estimating how many fall into narrow tail bins (the paper's bins
-# start at the 0.1st percentile) is far noisier.
-PROBE_COUNT   = 1025
+# layer (repo_clone/experiments_driver/run.cpp) -- NOT the same kind of
+# parameter as PROBE_COUNT: their adaptiveSearchBaseLayerST collects this many
+# RAW, UNPRUNED distances (ef=infinity, no eviction from top_candidates during
+# collection) before scoring, which is why a much larger budget doesn't
+# saturate the way our pruned mechanism does.
+STATICS_LENGTH = 1025
 NUM_BINS      = 5
 QUANTILE_STEP = 1e-3
 # K=2..880 already tested (roughly flat ~-0.73 to -0.75 from K=2 to K=15, then
@@ -63,8 +71,7 @@ QUANTILE_STEP = 1e-3
 # instead of a Gaussian assumption is what matters, independent of grouping.
 K_SWEEP       = [1]
 
-Z_QUANTILES = np.array([norm.ppf(QUANTILE_STEP * (i + 1)) for i in range(NUM_BINS)])
-BIN_WEIGHTS = [float(100.0 * np.exp(-i)) for i in range(NUM_BINS)]
+BIN_WEIGHTS = [float(100.0 * np.exp(-i)) for i in range(NUM_BINS)]  # cluster-aware method only
 
 def cluster_centroid_sqdists(corpus, labels, k, centroid, chunk=300_000):
     """Squared distances from cluster k's members to their centroid, computed
@@ -85,14 +92,6 @@ def cluster_centroid_sqdists(corpus, labels, k, centroid, chunk=300_000):
         sub = corpus[start:end][mask]
         parts.append(cdist(sub, centroid, metric='sqeuclidean').flatten())
     return np.concatenate(parts) if parts else np.array([], dtype=np.float32)
-
-def ada_ef_bins(queries, mean_v, cov_v):
-    mu_ip = queries @ mean_v
-    mu_l2 = 2 - 2 * mu_ip
-    sig_ip_sq = np.sum((queries @ cov_v) * queries, axis=1)
-    sig_l2 = 2 * np.sqrt(np.clip(sig_ip_sq, 0, None))
-    bins = mu_l2[:, None] + Z_QUANTILES[None, :] * sig_l2[:, None]
-    return bins.astype(np.float32)
 
 print("Loading corpus / calibration queries / ground truth (cached)...")
 with h5py.File('msmarco-8.8M-minilm-384d.hdf5', 'r') as f:
@@ -136,15 +135,24 @@ else:
     np.savez(minef_cache, calib_min_ef=calib_min_ef)
 
 # ---------------------------------------------------------------------------
-# Ada-ef score (global Gaussian bins)
+# Ada-ef score -- via their OWN unmodified code, not a reimplementation.
+# AdaEfPaperScorer owns a real hnswdis::CosineDistanceEstimator +
+# ApproximatedScoreCalculator (vendored byte-for-byte from their repo); each
+# call below goes through HierarchicalNSW::adaptiveSearchKnn (also
+# unmodified), which does their exact unpruned-probe-then-score mechanism.
+# No sketch is passed (not needed just to get a score for correlation
+# checking), so this only exercises the probing + scoring half of their
+# algorithm, which is exactly what's being validated here.
 # ---------------------------------------------------------------------------
-print("\nScoring calibration queries with Ada-ef's global Gaussian bins...")
-corpus_mean = np.mean(corpus, axis=0)
-sub = corpus[np.random.choice(len(corpus), min(100_000, len(corpus)), replace=False)]
-corpus_cov = np.cov(sub, rowvar=False).astype(np.float32)
-calib_bins = ada_ef_bins(calib_q, corpus_mean, corpus_cov)
+print("\nBuilding AdaEfPaperScorer (their exact Estimator + ApproximatedScoreCalculator)...")
+t0 = time.time()
+scorer = chao_hybrid_ada_ef_cpp.AdaEfPaperScorer(corpus, QUANTILE_STEP)
+print(f"  Done in {time.time() - t0:.1f}s")
+
+print("Scoring calibration queries via their adaptiveSearchKnn (statics_length="
+      f"{STATICS_LENGTH})...")
 ada_scores = np.array([
-    idx.get_dynamic_probe_score_weighted(calib_q[i], calib_bins[i].tolist(), BIN_WEIGHTS, PROBE_COUNT)
+    idx.adaptive_search_knn_paper(calib_q[i], K_SEARCH, STATICS_LENGTH, scorer, None)[2]
     for i in range(N_CALIB)
 ], dtype=np.float64)
 

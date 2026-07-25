@@ -1414,7 +1414,12 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         ef = std::numeric_limits<size_t>::max();
         bool flag_collect_statistics = true;
         size_t statics_limit = statics_length;
-        dist_t distances[statics_limit]; 
+        // MSVC portability fix only (GCC allows runtime-sized stack arrays as
+        // an extension, MSVC does not): std::vector<dist_t> of the same fixed
+        // size behaves identically to the original VLA for every access below
+        // (operator[] is the same, indices 0..statics_limit-1) -- no
+        // algorithmic change.
+        std::vector<dist_t> distances(statics_limit);
         size_t size_distances = 0;
         float score = 0.0; 
         // change === end      
@@ -1511,7 +1516,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                             flag_consider_candidate = true;
                             if (size_distances == statics_limit){ // let the search run for statics_limit iterations
                                 flag_collect_statistics = false;
-                                score = score_calculator.compute_score(data_point, *((size_t *) dist_func_param_), distances, size_distances);                                
+                                score = score_calculator.compute_score(data_point, *((size_t *) dist_func_param_), distances.data(), size_distances);
                                 if (sketch){
                                     ef = sketch->estimate_ef2(score); // used for estimating ef
                                     if (ef < ef_copy){ 
@@ -1680,7 +1685,12 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         ef = std::numeric_limits<size_t>::max();
         bool flag_collect_statistics = true;
         size_t statics_limit = statics_length;
-        dist_t distances[statics_limit]; 
+        // MSVC portability fix only (GCC allows runtime-sized stack arrays as
+        // an extension, MSVC does not): std::vector<dist_t> of the same fixed
+        // size behaves identically to the original VLA for every access below
+        // (operator[] is the same, indices 0..statics_limit-1) -- no
+        // algorithmic change.
+        std::vector<dist_t> distances(statics_limit);
         size_t size_distances = 0;
         float score = 0.0; 
         // change === end      
@@ -1777,7 +1787,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                             flag_consider_candidate = true;
                             if (size_distances == statics_limit){ // let the search run for statics_limit iterations
                                 flag_collect_statistics = false;
-                                score = score_calculator.compute_score(data_point, *((size_t *) dist_func_param_), distances, size_distances);                                
+                                score = score_calculator.compute_score(data_point, *((size_t *) dist_func_param_), distances.data(), size_distances);
                                 if (sketch){
                                     ef = sketch->estimate_ef2(score);  // get estimated ef                                  
                                     if (ef < ef_copy){ 
