@@ -55,16 +55,19 @@ N_CALIB       = 1500
 PROBE_COUNT   = 100
 NUM_BINS      = 5
 QUANTILE_STEP = 1e-3
-# 1/8/15/30 already run: correlation degraded monotonically from K=1 (-0.51)
-# all the way down to K=30 (-0.30), unlike the 384-dim corpus where K=8-10
-# beat K=1. Checking whether that's a smooth monotonic decline from K=1, or
-# whether there's a small peak between 1 and 8 we skipped over (plausible
-# since this corpus is ~5x smaller than the 384-dim one, so a given K has far
-# fewer points per cluster). Only the new values -- 1/8/15/30 already cached.
-K_SWEEP       = [2, 3, 5]
+# Ada-ef's own probe budget -- see diagnose_score_correlation.py's identical
+# comment. The earlier Cohere run (rho=-0.0253) used the OLD, broken pruned
+# reimplementation, not their real algorithm -- this rerun uses the real one
+# (AdaEfPaperScorer/adaptive_search_knn_paper), so that number needs redoing.
+STATICS_LENGTH = 1025
+# Cluster-aware side is unaffected by the Ada-ef fix (only Ada-ef's own
+# scoring path was reimplemented before) -- K=1 kept as a quick, already-
+# cached anchor point to pair with the corrected Ada-ef number. The other K
+# values (2,3,5,8,15,30) already have valid results from the earlier run and
+# don't need re-measuring.
+K_SWEEP       = [1]
 
-Z_QUANTILES = np.array([norm.ppf(QUANTILE_STEP * (i + 1)) for i in range(NUM_BINS)])
-BIN_WEIGHTS = [float(100.0 * np.exp(-i)) for i in range(NUM_BINS)]
+BIN_WEIGHTS = [float(100.0 * np.exp(-i)) for i in range(NUM_BINS)]  # cluster-aware method only
 
 def cluster_centroid_sqdists(corpus, labels, k, centroid, chunk=300_000):
     """Squared distances from cluster k's members to their centroid, computed
@@ -83,14 +86,6 @@ def cluster_centroid_sqdists(corpus, labels, k, centroid, chunk=300_000):
         parts.append(cdist(sub, centroid, metric='sqeuclidean').flatten())
     return np.concatenate(parts) if parts else np.array([], dtype=np.float32)
 
-def ada_ef_bins(queries, mean_v, cov_v):
-    mu_ip = queries @ mean_v
-    mu_l2 = 2 - 2 * mu_ip
-    sig_ip_sq = np.sum((queries @ cov_v) * queries, axis=1)
-    sig_l2 = 2 * np.sqrt(np.clip(sig_ip_sq, 0, None))
-    bins = mu_l2[:, None] + Z_QUANTILES[None, :] * sig_l2[:, None]
-    return bins.astype(np.float32)
-
 # ---------------------------------------------------------------------------
 # Load corpus / queries, verify (or enforce) unit normalization
 # ---------------------------------------------------------------------------
@@ -106,8 +101,8 @@ qn = np.linalg.norm(all_q[:min(200, len(all_q))], axis=1)
 print(f"  corpus norm: mean={cn.mean():.4f} std={cn.std():.2e}")
 print(f"  query  norm: mean={qn.mean():.4f} std={qn.std():.2e}")
 if abs(cn.mean() - 1) > 0.01 or abs(qn.mean() - 1) > 0.01:
-    print("  Not unit-normalized -- normalizing now (required for the L2<->cosine "
-          "bin conversion in ada_ef_bins to be exact rather than approximate).")
+    print("  Not unit-normalized -- normalizing now (required for AdaEfPaperScorer's "
+          "CosineDistanceEstimator, which assumes unit-normalized vectors).")
     corpus = corpus / np.linalg.norm(corpus, axis=1, keepdims=True)
     all_q = all_q / np.linalg.norm(all_q, axis=1, keepdims=True)
 else:
@@ -175,15 +170,19 @@ else:
     np.savez(minef_cache, calib_min_ef=calib_min_ef)
 
 # ---------------------------------------------------------------------------
-# Ada-ef score (global Gaussian bins)
+# Ada-ef score -- via their OWN unmodified code (AdaEfPaperScorer wraps their
+# real CosineDistanceEstimator + ApproximatedScoreCalculator; each call goes
+# through their real, unmodified adaptiveSearchKnn). Replaces the earlier
+# ada_ef_bins/get_dynamic_probe_score_weighted reimplementation, which is the
+# same bug already found and fixed in diagnose_score_correlation.py -- this
+# script just hadn't been updated to match yet.
 # ---------------------------------------------------------------------------
-print("\nScoring calibration queries with Ada-ef's global Gaussian bins...")
-corpus_mean = np.mean(corpus, axis=0)
-sub = corpus[np.random.choice(len(corpus), min(100_000, len(corpus)), replace=False)]
-corpus_cov = np.cov(sub, rowvar=False).astype(np.float32)
-calib_bins = ada_ef_bins(calib_q, corpus_mean, corpus_cov)
+print("\nBuilding AdaEfPaperScorer (their exact Estimator + ApproximatedScoreCalculator)...")
+ada_scorer = chao_hybrid_ada_ef_cpp.AdaEfPaperScorer(corpus, QUANTILE_STEP)
+
+print(f"Scoring calibration queries via their adaptiveSearchKnn (statics_length={STATICS_LENGTH})...")
 ada_scores = np.array([
-    idx.get_dynamic_probe_score_weighted(calib_q[i], calib_bins[i].tolist(), BIN_WEIGHTS, PROBE_COUNT)
+    idx.adaptive_search_knn_paper(calib_q[i], K_SEARCH, STATICS_LENGTH, ada_scorer, None)[2]
     for i in range(N_CALIB)
 ], dtype=np.float64)
 
@@ -235,8 +234,9 @@ print("  SUMMARY (Cohere 1024-dim): correlation between score and true required-
 print(f"{'=' * 60}")
 for name, rho, p in results:
     print(f"  {name:<30} rho={rho:+.4f}")
-print("\nCompare against the 384-dim MS MARCO run: Ada-ef there was rho~0,")
-print("K=1 (ours) was rho~-0.70, K=8-10 peaked ~-0.75. If this dataset shows")
-print("Ada-ef doing meaningfully better here, that's the CLT-convergence-with-")
-print("dimension effect winning; if it's still ~0, anisotropy is dominating")
-print("regardless of nominal dimension -- see the explanation from before.")
+print("\nCompare against the 384-dim MS MARCO run (with the same, corrected Ada-ef")
+print("implementation): Ada-ef there was rho=-0.58, K=1 (ours) was rho=-0.70,")
+print("K=8-10 peaked ~-0.75. If Ada-ef's rho here is comparably strong, that's")
+print("the CLT-convergence-with-dimension effect winning; if it's still much")
+print("weaker (or ~0, like the earlier broken-reimplementation reading), that")
+print("means anisotropy dominates regardless of nominal dimension.")
