@@ -170,50 +170,116 @@ the correlation-level finding online too.
 Downloaded via `download_cohere_msmarco_subset.py` (1 of 60 parquet shards from
 `CohereLabs/msmarco-v2.1-embed-english-v3` on HuggingFace — the same dataset the paper
 cites [ref 14], just under a renamed HF org; a smaller slice than their reported 18.38M
-passages, not the full 113.5M-passage corpus). Correlation-only diagnostic so far
-(`diagnose_correlation_cohere1024.py`); **no full online benchmark yet** (see §5).
+passages, not the full 113.5M-passage corpus).
 
-**⚠️ CORRECTION NEEDED**: the Ada-ef number below (-0.0253) was measured using the
-**old, broken pruned reimplementation** (`ada_ef_bins` + `get_dynamic_probe_score_weighted`)
-— the same bug found and fixed for MS MARCO (§1, item 6/7) — this script just hadn't
-been updated to use `AdaEfPaperScorer`/`adaptive_search_knn_paper` yet. Since the
-old-vs-fixed gap was enormous on MS MARCO (rho 0.0008 → -0.58), this number is **not
-trustworthy as-is** and the conclusions below need re-verifying. The script has now
-been fixed (same pattern as MS MARCO); needs a rerun to get the real number.
+### 4a. Correlation (Spearman rho, score vs. true required ef) — CORRECTED
 
-| Method | rho | Status |
-|---|---|---|
-| Ada-ef (their real algorithm) | -0.0253 | ⚠️ **UNVERIFIED — old broken mechanism, needs rerun** |
-| Ours, K=1 | -0.51 (best) | valid (cluster-aware side wasn't affected by the bug) |
-| Ours, K=2 | -0.46 | valid |
-| Ours, K=8 | -0.38 | valid |
-| Ours, K=30 | -0.30 | valid |
+The earlier -0.0253 reading was measured with the old, broken pruned reimplementation
+(same bug class as §1/#6-7) and has since been re-run with the real, fixed Ada-ef
+mechanism (`AdaEfPaperScorer`/`adaptive_search_knn_paper`). Corrected result:
 
-The cluster-aware numbers are unaffected (that code path was already correct) and the
-"clustering never helps on this corpus, K=1 is best" conclusion stands. But the
-"Ada-ef's Gaussian assumption fails just as badly at 1024-dim" conclusion is **not yet
-established** — it rests on the unverified number and needs the corrected rerun before
-being treated as a finding.
+| Method | rho |
+|---|---|
+| Ada-ef (their real algorithm) | **-0.7538** |
+| Ours, K=1 (no clustering) | -0.5113 |
+| Ours, K=2 | -0.46 |
+| Ours, K=8 | -0.38 |
+| Ours, K=30 | -0.30 |
+
+This **reverses** the MS MARCO-only conclusion: on this corpus, Ada-ef's parametric
+Gaussian score is clearly *more* informative than our empirical-percentile score.
+Clustering also still doesn't help here (monotonic degradation from K=1 upward, same
+shape as before). Combined with MS MARCO (Ada-ef -0.58, ours peaking -0.75 at K=8), the
+honest reading is: **which method's score correlates better with difficulty depends on
+the corpus/embedding, not a universal property of empirical-vs-Gaussian scoring.**
+Falsifies the earlier "anisotropy always beats CLT regardless of dimension" hypothesis —
+Cohere's 1024-dim embeddings apparently satisfy the Gaussian-sum assumption better than
+MiniLM's 384-dim ones do, plausibly because the two models are trained with different
+objectives (Cohere's contrastive training may produce more isotropic embeddings).
+
+### 4b. Full online benchmark (recall / distance computations)
+
+Run via `benchmark_cohere1024_sweep.py`. Vanilla(ef=...), Ada-ef (exact), and
+Cluster-aware at K=1/8/30/297 (Isotonic/Mean/P90/P70); the cluster-aware "TargetRecall"
+matched-calibration ablation was dropped (see file docstring — never won on MS MARCO,
+not worth repeating). Calibration follows the Ada-ef paper's own protocol **exactly**
+(Sec 5.5: 200 points sampled directly from the corpus as "proxy query vectors", used for
+*both* Ada-ef's table and our own calib_min_ef/score tables, for parity) — all 1677 real
+queries (the paper's own reported "Query Size" for this dataset) are used purely for the
+test set. Target recall = 0.99, K_SEARCH=100, n_test=1677:
+
+| Method | Mean R | Total DC | Avg EF | ≥target% |
+|---|---|---|---|---|
+| Vanilla(ef=1200) | 0.9841 | 24,256 | 1200.0 | 78.1% |
+| Vanilla(ef=1000) | 0.9815 | 20,266 | 1000.0 | 75.6% |
+| Vanilla(ef=800) | 0.9771 | 16,267 | 800.0 | 71.3% |
+| **Ada-ef (exact)** | **0.9510** | **8,949** | **431.0** | **50.5%** |
+| **Ours (K=1, Isotonic)** | **0.9806** | **18,910** | **813.7** | **73.0%** |
+| Ours (K=8, Isotonic) | 0.9752 | 15,115 | 631.0 | 68.5% |
+| Ours (K=30, Isotonic) | 0.9723 | 13,648 | 559.6 | 66.0% |
+| Ours (K=297, Isotonic) | 0.9677 | 11,976 | 467.8 | 62.4% |
+| Ours (K=1/8/30/297, Mean/P90/P70) | 0.965–0.967 | 10,700–16,200 | ~420–700 | 59–62% |
+
+**Ada-ef badly under-recalls here (0.951 mean vs. 0.99 target, only half the queries hit
+target) despite the strong rho=-0.7538 above** — these measure different things:
+
+- Rho was measured on the *real held-out query* population (1500 real queries in the
+  correlation diagnostic) — it says Ada-ef's raw score ranks *those* queries' difficulty
+  well.
+- The online table's ef-estimation table was calibrated on the paper's own 200
+  *self-sampled corpus points* — and those are a systematically "easier" population for
+  HNSW: a self-sampled point is already a literal graph node, so its own top-1 neighbor
+  (itself, similarity=1.0) is found almost instantly, and its true neighbors are
+  directly graph-connected to it (M=16 edges built around exactly that locality). A real
+  query has no such shortcut. Cohere's embed-v3 model also encodes queries and passages
+  **asymmetrically** (`input_type="search_query"` vs `"search_document"`), unlike
+  GloVe/DeepImage/LAION where "query" and "corpus" are literally the same distribution —
+  compounding the mismatch. Net effect: the calibration table learns "ef needed for 99%
+  recall on easy, graph-resident points" (≈431), which badly undershoots what real
+  queries need (`Vanilla(ef=1200)` — nearly 3× Ada-ef's avg ef — still only reaches
+  0.9841 on real queries, still short of 0.99).
+- Score informativeness (rho) and calibration-table transferability (self-sampled
+  corpus proxies → real queries) are independent failure modes. Ada-ef does well on the
+  first and fails on the second, specifically because of how the paper's own protocol
+  (Sec 5.5) builds that table.
+- Our cluster-aware method used the *same* 200-point self-sampled calibration (for
+  parity) and still reached 0.9806 mean recall — plausibly because isotonic regression's
+  `out_of_bounds='clip'` pins real queries whose score falls outside the narrow range
+  seen in the 200 easy calibration points to the table's own max observed ef, a less
+  severe undershoot than Ada-ef's Sketch/EfAdapter lookup produces in the same
+  situation — flagged as a plausible mechanism, not yet directly verified.
+
+This is a genuinely important, independent finding, not just a restatement of the
+correlation result: **Ada-ef's core calibration assumption (corpus points substitute for
+queries during offline calibration) breaks down specifically on datasets with asymmetric
+query/document embeddings** — common in real dense-retrieval systems, not a corner case.
 
 ---
 
 ## 5. Open items / natural next steps
 
-- Run the full online benchmark (recall/DC, not just correlation) on the Cohere
-  1024-dim corpus, mirroring `benchmark_exact_paper_sweep.py`, to confirm the
-  correlation advantage there also translates into real online efficiency gains.
+- Verify directly (rather than just plausibly infer) why the isotonic-calibrated
+  cluster-aware method degrades more gracefully than Ada-ef's Sketch under the same
+  self-sampled-calibration handicap — e.g. inspect the isotonic table's tail / clip
+  behavior vs. `Sketch::estimate_ef2`'s behavior for out-of-calibration-range scores.
 - The corpus-size vs. dimension vs. domain confound behind "clustering helps a little on
   MS MARCO, hurts on Cohere" hasn't been fully disentangled (would need e.g. a
   same-size subsample of MS MARCO at similar scale to Cohere's 1.76M to isolate corpus
   size specifically).
 - Consider testing on a third, more heterogeneous corpus before treating "K=1 is
   universally best" as more than a two-dataset finding.
+- Consider whether the MS MARCO 384-dim benchmark's own calibration (real held-out
+  queries, not self-sampled corpus points) should be re-run with the paper's actual
+  self-sampling protocol too, for full methodological consistency between the two
+  corpora's comparisons.
 
 ---
 
 ## 6. Key files
 
 - `benchmark_exact_paper_sweep.py` — full online benchmark, MS MARCO 8.8M/384-dim.
+- `benchmark_cohere1024_sweep.py` — full online benchmark, Cohere 1024-dim subset;
+  calibration matches the paper's own self-sampled-corpus-points protocol.
 - `diagnose_score_correlation.py` — cheap correlation-only diagnostic, MS MARCO.
 - `diagnose_correlation_cohere1024.py` — correlation diagnostic, Cohere 1024-dim.
 - `download_cohere_msmarco_subset.py` — downloads a controlled-size Cohere subset.
