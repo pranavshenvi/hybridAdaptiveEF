@@ -70,6 +70,14 @@ PROBE_COUNT    = 100
 # contributes that bin's weight; the score is the mean weight over all probes.
 NUM_BINS       = 5
 QUANTILE_STEP  = 1e-3
+# Ada-ef's own probe budget -- ONLY used with AdaEfPaperScorer/adaptive_search_knn_paper
+# below, which calls their real, unmodified adaptiveSearchKnn. Matches the
+# paper's exact default for M=16: "1 + 32 + 31*32" = 1025 (2-hop neighbors on
+# the base layer, repo_clone/experiments_driver/run.cpp). NOT interchangeable
+# with PROBE_COUNT: their adaptiveSearchBaseLayerST collects this many RAW,
+# UNPRUNED distances (ef=infinity, no eviction during collection) before
+# scoring, unlike our own pruned search_knn_dynamic_weighted mechanism.
+STATICS_LENGTH = 1025
 
 # ═══════════════════════════════════════════════════════════════════════
 #  Helpers & Ada-ef scoring
@@ -174,10 +182,9 @@ def lookup_ef(score, table, min_ef=10, max_ef=3000):
     frac = (score - lo) / (hi - lo)
     return int(np.clip(table[lo] + frac * (table[hi] - table[lo]), min_ef, max_ef))
 
-# Ascending, low-tail z-quantiles: quantile_step*(i+1) for i=0..NUM_BINS-1
-# (paper's "bottom-based" branch, used for distance-like metrics).
-Z_QUANTILES = np.array([norm.ppf(QUANTILE_STEP * (i + 1)) for i in range(NUM_BINS)])
 # Exponential decay weights, bin 0 (most extreme low-tail) weighted highest.
+# Cluster-aware method only -- Ada-ef's weighting is handled internally by
+# their own (unmodified) ApproximatedScoreCalculator now.
 BIN_WEIGHTS = [float(100.0 * np.exp(-i)) for i in range(NUM_BINS)]
 
 def cluster_centroid_sqdists(corpus, labels, k, centroid, chunk=300_000):
@@ -199,19 +206,6 @@ def cluster_centroid_sqdists(corpus, labels, k, centroid, chunk=300_000):
         sub = corpus[start:end][mask]
         parts.append(cdist(sub, centroid, metric='sqeuclidean').flatten())
     return np.concatenate(parts) if parts else np.array([], dtype=np.float32)
-
-def ada_ef_bins(queries, mean_v, cov_v):
-    """Per-query bin thresholds from the paper's InnerProductEstimator practical
-    distribution (mean = q.mean_v, var = q^T cov_v q), re-expressed in squared-L2
-    units. This re-expression is exact (not approximate) because queries/corpus
-    are unit-normalized: ||a-b||^2 = 2 - 2<a,b> and Var(L2^2) = 4*Var(IP) exactly.
-    """
-    mu_ip = queries @ mean_v
-    mu_l2 = 2 - 2 * mu_ip
-    sig_ip_sq = np.sum((queries @ cov_v) * queries, axis=1)
-    sig_l2 = 2 * np.sqrt(np.clip(sig_ip_sq, 0, None))
-    bins = mu_l2[:, None] + Z_QUANTILES[None, :] * sig_l2[:, None]
-    return bins.astype(np.float32)
 
 # ═══════════════════════════════════════════════════════════════════════
 #  Data Loading
@@ -320,16 +314,19 @@ print(f"  ADA-EF: Exact Paper Offline Phase (Bucket-Average Probing)")
 print(f"{'═' * 80}")
 
 t_ada_total = time.time()
-corpus_mean = np.mean(corpus, axis=0)
-sub = corpus[np.random.choice(len(corpus), min(100_000, len(corpus)), replace=False)]
-corpus_cov = np.cov(sub, rowvar=False).astype(np.float32)
 
-# 1. Score all calibration queries using the paper-exact single-pass mechanism:
-#    an ef=PROBE_COUNT traversal is scored with the query's own Gaussian-derived
-#    bins (no separate brute-force probe against a fixed sample set).
-calib_bins = ada_ef_bins(calib_q, corpus_mean, corpus_cov)
+# AdaEfPaperScorer owns their real (unmodified) hnswdis::CosineDistanceEstimator
+# + ApproximatedScoreCalculator -- built once here, reused for every query
+# below. Replaces the old ada_ef_bins/corpus_mean/corpus_cov reimplementation.
+print("  Building AdaEfPaperScorer (their exact Estimator + ApproximatedScoreCalculator)...")
+ada_scorer = chao_hybrid_ada_ef_cpp.AdaEfPaperScorer(corpus, QUANTILE_STEP)
+
+# 1. Score all calibration queries via their real adaptiveSearchKnn (no sketch
+#    yet -- just need the score, which is returned regardless of whether a
+#    sketch is provided). This is their exact unpruned-probe-then-score
+#    mechanism, not a reimplementation.
 ada_calib_scores = np.array([
-    idx.get_dynamic_probe_score_weighted(calib_q[i], calib_bins[i].tolist(), BIN_WEIGHTS, PROBE_COUNT)
+    idx.adaptive_search_knn_paper(calib_q[i], K_SEARCH, STATICS_LENGTH, ada_scorer, None)[2]
     for i in range(N_CALIB)
 ], dtype=np.float64)
 ada_scores_int = np.round(ada_calib_scores).astype(int)
@@ -337,21 +334,27 @@ ada_scores_int = np.round(ada_calib_scores).astype(int)
 # 2. Iterate through each unique score bucket to find EF that hits target avg
 #    recall. Capped to N_CALIB_TARGET_RECALL queries (see config comment above)
 #    so this stays as expensive as before, independent of the larger N_CALIB
-#    pool now used for the isotonic-regression variant below. Cached: this
-#    table is fully determined by Ada-ef's own (fixed) scores, not by K.
+#    pool now used for the isotonic-regression variant below.
+# _paper suffix: forces recompute instead of loading a stale cache keyed to
+# the old (reimplemented) Ada-ef scores, which are numerically different.
 ada_table_exact, WAE = load_or_build_target_recall_table(
-    f"cache_target_recall_ada_n{N_CALIB_TARGET_RECALL}.json",
+    f"cache_target_recall_ada_paper_n{N_CALIB_TARGET_RECALL}.json",
     ada_scores_int[:N_CALIB_TARGET_RECALL], calib_q[:N_CALIB_TARGET_RECALL], calib_gt[:N_CALIB_TARGET_RECALL])
 print(f"  Calculated WAE for Ada-ef: {WAE}")
 
 with open(os.path.join(RESULTS_DIR, "ef_table_ada_exact.json"), "w") as f_json:
     json.dump(ada_table_exact, f_json, indent=4)
 
-# Dense score->ef lookup table for the online single-pass search (WAE floor
-# baked in, mirroring the previous `ef = max(ef, WAE)` fallback).
-max_score_ada = max(ada_table_exact.keys()) if ada_table_exact else 0
-ada_ef_table_list = [max(lookup_ef(s, ada_table_exact), WAE) for s in range(max_score_ada + 1)] \
-    if ada_table_exact else [WAE]
+# Build their real Sketch (hnswdis::Sketch, unmodified) from this table. Each
+# score maps to a single (ef, recall) pair where recall==TARGET_RECALL, which
+# is sufficient for their estimate_ef/estimate_ef2 lookup (it returns the
+# first ef whose recall >= expected_recall -- our one entry already qualifies).
+# Note: no WAE floor is applied here -- their actual Sketch class (as shipped)
+# doesn't implement the max(ef, WAE) step described in Algorithm 1; that floor
+# apparently lives in their experiment driver, not the core class, so it's
+# left out here to stay faithful to the class we're actually calling.
+ef_recall_estimators = [(int(s), [(int(ef), float(TARGET_RECALL))]) for s, ef in ada_table_exact.items()]
+ada_sketch = chao_hybrid_ada_ef_cpp.AdaEfPaperSketch(ef_recall_estimators, TARGET_RECALL)
 
 t_ada_total = time.time() - t_ada_total
 print(f"  Ada-EF Offline Total: {t_ada_total:.1f}s")
@@ -380,22 +383,19 @@ def eval_ada_ef():
     idx.reset_dist_count()
     recs, efs = [], []
     t0 = time.time()
-    t_s = time.time()
-    test_bins = ada_ef_bins(test_q, corpus_mean, corpus_cov)
-    t_s = time.time() - t_s
     for i in range(n_test):
-        # Single traversal: scores off the ef=PROBE_COUNT stopping point, then
-        # continues the SAME traversal to the final ef -- no separate probe.
-        labs, _, ef_used = idx.search_knn_dynamic_weighted(
-            test_q[i], K_SEARCH, test_bins[i].tolist(), BIN_WEIGHTS, ada_ef_table_list,
-            K_SEARCH, EF_SWEEP[-1], PROBE_COUNT)
+        # Their real adaptiveSearchKnn, single call: unpruned probe -> score via
+        # their ApproximatedScoreCalculator -> ef via their Sketch.estimate_ef2
+        # -> continues the SAME traversal (pruned from here) to that ef.
+        labs, _, score, ef_used = idx.adaptive_search_knn_paper(
+            test_q[i], K_SEARCH, STATICS_LENGTH, ada_scorer, ada_sketch)
         efs.append(ef_used)
         recs.append(len(set(labs) & set(test_gt[i])) / K_SEARCH)
     dt = time.time() - t0
     dc = idx.get_dist_count() / n_test
     r = np.array(recs)
     return dict(name='Ada-ef (exact)', mean_r=np.mean(r), p5=np.percentile(r, 5), p1=np.percentile(r, 1),
-                hnsw_dc=dc, probe_dc=0, time=dt, score_time=t_s, avg_ef=np.mean(efs),
+                hnsw_dc=dc, probe_dc=0, time=dt, score_time=0.0, avg_ef=np.mean(efs),
                 pct_target=np.mean(r >= TARGET_RECALL) * 100)
 
 def eval_cluster_aware(name, K_VAL, centroids, cluster_bins, ef_table_list):

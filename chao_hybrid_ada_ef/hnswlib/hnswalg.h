@@ -1373,11 +1373,17 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
         bool bare_bone_search = !num_deleted_ && !isIdAllowed;
         if (bare_bone_search) {
-            base_layer_result = adaptiveSearchBaseLayerST<true>(
+            // collect_metrics=true (2nd template arg) added: instrumentation-only
+            // change so metric_distance_computations is actually incremented during
+            // this traversal (it defaulted to false here, meaning get_dist_count()
+            // would silently undercount Ada-ef's real cost -- same bug class as the
+            // one already found and fixed in our own scoring functions). Does not
+            // change the search, its results, or the score computed.
+            base_layer_result = adaptiveSearchBaseLayerST<true, true>(
                     currObj, query_data, std::max(ef_, k), statics_length, score_calculator, sketch, isIdAllowed);
-            top_candidates = std::move(base_layer_result.first);            
+            top_candidates = std::move(base_layer_result.first);
         } else {
-            base_layer_result = adaptiveSearchBaseLayerST<false>(
+            base_layer_result = adaptiveSearchBaseLayerST<false, true>(
                     currObj, query_data, std::max(ef_, k), statics_length, score_calculator, sketch, isIdAllowed);
             top_candidates = std::move(base_layer_result.first);
         }
