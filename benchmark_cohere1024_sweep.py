@@ -13,13 +13,22 @@ repeating on a second corpus). Ada-ef's OWN offline calibration still uses
 build_ef_table_target_recall, since that IS their algorithm's mechanism,
 not the ablation being dropped.
 
-Only 1677 total queries exist for this corpus (single HF query shard) --
-1500 are used for calibration (matching the cached ground truth / min-ef /
-K=1 k-means artifacts from diagnose_correlation_cohere1024.py), the
-remaining ~177 held out as the test set for this online eval. That's a
-much smaller test set than MS MARCO's 6980, so per-method recall numbers
-here will be noisier -- treat differences smaller than a few percent with
-that in mind.
+Calibration set matches the Ada-ef paper's OWN protocol exactly (Sec 5.5:
+"the absence of query vectors during the offline phase... we uniformly
+sample a subset of data vectors (e.g., 200 vectors) from the dataset V
+and use them as proxy query vectors" -- confirmed in their code,
+repo_clone/hnswlib/adaptive_ef.h::sample_data()/compute_samplings()).
+So calibration here is 200 points sampled DIRECTLY FROM THE CORPUS (not
+from the real query file), with ground truth computed against the same
+corpus -- used both for Ada-ef's own ef-estimation table and (for fairness)
+for our own cluster-aware calib_min_ef/score tables. This is a genuine
+handicap shared by both methods (very little calibration signal), not an
+advantage for either side.
+
+This frees up ALL 1677 real queries (the paper's own reported "Query Size"
+for MS MARCO V2.1) for the online test set, instead of holding some back
+for calibration -- much better statistical power than a real-query split
+would give on a corpus this query-scarce.
 """
 import os, sys, time, pickle, json
 from datetime import datetime
@@ -62,10 +71,10 @@ DATA_DIR       = "cohere_msmarco_v21_subset"
 K_SEARCH       = 100
 TARGET_RECALL  = 0.99
 EF_SWEEP       = list(range(100, 3001, 25))
-# Matches diagnose_correlation_cohere1024.py's split exactly (same seed, same
-# first random call) so the calib_gt / calib_min_ef / K=1 k-means caches it
-# already built are reusable here instead of recomputed.
-N_CALIB        = 1500
+# Paper's own default sampling size (Sec 5.5 / Table 9 sensitivity study --
+# 200 gives the best offline-cost/online-performance trade-off; larger sizes
+# raise offline cost without consistently improving online search).
+SAMPLE_SIZE    = 200
 PROBE_COUNT    = 100
 NUM_BINS       = 5
 QUANTILE_STEP  = 1e-3
@@ -189,19 +198,39 @@ if abs(cn.mean() - 1) > 0.01 or abs(qn.mean() - 1) > 0.01:
 else:
     print("  Already unit-normalized.")
 
-if N_CALIB > len(all_q):
-    raise ValueError(f"N_CALIB={N_CALIB} exceeds available queries ({len(all_q)})")
-perm = np.random.permutation(len(all_q))
-calib_q = all_q[perm[:N_CALIB]]
-test_q = all_q[perm[N_CALIB:]]
+# Test set = ALL real queries (matches the paper's own "Query Size" for this
+# dataset -- Ada-ef never uses real queries for calibration, see module
+# docstring, so none need to be held back here).
+test_q = all_q
 n_test = len(test_q)
-print(f"  Corpus: {corpus.shape} | Calib Q: {calib_q.shape} | Test Q: {test_q.shape} | dim={dim}")
+
+# Calibration set = SAMPLE_SIZE points sampled DIRECTLY FROM THE CORPUS
+# (their exact protocol -- "proxy query vectors"), not from the real query
+# file at all.
+calib_cache_path = os.path.join(DATA_DIR, f"calib_selfsample_{SAMPLE_SIZE}.npz")
+if os.path.exists(calib_cache_path):
+    print(f"\nLoading self-sampled calibration points from cache {calib_cache_path}...")
+    calib_q = np.load(calib_cache_path)['calib_q']
+else:
+    print(f"\nSelf-sampling {SAMPLE_SIZE} calibration points from the corpus...")
+    rng = np.random.RandomState(42)
+    sample_idx = rng.choice(corpus.shape[0], size=SAMPLE_SIZE, replace=False)
+    calib_q = corpus[sample_idx].copy()
+    np.savez(calib_cache_path, calib_q=calib_q, sample_idx=sample_idx)
+
+print(f"  Corpus: {corpus.shape} | Calib Q (self-sampled): {calib_q.shape} | "
+      f"Test Q (real, all): {test_q.shape} | dim={dim}")
 print(f"  Cluster Sweep Params: K_SWEEP={K_SWEEP}")
 
 # ═══════════════════════════════════════════════════════════════════════
-#  Ground truth (calib: reuse diagnose script's cache; test: computed fresh)
+#  Ground truth
+#  Calib: nearest neighbors of each self-sampled point WITHIN THE CORPUS
+#  (includes the trivial self-match at distance 0, exactly as their
+#  compute_samplings()/compute_ground_truth_batch_parallel4 does -- not
+#  filtered out, since that's their real mechanism, not a reimplementation).
+#  Test: nearest neighbors of each real query, as usual.
 # ═══════════════════════════════════════════════════════════════════════
-calib_gt_path = os.path.join(DATA_DIR, f"calib_gt_{N_CALIB}q.npz")
+calib_gt_path = os.path.join(DATA_DIR, f"calib_gt_selfsample_{SAMPLE_SIZE}.npz")
 if os.path.exists(calib_gt_path):
     print(f"\nLoading calibration ground truth from cache {calib_gt_path}...")
     calib_gt = np.load(calib_gt_path)['calib_gt']
@@ -212,7 +241,7 @@ else:
     print(f"  Done in {time.time() - t0:.1f}s")
     np.savez(calib_gt_path, calib_gt=calib_gt)
 
-test_gt_path = os.path.join(DATA_DIR, f"test_gt_{n_test}q.npz")
+test_gt_path = os.path.join(DATA_DIR, f"test_gt_full_{n_test}q.npz")
 if os.path.exists(test_gt_path):
     print(f"Loading test ground truth from cache {test_gt_path}...")
     test_gt = np.load(test_gt_path)['test_gt']
@@ -240,20 +269,21 @@ else:
     print(f"  Done in {time.time() - t0:.1f}s")
 
 # ═══════════════════════════════════════════════════════════════════════
-#  Shared Calibration (For Our Method) -- reuse diagnose script's cache
+#  Shared Calibration (For Our Method) -- on the same self-sampled points
+#  used for Ada-ef's own table, for parity between the two methods.
 # ═══════════════════════════════════════════════════════════════════════
 print(f"\n{'═' * 80}")
 print(f"  Shared Calibration (Individual Query Min-EF)")
 print(f"{'═' * 80}")
 
-minef_cache_path = os.path.join(DATA_DIR, f"calib_min_ef_{N_CALIB}q.npz")
+minef_cache_path = os.path.join(DATA_DIR, f"calib_min_ef_selfsample_{SAMPLE_SIZE}.npz")
 if os.path.exists(minef_cache_path):
     print(f"  Loading calib_min_ef from cache {minef_cache_path}...")
     calib_min_ef = np.load(minef_cache_path)['calib_min_ef']
 else:
     t0 = time.time()
-    calib_min_ef = np.zeros(N_CALIB, dtype=np.float32)
-    for i in range(N_CALIB):
+    calib_min_ef = np.zeros(SAMPLE_SIZE, dtype=np.float32)
+    for i in range(SAMPLE_SIZE):
         for ef in EF_SWEEP:
             labs, _ = idx.search_knn_adaptive(calib_q[i], K_SEARCH, idx.entry_point, idx.max_level, ef)
             rec = len(set(labs) & set(calib_gt[i])) / K_SEARCH
@@ -262,7 +292,7 @@ else:
                 break
         else:
             calib_min_ef[i] = EF_SWEEP[-1]
-        if (i + 1) % 500 == 0:
+        if (i + 1) % 50 == 0:
             print(f"  ... calibrated {i + 1} queries")
     print(f"  Done in {time.time() - t0:.1f}s")
     np.savez(minef_cache_path, calib_min_ef=calib_min_ef)
@@ -281,12 +311,12 @@ ada_scorer = chao_hybrid_ada_ef_cpp.AdaEfPaperScorer(corpus, QUANTILE_STEP)
 
 ada_calib_scores = np.array([
     idx.adaptive_search_knn_paper(calib_q[i], K_SEARCH, STATICS_LENGTH, ada_scorer, None)[2]
-    for i in range(N_CALIB)
+    for i in range(SAMPLE_SIZE)
 ], dtype=np.float64)
 ada_scores_int = np.round(ada_calib_scores).astype(int)
 
 ada_table_exact, WAE = load_or_build_target_recall_table(
-    os.path.join(DATA_DIR, f"cache_target_recall_ada_paper_n{N_CALIB}.json"),
+    os.path.join(DATA_DIR, f"cache_target_recall_ada_paper_selfsample_n{SAMPLE_SIZE}.json"),
     ada_scores_int, calib_q, calib_gt)
 print(f"  Calculated WAE for Ada-ef: {WAE}")
 
@@ -403,8 +433,8 @@ for K_CLUSTERS in K_SWEEP:
 
     calib_cdists = cdist(calib_q, centroids, metric='sqeuclidean')
     calib_nearest = np.argmin(calib_cdists, axis=1)
-    clust_calib_scores = np.zeros(N_CALIB, dtype=np.float32)
-    for i in range(N_CALIB):
+    clust_calib_scores = np.zeros(SAMPLE_SIZE, dtype=np.float32)
+    for i in range(SAMPLE_SIZE):
         k_id = calib_nearest[i]
         bins = cluster_bins[k_id].tolist()
         clust_calib_scores[i] = idx.get_dynamic_probe_score_weighted(calib_q[i], bins, BIN_WEIGHTS, PROBE_COUNT)
