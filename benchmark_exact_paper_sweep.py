@@ -230,6 +230,13 @@ n_corpus = corpus.shape[0]
 # All four already have cached k-means models from the correlation diagnostic,
 # so this reuses them rather than re-clustering.
 K_SWEEP = [1, 8, 30, 297]
+# TargetRecall is the slowest variant by far (re-runs real searches per
+# EF_SWEEP value per bucket, freshly for every K) and not even the best
+# cost/recall tradeoff -- Isotonic/Mean get near-identical recall at less
+# than half the cost. It exists only as a controlled comparison against
+# Ada-ef's own calibration recipe, and K=1 and K=8 already have it cached
+# from the previous run. Not worth paying that cost again for K=30/297.
+K_TARGET_RECALL_SWEEP = [1, 8]
 
 print(f"  Corpus: {corpus.shape} | Train Q: {train_q_full.shape} | Test Q: {test_q.shape} | dim={dim}")
 print(f"  Cluster Sweep Params: K_SWEEP={K_SWEEP}")
@@ -488,24 +495,26 @@ for K_CLUSTERS in K_SWEEP:
     # as Ada-ef's own table, applied to these per-cluster bins instead of the
     # percentile-of-required-ef aggregation below. This isolates whether
     # cluster-aware bins beat the global Gaussian bins, with the calibration
-    # rule held identical between the two. Capped to N_CALIB_TARGET_RECALL for
-    # the same cost reason as Ada-ef's own table above. Cached per K so a
-    # later run sweeping a different (possibly overlapping) K_SWEEP doesn't
-    # redo this for K values it's already computed before.
-    clust_table_target, clust_wae_target = load_or_build_target_recall_table(
-        f"cache_target_recall_k{K_CLUSTERS}_n{N_CALIB_TARGET_RECALL}.json",
-        clust_calib_int[:N_CALIB_TARGET_RECALL], calib_q[:N_CALIB_TARGET_RECALL], calib_gt[:N_CALIB_TARGET_RECALL])
-    with open(os.path.join(RESULTS_DIR, f"ef_table_k{K_CLUSTERS}_target.json"), "w") as f_json:
-        json.dump(clust_table_target, f_json, indent=4)
+    # rule held identical between the two. Only run for K_TARGET_RECALL_SWEEP
+    # (K=1, K=8 -- already have this comparison point cached; not worth the
+    # cost of repeating it at every K, see config comment above).
+    if K_CLUSTERS in K_TARGET_RECALL_SWEEP:
+        clust_table_target, clust_wae_target = load_or_build_target_recall_table(
+            f"cache_target_recall_k{K_CLUSTERS}_n{N_CALIB_TARGET_RECALL}.json",
+            clust_calib_int[:N_CALIB_TARGET_RECALL], calib_q[:N_CALIB_TARGET_RECALL], calib_gt[:N_CALIB_TARGET_RECALL])
+        with open(os.path.join(RESULTS_DIR, f"ef_table_k{K_CLUSTERS}_target.json"), "w") as f_json:
+            json.dump(clust_table_target, f_json, indent=4)
 
-    max_score_target = max(clust_table_target.keys()) if clust_table_target else 0
-    ef_table_list_target = [max(lookup_ef(s, clust_table_target), clust_wae_target) for s in range(max_score_target + 1)] \
-        if clust_table_target else [clust_wae_target]
+        max_score_target = max(clust_table_target.keys()) if clust_table_target else 0
+        ef_table_list_target = [max(lookup_ef(s, clust_table_target), clust_wae_target) for s in range(max_score_target + 1)] \
+            if clust_table_target else [clust_wae_target]
 
-    print(f"  Running Online Evaluation (TargetRecall, matched to Ada-ef's calibration)...")
-    r_target = eval_cluster_aware(f"Ours (K={K_CLUSTERS}, TargetRecall)", K_CLUSTERS, centroids, cluster_bins, ef_table_list_target)
-    print(f"  R={r_target['mean_r']:.4f}")
-    all_results.append(r_target)
+        print(f"  Running Online Evaluation (TargetRecall, matched to Ada-ef's calibration)...")
+        r_target = eval_cluster_aware(f"Ours (K={K_CLUSTERS}, TargetRecall)", K_CLUSTERS, centroids, cluster_bins, ef_table_list_target)
+        print(f"  R={r_target['mean_r']:.4f}")
+        all_results.append(r_target)
+    else:
+        print(f"  Skipping TargetRecall for K={K_CLUSTERS} (not in K_TARGET_RECALL_SWEEP)")
 
     # Isotonic variant: fit on the FULL N_CALIB pool (cheap -- no extra HNSW
     # searches beyond what calib_min_ef and clust_calib_int already computed).
