@@ -347,23 +347,35 @@ def eval_vanilla(name, ef):
     return dict(name=name, mean_r=np.mean(r), p5=np.percentile(r, 5), p1=np.percentile(r, 1),
                 hnsw_dc=dc, probe_dc=0, time=dt, avg_ef=ef, pct_target=np.mean(r >= TARGET_RECALL) * 100)
 
-def eval_ada_ef():
+def eval_ada_ef(table_score_keys):
+    # table_score_keys: integer scores actually seen during calibration --
+    # a test-query score outside [min, max] means Sketch.estimate_ef/estimate_ef2
+    # (sketch.h) is extrapolating past its calibration data, either via
+    # get_entry's begin/end clamp or the score<1/score>=100 edge-clip branch.
+    # Logged to directly check whether this is what drives the under-recall
+    # seen on this dataset, instead of just inferring it -- see summary.md
+    # open item; compare frac_out_of_calib_range against the Isotonic row's.
+    lo_key, hi_key = min(table_score_keys), max(table_score_keys)
     idx.reset_dist_count()
-    recs, efs = [], []
+    recs, efs, scores = [], [], []
     t0 = time.time()
     for i in range(n_test):
         labs, _, score, ef_used = idx.adaptive_search_knn_paper(
             test_q[i], K_SEARCH, STATICS_LENGTH, ada_scorer, ada_sketch)
         efs.append(ef_used)
+        scores.append(score)
         recs.append(len(set(labs) & set(test_gt[i])) / K_SEARCH)
     dt = time.time() - t0
     dc = idx.get_dist_count() / n_test
     r = np.array(recs)
+    scores_arr = np.round(np.array(scores)).astype(int)
+    frac_out_of_range = float(np.mean((scores_arr < lo_key) | (scores_arr > hi_key)))
     return dict(name='Ada-ef (exact)', mean_r=np.mean(r), p5=np.percentile(r, 5), p1=np.percentile(r, 1),
                 hnsw_dc=dc, probe_dc=0, time=dt, avg_ef=np.mean(efs),
-                pct_target=np.mean(r >= TARGET_RECALL) * 100)
+                pct_target=np.mean(r >= TARGET_RECALL) * 100,
+                frac_out_of_calib_range=frac_out_of_range)
 
-def eval_cluster_aware(name, K_VAL, centroids, cluster_bins, ef_table_list):
+def eval_cluster_aware(name, K_VAL, centroids, cluster_bins, ef_table_list, calib_score_range=None):
     idx.reset_dist_count()
     recs, efs = [], []
     t0 = time.time()
@@ -382,9 +394,19 @@ def eval_cluster_aware(name, K_VAL, centroids, cluster_bins, ef_table_list):
     dt = time.time() - t0
     dc = idx.get_dist_count() / n_test
     r = np.array(recs)
-    return dict(name=name, mean_r=np.mean(r), p5=np.percentile(r, 5), p1=np.percentile(r, 1),
+    result = dict(name=name, mean_r=np.mean(r), p5=np.percentile(r, 5), p1=np.percentile(r, 1),
                 hnsw_dc=dc, probe_dc=K_VAL, time=dt, score_time=t_s, avg_ef=np.mean(efs),
                 pct_target=np.mean(r >= TARGET_RECALL) * 100)
+    if calib_score_range is not None:
+        # Same diagnostic as eval_ada_ef above, for the Isotonic table's
+        # out_of_bounds='clip' behavior instead of the Sketch's clamp.
+        lo, hi = calib_score_range
+        raw_scores = np.array([
+            idx.get_dynamic_probe_score_weighted(test_q[i], cluster_bins[test_nearest[i]].tolist(), BIN_WEIGHTS, PROBE_COUNT)
+            for i in range(n_test)
+        ])
+        result['frac_out_of_calib_range'] = float(np.mean((raw_scores < lo) | (raw_scores > hi)))
+    return result
 
 # ═══════════════════════════════════════════════════════════════════════
 #  RUN EVALUATIONS
@@ -400,8 +422,8 @@ for ef in [200, 400, 600, 800, 1000, 1200]:
     all_results.append(r)
 
 print(f"  Ada-ef (exact)...", end=" ", flush=True)
-r = eval_ada_ef()
-print(f"R={r['mean_r']:.4f}")
+r = eval_ada_ef(sorted(ada_table_exact.keys()))
+print(f"R={r['mean_r']:.4f} (frac scores outside calib range: {r['frac_out_of_calib_range']:.3f})")
 all_results.append(r)
 
 for K_CLUSTERS in K_SWEEP:
@@ -445,8 +467,10 @@ for K_CLUSTERS in K_SWEEP:
     with open(os.path.join(RESULTS_DIR, f"ef_table_k{K_CLUSTERS}_isotonic.json"), "w") as f_json:
         json.dump(iso_ef_table, f_json, indent=4)
     print(f"  Running Online Evaluation (Isotonic)...")
-    r_iso = eval_cluster_aware(f"Ours (K={K_CLUSTERS}, Isotonic)", K_CLUSTERS, centroids, cluster_bins, iso_ef_table)
-    print(f"  R={r_iso['mean_r']:.4f}")
+    iso_score_range = (int(clust_calib_int.min()), int(clust_calib_int.max()))
+    r_iso = eval_cluster_aware(f"Ours (K={K_CLUSTERS}, Isotonic)", K_CLUSTERS, centroids, cluster_bins, iso_ef_table,
+                                calib_score_range=iso_score_range)
+    print(f"  R={r_iso['mean_r']:.4f} (frac scores outside calib range: {r_iso['frac_out_of_calib_range']:.3f})")
     all_results.append(r_iso)
 
     clust_table_mean = build_ef_table_mean(clust_calib_int, calib_min_ef)
@@ -488,16 +512,17 @@ print(f"{'═' * 80}\n")
 
 hdr = (f"{'Method':<24} {'Mean R':>7} {'5th%':>7} {'1st%':>7} "
        f"{'HNSW DC':>8} {'+Probe':>7} {'=Total':>8} "
-       f"{'Time':>7} {'Avg EF':>7} {'>=tgt%':>7}")
+       f"{'Time':>7} {'Avg EF':>7} {'>=tgt%':>7} {'OutOfCalib%':>11}")
 print(hdr)
-print("─" * 80)
+print("─" * 96)
 for r in all_results:
     probe = f"+{r['probe_dc']}" if r['probe_dc'] > 0 else ""
     total = r['hnsw_dc'] + r['probe_dc']
     avg_ef = f"{r.get('avg_ef', 0):.1f}"
+    ooc = f"{r['frac_out_of_calib_range']*100:.1f}%" if 'frac_out_of_calib_range' in r else "n/a"
     print(f"{r['name']:<24} {r['mean_r']:>7.4f} {r['p5']:>7.4f} {r['p1']:>7.4f} "
           f"{r['hnsw_dc']:>8.0f} {probe:>7} {total:>8.0f} "
-          f"{r['time']:>6.2f}s {avg_ef:>7} {r['pct_target']:>6.1f}%")
+          f"{r['time']:>6.2f}s {avg_ef:>7} {r['pct_target']:>6.1f}% {ooc:>11}")
 
 print("\nSweep Complete!")
 

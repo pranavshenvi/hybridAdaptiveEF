@@ -32,7 +32,7 @@ from scipy.spatial.distance import cdist
 from scipy.stats import norm
 from sklearn.cluster import MiniBatchKMeans
 
-sys.path.append(os.path.join(os.path.dirname(__file__), 'chao_hybrid_ada_ef'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'chao_hybrid_ada_ef'))
 import chao_hybrid_ada_ef_cpp
 
 np.random.seed(42)
@@ -48,9 +48,20 @@ TEST_SIZE      = 3000
 K_SEARCH       = 10
 TARGET_RECALL  = 0.95
 EF_SWEEP       = list(range(10, 801, 10))
-S_PROBES       = 200
 CLUSTER_PROBE_COUNT = 100
 K_SWEEP        = [100, 200, 500]
+
+# Paper-exact Ada-ef scoring params (was: hand-rolled ada_ef_score() below,
+# a pruned reimplementation -- same bug class fixed on MS MARCO/Cohere, never
+# back-ported here. Replaced with the real, unmodified AdaEfPaperScorer /
+# adaptive_search_knn_paper, matching benchmark_exact_paper_sweep.py.)
+NUM_BINS       = 5
+QUANTILE_STEP  = 1e-3
+STATICS_LENGTH = 1025
+# Self-sampled calibration control (paper's own Sec 5.5 protocol) -- run
+# alongside the real-query-calibrated Ada-ef row so the calibration-protocol
+# effect can be isolated from the dataset itself.
+SAMPLE_SIZE    = 200
 
 # ═══════════════════════════════════════════════════════════════════════
 #  Helpers & Ada-ef scoring
@@ -85,17 +96,45 @@ def lookup_ef(score, table, min_ef=10, max_ef=800):
     frac = (score - lo) / (hi - lo)
     return int(np.clip(table[lo] + frac * (table[hi] - table[lo]), min_ef, max_ef))
 
-Z_QUANTILES = [norm.ppf(0.2), norm.ppf(0.4), norm.ppf(0.6), norm.ppf(0.8)]
-def ada_ef_score(queries, samp_vecs, mean_v, cov_v):
-    mu_ip = queries @ mean_v                                     
-    mu_l2 = 2 - 2 * mu_ip                                       
-    sig_ip_sq = np.sum((queries @ cov_v) * queries, axis=1)      
-    sig_l2 = 2 * np.sqrt(np.clip(sig_ip_sq, 0, None))           
-    z = np.array(Z_QUANTILES)[None, :]
-    bins = mu_l2[:, None] + z * sig_l2[:, None]
-    probe_dists = cdist(queries, samp_vecs, metric='sqeuclidean')
-    scores = (probe_dists[:, :, None] > bins[:, None, :]).sum(axis=(1, 2))
-    return scores.astype(np.float64)
+def build_ef_table_target_recall(scores_int, calib_queries, calib_gt_arr):
+    """Paper-exact calibration: for each unique score bucket, sweep EF_SWEEP and
+    pick the smallest ef where the bucket's AVERAGE recall reaches TARGET_RECALL.
+    """
+    table = {}
+    wae_sum = 0
+    total = 0
+    for s in np.unique(scores_int):
+        bucket_mask = (scores_int == s)
+        bucket_queries = calib_queries[bucket_mask]
+        bucket_gt = calib_gt_arr[bucket_mask]
+        n_bucket = len(bucket_queries)
+
+        bucket_ef = EF_SWEEP[-1]
+        for ef in EF_SWEEP:
+            bucket_recs = []
+            for i in range(n_bucket):
+                labs, _ = idx.search_knn_adaptive(bucket_queries[i], K_SEARCH, idx.entry_point, idx.max_level, ef)
+                bucket_recs.append(len(set(labs) & set(bucket_gt[i])) / K_SEARCH)
+            if np.mean(bucket_recs) >= TARGET_RECALL:
+                bucket_ef = ef
+                break
+
+        table[int(s)] = int(bucket_ef)
+        wae_sum += n_bucket * bucket_ef
+        total += n_bucket
+
+    wae = int(wae_sum / total) if total > 0 else EF_SWEEP[-1]
+    return table, wae
+
+def load_or_build_target_recall_table(cache_path, scores_int, calib_queries, calib_gt_arr):
+    if os.path.exists(cache_path):
+        with open(cache_path) as f_cache:
+            cached = json.load(f_cache)
+        return {int(k): v for k, v in cached["table"].items()}, cached["wae"]
+    table, wae = build_ef_table_target_recall(scores_int, calib_queries, calib_gt_arr)
+    with open(cache_path, "w") as f_cache:
+        json.dump({"table": table, "wae": wae}, f_cache, indent=4)
+    return table, wae
 
 def compute_ground_truth(corpus_data, queries, k=10):
     n_queries = len(queries)
@@ -127,6 +166,10 @@ test_q = all_embeddings[-TEST_SIZE:]
 dim = corpus.shape[1]
 print(f"  Corpus: {corpus.shape} | Calib Q: {calib_q.shape} | "
       f"Test Q: {test_q.shape} | dim={dim}")
+_norms = np.linalg.norm(corpus[:1000], axis=1)
+print(f"  Corpus vector norm check (first 1000): mean={_norms.mean():.4f}, std={_norms.std():.4f} "
+      f"(should be ~1.0 -- already normalized above; AdaEfPaperScorer's CosineDistanceEstimator "
+      f"assumes unit-norm input, distribution.h line ~303)")
 print(f"  Cluster Sweep Params: K_SWEEP={K_SWEEP}")
 
 gt_path = "ground_truth_spotify.npz"
@@ -197,50 +240,72 @@ print(f"  ADA-EF: Exact Paper Offline Phase (Bucket-Average Probing)")
 print(f"{'═' * 80}")
 
 t_ada_total = time.time()
-corpus_mean = np.mean(corpus, axis=0)
-sub = corpus[np.random.choice(len(corpus), min(100_000, len(corpus)), replace=False)]
-corpus_cov = np.cov(sub, rowvar=False).astype(np.float32)
-samp_vectors = corpus[np.random.choice(len(corpus), S_PROBES, replace=False)]
 
-# 1. Score all calibration queries
-ada_calib_scores = ada_ef_score(calib_q, samp_vectors, corpus_mean, corpus_cov)
+print("  Building AdaEfPaperScorer (their exact Estimator + ApproximatedScoreCalculator)...")
+ada_scorer = chao_hybrid_ada_ef_cpp.AdaEfPaperScorer(corpus, QUANTILE_STEP)
+
+# 1. Score all calibration queries via their real adaptiveSearchKnn.
+ada_calib_scores = np.array([
+    idx.adaptive_search_knn_paper(calib_q[i], K_SEARCH, STATICS_LENGTH, ada_scorer, None)[2]
+    for i in range(N_CALIB)
+], dtype=np.float64)
 ada_scores_int = np.round(ada_calib_scores).astype(int)
 
 # 2. Iterate through each unique score bucket to find EF that hits target avg recall
-ada_table_exact = {}
-total_queries = 0
-wae_sum = 0
-
-for s in np.unique(ada_scores_int):
-    bucket_mask = (ada_scores_int == s)
-    bucket_queries = calib_q[bucket_mask]
-    bucket_gt = calib_gt[bucket_mask]
-    n_bucket = len(bucket_queries)
-    
-    bucket_ef = EF_SWEEP[-1]
-    for ef in EF_SWEEP:
-        bucket_recs = []
-        for i in range(n_bucket):
-            labs, _ = idx.search_knn_adaptive(bucket_queries[i], K_SEARCH, idx.entry_point, idx.max_level, ef)
-            bucket_recs.append(len(set(labs) & set(bucket_gt[i])) / K_SEARCH)
-        
-        avg_recall = np.mean(bucket_recs)
-        if avg_recall >= TARGET_RECALL:
-            bucket_ef = ef
-            break
-            
-    ada_table_exact[int(s)] = int(bucket_ef)
-    wae_sum += n_bucket * bucket_ef
-    total_queries += n_bucket
-
-WAE = int(wae_sum / total_queries) if total_queries > 0 else EF_SWEEP[-1]
+ada_table_exact, WAE = load_or_build_target_recall_table(
+    "cache_target_recall_ada_paper_spotify.json", ada_scores_int, calib_q, calib_gt)
 print(f"  Calculated WAE for Ada-ef: {WAE}")
 
 with open(os.path.join(RESULTS_DIR, "ef_table_ada_exact.json"), "w") as f_json:
     json.dump(ada_table_exact, f_json, indent=4)
 
+ef_recall_estimators = [(int(s), [(int(ef), float(TARGET_RECALL))]) for s, ef in ada_table_exact.items()]
+ada_sketch = chao_hybrid_ada_ef_cpp.AdaEfPaperSketch(ef_recall_estimators, TARGET_RECALL)
+
 t_ada_total = time.time() - t_ada_total
 print(f"  Ada-EF Offline Total: {t_ada_total:.1f}s")
+
+# ═══════════════════════════════════════════════════════════════════════
+#  ADA-EF Offline Phase, self-sampled calibration control (paper's own
+#  Sec 5.5 protocol) -- run alongside the real-query-calibrated row above so
+#  the calibration-protocol effect can be isolated from the dataset itself.
+# ═══════════════════════════════════════════════════════════════════════
+print(f"\n{'═' * 80}")
+print(f"  ADA-EF: Self-Sampled Calibration Control (paper's Sec 5.5 protocol)")
+print(f"{'═' * 80}")
+
+t_ada_selfsamp = time.time()
+selfsamp_idx_arr = np.random.choice(len(corpus), SAMPLE_SIZE, replace=False)
+selfsamp_q = corpus[selfsamp_idx_arr]
+
+selfsamp_gt_path = f"spotify_selfsamp_gt_{SAMPLE_SIZE}q.npz"
+if os.path.exists(selfsamp_gt_path):
+    print(f"  Loading self-sampled ground truth from cache...")
+    selfsamp_gt = np.load(selfsamp_gt_path)['selfsamp_gt']
+else:
+    print(f"  Computing ground truth for {SAMPLE_SIZE} self-sampled points...")
+    selfsamp_gt = compute_ground_truth(corpus, selfsamp_q, k=K_SEARCH)
+    np.savez(selfsamp_gt_path, selfsamp_gt=selfsamp_gt)
+
+ada_selfsamp_scores = np.array([
+    idx.adaptive_search_knn_paper(selfsamp_q[i], K_SEARCH, STATICS_LENGTH, ada_scorer, None)[2]
+    for i in range(SAMPLE_SIZE)
+], dtype=np.float64)
+ada_selfsamp_scores_int = np.round(ada_selfsamp_scores).astype(int)
+
+ada_table_selfsamp, WAE_selfsamp = load_or_build_target_recall_table(
+    f"cache_target_recall_ada_paper_spotify_selfsamp_n{SAMPLE_SIZE}.json",
+    ada_selfsamp_scores_int, selfsamp_q, selfsamp_gt)
+print(f"  Calculated WAE for Ada-ef (self-sampled-calib): {WAE_selfsamp}")
+
+with open(os.path.join(RESULTS_DIR, "ef_table_ada_selfsamp.json"), "w") as f_json:
+    json.dump(ada_table_selfsamp, f_json, indent=4)
+
+ef_recall_estimators_selfsamp = [(int(s), [(int(ef), float(TARGET_RECALL))]) for s, ef in ada_table_selfsamp.items()]
+ada_sketch_selfsamp = chao_hybrid_ada_ef_cpp.AdaEfPaperSketch(ef_recall_estimators_selfsamp, TARGET_RECALL)
+
+t_ada_selfsamp = time.time() - t_ada_selfsamp
+print(f"  Ada-EF Self-Sampled Offline Total: {t_ada_selfsamp:.1f}s")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -262,26 +327,26 @@ def eval_vanilla(name, ef):
     return dict(name=name, mean_r=np.mean(r), p5=np.percentile(r, 5), p1=np.percentile(r, 1),
                 hnsw_dc=dc, probe_dc=0, time=dt, avg_ef=ef, pct_target=np.mean(r >= TARGET_RECALL) * 100)
 
-def eval_ada_ef():
+def eval_ada_ef(name, scorer, sketch, table_score_keys):
+    lo_key, hi_key = min(table_score_keys), max(table_score_keys)
     idx.reset_dist_count()
-    recs, efs = [], []
+    recs, efs, scores = [], [], []
     t0 = time.time()
-    t_s = time.time()
-    test_ada_scores = ada_ef_score(test_q, samp_vectors, corpus_mean, corpus_cov)
-    test_ada_int = np.round(test_ada_scores).astype(int)
-    t_s = time.time() - t_s
     for i in range(n_test):
-        ef = lookup_ef(test_ada_int[i], ada_table_exact, min_ef=10, max_ef=800)
-        ef = max(ef, WAE)  # WAE Fallback
-        efs.append(ef)
-        labs, _ = idx.search_knn_adaptive(test_q[i], K_SEARCH, idx.entry_point, idx.max_level, ef)
+        labs, _, score, ef_used = idx.adaptive_search_knn_paper(
+            test_q[i], K_SEARCH, STATICS_LENGTH, scorer, sketch)
+        efs.append(ef_used)
+        scores.append(score)
         recs.append(len(set(labs) & set(test_gt[i])) / K_SEARCH)
     dt = time.time() - t0
     dc = idx.get_dist_count() / n_test
     r = np.array(recs)
-    return dict(name='Ada-ef (exact)', mean_r=np.mean(r), p5=np.percentile(r, 5), p1=np.percentile(r, 1),
-                hnsw_dc=dc, probe_dc=S_PROBES, time=dt, score_time=t_s, avg_ef=np.mean(efs),
-                pct_target=np.mean(r >= TARGET_RECALL) * 100)
+    scores_arr = np.round(np.array(scores)).astype(int)
+    frac_out_of_range = float(np.mean((scores_arr < lo_key) | (scores_arr > hi_key)))
+    return dict(name=name, mean_r=np.mean(r), p5=np.percentile(r, 5), p1=np.percentile(r, 1),
+                hnsw_dc=dc, probe_dc=0, time=dt, score_time=0.0, avg_ef=np.mean(efs),
+                pct_target=np.mean(r >= TARGET_RECALL) * 100,
+                frac_out_of_calib_range=frac_out_of_range)
 
 def eval_cluster_aware(name, K_VAL, centroids, cluster_bins, ef_table_list):
     idx.reset_dist_count()
@@ -321,8 +386,13 @@ for ef in [50, 100, 200, 400]:
     all_results.append(r)
 
 print(f"  Ada-ef (exact)...", end=" ", flush=True)
-r = eval_ada_ef()
-print(f"R={r['mean_r']:.4f}")
+r = eval_ada_ef('Ada-ef (exact)', ada_scorer, ada_sketch, sorted(ada_table_exact.keys()))
+print(f"R={r['mean_r']:.4f} (frac scores outside calib range: {r['frac_out_of_calib_range']:.3f})")
+all_results.append(r)
+
+print(f"  Ada-ef (exact, self-sampled-calib)...", end=" ", flush=True)
+r = eval_ada_ef('Ada-ef (exact, self-sampled-calib)', ada_scorer, ada_sketch_selfsamp, sorted(ada_table_selfsamp.keys()))
+print(f"R={r['mean_r']:.4f} (frac scores outside calib range: {r['frac_out_of_calib_range']:.3f})")
 all_results.append(r)
 
 # Sweep Cluster-Aware
@@ -407,18 +477,19 @@ print(f"\n{'═' * 80}")
 print(f"  FINAL RESULTS ACROSS K VALUES (target recall = {TARGET_RECALL})")
 print(f"{'═' * 80}\n")
 
-hdr = (f"{'Method':<22} {'Mean R':>7} {'5th%':>7} {'1st%':>7} "
+hdr = (f"{'Method':<32} {'Mean R':>7} {'5th%':>7} {'1st%':>7} "
        f"{'HNSW DC':>8} {'+Probe':>7} {'=Total':>8} "
-       f"{'Time':>7} {'Avg EF':>7} {'>=tgt%':>7}")
+       f"{'Time':>7} {'Avg EF':>7} {'>=tgt%':>7} {'OutOfCalib%':>11}")
 print(hdr)
-print("─" * 80)
+print("─" * 96)
 for r in all_results:
     probe = f"+{r['probe_dc']}" if r['probe_dc'] > 0 else ""
     total = r['hnsw_dc'] + r['probe_dc']
     avg_ef = f"{r.get('avg_ef', 0):.1f}"
-    print(f"{r['name']:<22} {r['mean_r']:>7.4f} {r['p5']:>7.4f} {r['p1']:>7.4f} "
+    ooc = f"{r['frac_out_of_calib_range']*100:.1f}%" if 'frac_out_of_calib_range' in r else "n/a"
+    print(f"{r['name']:<32} {r['mean_r']:>7.4f} {r['p5']:>7.4f} {r['p1']:>7.4f} "
           f"{r['hnsw_dc']:>8.0f} {probe:>7} {total:>8.0f} "
-          f"{r['time']:>6.2f}s {avg_ef:>7} {r['pct_target']:>6.1f}%")
+          f"{r['time']:>6.2f}s {avg_ef:>7} {r['pct_target']:>6.1f}% {ooc:>11}")
 
 print("\nSweep Complete!")
 

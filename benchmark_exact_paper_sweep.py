@@ -79,6 +79,17 @@ QUANTILE_STEP  = 1e-3
 # scoring, unlike our own pruned search_knn_dynamic_weighted mechanism.
 STATICS_LENGTH = 1025
 
+# Self-sampled calibration control (paper's own Sec 5.5 protocol: SAMPLE_SIZE
+# points drawn directly from the corpus, used as proxy queries, instead of
+# real held-out queries). Run alongside the real-query-calibrated Ada-ef row
+# above so the calibration-protocol effect (real queries vs self-sampled
+# corpus points) can be isolated from the dataset itself -- MS MARCO's
+# query/passage embeddings are symmetric (same distribution), unlike
+# Cohere's, so if Ada-ef degrades here too under self-sampled calibration,
+# that argues against the asymmetric-embeddings explanation for the Cohere
+# under-recall finding; if it doesn't, that supports it.
+SAMPLE_SIZE    = 200
+
 # ═══════════════════════════════════════════════════════════════════════
 #  Helpers & Ada-ef scoring
 # ═══════════════════════════════════════════════════════════════════════
@@ -366,6 +377,48 @@ ada_sketch = chao_hybrid_ada_ef_cpp.AdaEfPaperSketch(ef_recall_estimators, TARGE
 t_ada_total = time.time() - t_ada_total
 print(f"  Ada-EF Offline Total: {t_ada_total:.1f}s")
 
+# ═══════════════════════════════════════════════════════════════════════
+#  ADA-EF Offline Phase, self-sampled calibration control (see SAMPLE_SIZE
+#  comment above -- paper's own Sec 5.5 protocol, run here too for a direct,
+#  same-dataset comparison against the real-query-calibrated row above).
+# ═══════════════════════════════════════════════════════════════════════
+print(f"\n{'═' * 80}")
+print(f"  ADA-EF: Self-Sampled Calibration Control (paper's Sec 5.5 protocol)")
+print(f"{'═' * 80}")
+
+t_ada_selfsamp = time.time()
+selfsamp_idx_arr = np.random.choice(n_corpus, SAMPLE_SIZE, replace=False)
+selfsamp_q = corpus[selfsamp_idx_arr]
+
+selfsamp_gt_path = f"selfsamp_gt_{SAMPLE_SIZE}q.npz"
+if os.path.exists(selfsamp_gt_path):
+    print(f"  Loading self-sampled ground truth from cache...")
+    selfsamp_gt = np.load(selfsamp_gt_path)['selfsamp_gt']
+else:
+    print(f"  Computing ground truth for {SAMPLE_SIZE} self-sampled points...")
+    selfsamp_gt = compute_ground_truth(corpus, selfsamp_q, k=K_SEARCH)
+    np.savez(selfsamp_gt_path, selfsamp_gt=selfsamp_gt)
+
+ada_selfsamp_scores = np.array([
+    idx.adaptive_search_knn_paper(selfsamp_q[i], K_SEARCH, STATICS_LENGTH, ada_scorer, None)[2]
+    for i in range(SAMPLE_SIZE)
+], dtype=np.float64)
+ada_selfsamp_scores_int = np.round(ada_selfsamp_scores).astype(int)
+
+ada_table_selfsamp, WAE_selfsamp = load_or_build_target_recall_table(
+    f"cache_target_recall_ada_paper_selfsamp_n{SAMPLE_SIZE}.json",
+    ada_selfsamp_scores_int, selfsamp_q, selfsamp_gt)
+print(f"  Calculated WAE for Ada-ef (self-sampled-calib): {WAE_selfsamp}")
+
+with open(os.path.join(RESULTS_DIR, "ef_table_ada_selfsamp.json"), "w") as f_json:
+    json.dump(ada_table_selfsamp, f_json, indent=4)
+
+ef_recall_estimators_selfsamp = [(int(s), [(int(ef), float(TARGET_RECALL))]) for s, ef in ada_table_selfsamp.items()]
+ada_sketch_selfsamp = chao_hybrid_ada_ef_cpp.AdaEfPaperSketch(ef_recall_estimators_selfsamp, TARGET_RECALL)
+
+t_ada_selfsamp = time.time() - t_ada_selfsamp
+print(f"  Ada-EF Self-Sampled Offline Total: {t_ada_selfsamp:.1f}s")
+
 
 # ═══════════════════════════════════════════════════════════════════════
 #  ONLINE EVALUATION HELPERS
@@ -386,26 +439,39 @@ def eval_vanilla(name, ef):
     return dict(name=name, mean_r=np.mean(r), p5=np.percentile(r, 5), p1=np.percentile(r, 1),
                 hnsw_dc=dc, probe_dc=0, time=dt, avg_ef=ef, pct_target=np.mean(r >= TARGET_RECALL) * 100)
 
-def eval_ada_ef():
+def eval_ada_ef(name, scorer, sketch, table_score_keys):
+    # table_score_keys: the integer scores actually seen during THIS sketch's
+    # calibration -- any test-query score outside [min, max] of these means
+    # the sketch's estimate_ef/estimate_ef2 (sketch.h) is extrapolating past
+    # what it was calibrated on, either via its begin/end clamp (get_entry's
+    # lower_bound falling off either end) or its score<1/score>=100 edge-clip
+    # branch in estimate_ef2. Logged here to directly check (not just infer)
+    # whether this clipping is what makes self-sampled calibration undershoot
+    # real queries -- see summary.md open item.
+    lo_key, hi_key = min(table_score_keys), max(table_score_keys)
     idx.reset_dist_count()
-    recs, efs = [], []
+    recs, efs, scores = [], [], []
     t0 = time.time()
     for i in range(n_test):
         # Their real adaptiveSearchKnn, single call: unpruned probe -> score via
         # their ApproximatedScoreCalculator -> ef via their Sketch.estimate_ef2
         # -> continues the SAME traversal (pruned from here) to that ef.
         labs, _, score, ef_used = idx.adaptive_search_knn_paper(
-            test_q[i], K_SEARCH, STATICS_LENGTH, ada_scorer, ada_sketch)
+            test_q[i], K_SEARCH, STATICS_LENGTH, scorer, sketch)
         efs.append(ef_used)
+        scores.append(score)
         recs.append(len(set(labs) & set(test_gt[i])) / K_SEARCH)
     dt = time.time() - t0
     dc = idx.get_dist_count() / n_test
     r = np.array(recs)
-    return dict(name='Ada-ef (exact)', mean_r=np.mean(r), p5=np.percentile(r, 5), p1=np.percentile(r, 1),
+    scores_arr = np.round(np.array(scores)).astype(int)
+    frac_out_of_range = float(np.mean((scores_arr < lo_key) | (scores_arr > hi_key)))
+    return dict(name=name, mean_r=np.mean(r), p5=np.percentile(r, 5), p1=np.percentile(r, 1),
                 hnsw_dc=dc, probe_dc=0, time=dt, score_time=0.0, avg_ef=np.mean(efs),
-                pct_target=np.mean(r >= TARGET_RECALL) * 100)
+                pct_target=np.mean(r >= TARGET_RECALL) * 100,
+                frac_out_of_calib_range=frac_out_of_range)
 
-def eval_cluster_aware(name, K_VAL, centroids, cluster_bins, ef_table_list):
+def eval_cluster_aware(name, K_VAL, centroids, cluster_bins, ef_table_list, calib_score_range=None):
     idx.reset_dist_count()
     recs, efs = [], []
     t0 = time.time()
@@ -426,9 +492,25 @@ def eval_cluster_aware(name, K_VAL, centroids, cluster_bins, ef_table_list):
     dt = time.time() - t0
     dc = idx.get_dist_count() / n_test
     r = np.array(recs)
-    return dict(name=name, mean_r=np.mean(r), p5=np.percentile(r, 5), p1=np.percentile(r, 1),
+    result = dict(name=name, mean_r=np.mean(r), p5=np.percentile(r, 5), p1=np.percentile(r, 1),
                 hnsw_dc=dc, probe_dc=K_VAL, time=dt, score_time=t_s, avg_ef=np.mean(efs),
                 pct_target=np.mean(r >= TARGET_RECALL) * 100)
+    if calib_score_range is not None:
+        # Isotonic-clip diagnostic (open item: verify, don't just infer, why
+        # isotonic degrades more gracefully than Ada-ef's Sketch under
+        # out-of-calibration-range scores). Side pass, untimed and not
+        # counted toward hnsw_dc above -- reuses the already-computed
+        # test_nearest/bins, just adds the raw score call that
+        # search_knn_dynamic_weighted already does internally but doesn't
+        # return, purely to inspect where IsotonicRegression's
+        # out_of_bounds='clip' actually triggers on real queries.
+        lo, hi = calib_score_range
+        raw_scores = np.array([
+            idx.get_dynamic_probe_score_weighted(test_q[i], cluster_bins[test_nearest[i]].tolist(), BIN_WEIGHTS, PROBE_COUNT)
+            for i in range(n_test)
+        ])
+        result['frac_out_of_calib_range'] = float(np.mean((raw_scores < lo) | (raw_scores > hi)))
+    return result
 
 # ═══════════════════════════════════════════════════════════════════════
 #  RUN EVALUATIONS
@@ -444,7 +526,12 @@ for ef in [200, 400, 600, 800, 1000, 1200]:
     all_results.append(r)
 
 print(f"  Ada-ef (exact)...", end=" ", flush=True)
-r = eval_ada_ef()
+r = eval_ada_ef('Ada-ef (exact)', ada_scorer, ada_sketch, sorted(ada_table_exact.keys()))
+print(f"R={r['mean_r']:.4f}")
+all_results.append(r)
+
+print(f"  Ada-ef (exact, self-sampled-calib)...", end=" ", flush=True)
+r = eval_ada_ef('Ada-ef (exact, self-sampled-calib)', ada_scorer, ada_sketch_selfsamp, sorted(ada_table_selfsamp.keys()))
 print(f"R={r['mean_r']:.4f}")
 all_results.append(r)
 
@@ -527,8 +614,10 @@ for K_CLUSTERS in K_SWEEP:
         json.dump(iso_ef_table, f_json, indent=4)
 
     print(f"  Running Online Evaluation (Isotonic)...")
-    r_iso = eval_cluster_aware(f"Ours (K={K_CLUSTERS}, Isotonic)", K_CLUSTERS, centroids, cluster_bins, iso_ef_table)
-    print(f"  R={r_iso['mean_r']:.4f}")
+    iso_score_range = (int(clust_calib_int.min()), int(clust_calib_int.max()))
+    r_iso = eval_cluster_aware(f"Ours (K={K_CLUSTERS}, Isotonic)", K_CLUSTERS, centroids, cluster_bins, iso_ef_table,
+                                calib_score_range=iso_score_range)
+    print(f"  R={r_iso['mean_r']:.4f} (frac scores outside calib range: {r_iso['frac_out_of_calib_range']:.3f})")
     all_results.append(r_iso)
 
     clust_table_mean = build_ef_table_mean(clust_calib_int, calib_min_ef)
@@ -574,18 +663,19 @@ print(f"\n{'═' * 80}")
 print(f"  FINAL RESULTS ACROSS K VALUES (target recall = {TARGET_RECALL})")
 print(f"{'═' * 80}\n")
 
-hdr = (f"{'Method':<22} {'Mean R':>7} {'5th%':>7} {'1st%':>7} "
+hdr = (f"{'Method':<32} {'Mean R':>7} {'5th%':>7} {'1st%':>7} "
        f"{'HNSW DC':>8} {'+Probe':>7} {'=Total':>8} "
-       f"{'Time':>7} {'Avg EF':>7} {'>=tgt%':>7}")
+       f"{'Time':>7} {'Avg EF':>7} {'>=tgt%':>7} {'OutOfCalib%':>11}")
 print(hdr)
-print("─" * 80)
+print("─" * 96)
 for r in all_results:
     probe = f"+{r['probe_dc']}" if r['probe_dc'] > 0 else ""
     total = r['hnsw_dc'] + r['probe_dc']
     avg_ef = f"{r.get('avg_ef', 0):.1f}"
-    print(f"{r['name']:<22} {r['mean_r']:>7.4f} {r['p5']:>7.4f} {r['p1']:>7.4f} "
+    ooc = f"{r['frac_out_of_calib_range']*100:.1f}%" if 'frac_out_of_calib_range' in r else "n/a"
+    print(f"{r['name']:<32} {r['mean_r']:>7.4f} {r['p5']:>7.4f} {r['p1']:>7.4f} "
           f"{r['hnsw_dc']:>8.0f} {probe:>7} {total:>8.0f} "
-          f"{r['time']:>6.2f}s {avg_ef:>7} {r['pct_target']:>6.1f}%")
+          f"{r['time']:>6.2f}s {avg_ef:>7} {r['pct_target']:>6.1f}% {ooc:>11}")
 
 print("\nSweep Complete!")
 
