@@ -1,0 +1,133 @@
+════════════════════════════════════════════════════════════════════════════════
+  Loading MS MARCO 8.8M Dataset
+════════════════════════════════════════════════════════════════════════════════
+  Corpus: (8841823, 384) | Train Q: (50000, 384) | Test Q: (6980, 384) | dim=384
+  Cluster Sweep Params: K_SWEEP=[297, 500, 880]
+
+Computing ground truth (topk=100)...
+  Computing brute-force ground truth (20000 queries x 8841823 corpus) ...
+  Done in 2558.6s
+  Computing brute-force ground truth (6980 queries x 8841823 corpus) ...
+  Done in 883.5s
+  Done in 3442.1s
+Saving Ground Truth to ground_truth_20000q.npz...
+
+Loading HNSW index from custom_8.8M.index...
+
+════════════════════════════════════════════════════════════════════════════════
+  Shared Calibration for Our Arch (Individual Query Min-EF)
+════════════════════════════════════════════════════════════════════════════════
+  ... calibrated 1000 queries
+  ... calibrated 2000 queries
+  ... calibrated 3000 queries
+  ... calibrated 4000 queries
+  ... calibrated 5000 queries
+  ... calibrated 6000 queries
+  ... calibrated 7000 queries
+  ... calibrated 8000 queries
+  ... calibrated 9000 queries
+  ... calibrated 10000 queries
+  ... calibrated 11000 queries
+  ... calibrated 12000 queries
+  ... calibrated 13000 queries
+  ... calibrated 14000 queries
+  ... calibrated 15000 queries
+  ... calibrated 16000 queries
+  ... calibrated 17000 queries
+  ... calibrated 18000 queries
+  ... calibrated 19000 queries
+  ... calibrated 20000 queries
+  Done in 2020.7s
+
+════════════════════════════════════════════════════════════════════════════════
+  ADA-EF: Exact Paper Offline Phase (Bucket-Average Probing)
+════════════════════════════════════════════════════════════════════════════════
+  Calculated WAE for Ada-ef: 749
+  Ada-EF Offline Total: 595.1s
+
+════════════════════════════════════════════════════════════════════════════════
+  ONLINE EVALUATION  (Recall@100, target=0.99)
+════════════════════════════════════════════════════════════════════════════════
+  Vanilla(ef=200)... R=0.9646
+  Vanilla(ef=400)... R=0.9802
+  Vanilla(ef=600)... R=0.9854
+  Vanilla(ef=800)... R=0.9880
+  Vanilla(ef=1000)... R=0.9895
+  Vanilla(ef=1200)... R=0.9910
+  Ada-ef (exact)... R=0.9878
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware with K=297
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k297_8.8M_v2bins.pkl...
+  Running Online Evaluation (TargetRecall, matched to Ada-ef's calibration)...
+  R=0.9903
+  Running Online Evaluation (Isotonic)...
+  R=0.9862
+  Running Online Evaluation (Mean)...
+  R=0.9861
+  Running Online Evaluation (P90)...
+  R=0.9933
+  Running Online Evaluation (P70)...
+  R=0.9816
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware with K=500
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k500_8.8M_v2bins.pkl...
+  Running Online Evaluation (TargetRecall, matched to Ada-ef's calibration)...
+  R=0.9896
+  Running Online Evaluation (Isotonic)...
+  R=0.9858
+  Running Online Evaluation (Mean)...
+  R=0.9856
+  Running Online Evaluation (P90)...
+  R=0.9931
+  Running Online Evaluation (P70)...
+  R=0.9807
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware with K=880
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k880_8.8M_v2bins.pkl...
+  Running Online Evaluation (TargetRecall, matched to Ada-ef's calibration)...
+  R=0.9891
+  Running Online Evaluation (Isotonic)...
+  R=0.9853
+  Running Online Evaluation (Mean)...
+  R=0.9851
+  Running Online Evaluation (P90)...
+  R=0.9928
+  Running Online Evaluation (P70)...
+  R=0.9796
+
+════════════════════════════════════════════════════════════════════════════════
+  FINAL RESULTS ACROSS K VALUES (target recall = 0.99)
+════════════════════════════════════════════════════════════════════════════════
+
+Method                  Mean R    5th%    1st%  HNSW DC  +Probe   =Total    Time  Avg EF  >=tgt%
+────────────────────────────────────────────────────────────────────────────────
+Vanilla(ef=200)         0.9646  0.8400  0.6200     4242             4242   9.32s   200.0   61.4%
+Vanilla(ef=400)         0.9802  0.9000  0.7700     8251             8251  15.04s   400.0   73.4%
+Vanilla(ef=600)         0.9854  0.9300  0.8100    12271            12271  20.67s   600.0   78.3%
+Vanilla(ef=800)         0.9880  0.9400  0.8500    16299            16299  26.26s   800.0   81.0%
+Vanilla(ef=1000)        0.9895  0.9500  0.8700    20330            20330  31.70s  1000.0   82.7%
+Vanilla(ef=1200)        0.9910  0.9500  0.8900    24367            24367  37.17s  1200.0   84.2%
+Ada-ef (exact)          0.9878  0.9400  0.8600    17436            17436  34.38s   750.0   80.3%
+Ours (K=297, TargetRecall)  0.9903  0.9500  0.8800    22921    +297    23218  45.68s  1014.9   82.9%
+Ours (K=297, Isotonic)  0.9862  0.9300  0.8400    12828    +297    13125  27.27s   524.5   78.5%
+Ours (K=297, Mean)      0.9861  0.9300  0.8400    12805    +297    13102  27.74s   524.8   78.3%
+Ours (K=297, P90)       0.9933  0.9700  0.9200    44815    +297    45112  81.24s  2080.1   87.3%
+Ours (K=297, P70)       0.9816  0.9195  0.8000     8303    +297     8600  18.96s   321.1   72.4%
+Ours (K=500, TargetRecall)  0.9896  0.9500  0.8800    21216    +500    21716  43.20s   932.6   82.1%
+Ours (K=500, Isotonic)  0.9858  0.9300  0.8400    12744    +500    13244  27.70s   521.4   78.2%
+Ours (K=500, Mean)      0.9856  0.9300  0.8300    12755    +500    13255  26.62s   522.1   78.1%
+Ours (K=500, P90)       0.9931  0.9700  0.9179    44560    +500    45060  81.71s  2070.3   87.0%
+Ours (K=500, P70)       0.9807  0.9100  0.7800     8030    +500     8530  18.19s   306.8   72.1%
+Ours (K=880, TargetRecall)  0.9891  0.9500  0.8700    20638    +880    21518  44.19s   904.6   81.6%
+Ours (K=880, Isotonic)  0.9853  0.9300  0.8300    12555    +880    13435  27.56s   513.1   77.6%
+Ours (K=880, Mean)      0.9851  0.9300  0.8200    12558    +880    13438  27.16s   513.5   77.3%
+Ours (K=880, P90)       0.9928  0.9600  0.9100    43565    +880    44445  81.37s  2022.3   86.6%
+Ours (K=880, P70)       0.9796  0.9000  0.7700     7731    +880     8611  18.45s   291.8   71.4%
+
+Sweep Complete!

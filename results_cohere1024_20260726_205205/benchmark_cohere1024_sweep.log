@@ -1,0 +1,131 @@
+════════════════════════════════════════════════════════════════════════════════
+  Loading Cohere msmarco-v2.1 1024-dim Subset
+════════════════════════════════════════════════════════════════════════════════
+  Already unit-normalized.
+
+Self-sampling 200 calibration points from the corpus...
+  Corpus: (1760180, 1024) | Calib Q (self-sampled): (200, 1024) | Test Q (real, all): (1677, 1024) | dim=1024
+  Cluster Sweep Params: K_SWEEP=[1, 8, 30, 297]
+
+Computing calibration ground truth (topk=100)...
+  Computing brute-force ground truth (200 queries x 1760180 corpus) ...
+  Done in 7.5s
+  Done in 7.5s
+Computing test ground truth (topk=100) for 1677 queries...
+  Computing brute-force ground truth (1677 queries x 1760180 corpus) ...
+  Done in 66.1s
+  Done in 66.1s
+
+Loading HNSW index from cohere_msmarco_v21_subset/cohere1024.index...
+
+════════════════════════════════════════════════════════════════════════════════
+  Shared Calibration (Individual Query Min-EF)
+════════════════════════════════════════════════════════════════════════════════
+  ... calibrated 50 queries
+  ... calibrated 100 queries
+  ... calibrated 150 queries
+  ... calibrated 200 queries
+  Done in 17.1s
+
+════════════════════════════════════════════════════════════════════════════════
+  ADA-EF: Exact Paper Offline Phase (Bucket-Average Probing)
+════════════════════════════════════════════════════════════════════════════════
+  Building AdaEfPaperScorer (their exact Estimator + ApproximatedScoreCalculator)...
+  Calculated WAE for Ada-ef: 372
+  Ada-EF Offline Total: 35.1s
+
+════════════════════════════════════════════════════════════════════════════════
+  ONLINE EVALUATION  (Recall@100, target=0.99, n_test=1677)
+════════════════════════════════════════════════════════════════════════════════
+  Vanilla(ef=200)... R=0.9232
+  Vanilla(ef=400)... R=0.9588
+  Vanilla(ef=600)... R=0.9707
+  Vanilla(ef=800)... R=0.9771
+  Vanilla(ef=1000)... R=0.9815
+  Vanilla(ef=1200)... R=0.9841
+  Ada-ef (exact)... R=0.9510
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware with K=1
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from cohere_msmarco_v21_subset/kmeans_cache_k1_cohere1024.pkl...
+  Running Online Evaluation (Isotonic)...
+  R=0.9806
+  Running Online Evaluation (Mean)...
+  R=0.9659
+  Running Online Evaluation (P90)...
+  R=0.9672
+  Running Online Evaluation (P70)...
+  R=0.9660
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware with K=8
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from cohere_msmarco_v21_subset/kmeans_cache_k8_cohere1024.pkl...
+  Running Online Evaluation (Isotonic)...
+  R=0.9752
+  Running Online Evaluation (Mean)...
+  R=0.9652
+  Running Online Evaluation (P90)...
+  R=0.9657
+  Running Online Evaluation (P70)...
+  R=0.9648
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware with K=30
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from cohere_msmarco_v21_subset/kmeans_cache_k30_cohere1024.pkl...
+  Running Online Evaluation (Isotonic)...
+  R=0.9723
+  Running Online Evaluation (Mean)...
+  R=0.9659
+  Running Online Evaluation (P90)...
+  R=0.9664
+  Running Online Evaluation (P70)...
+  R=0.9656
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware with K=297
+────────────────────────────────────────────────────────────────────────────────
+  [COMPUTE] Running K-Means and computing bins for K=297...
+  Saving K-Means model and bins to cohere_msmarco_v21_subset/kmeans_cache_k297_cohere1024.pkl...
+  Running Online Evaluation (Isotonic)...
+  R=0.9677
+  Running Online Evaluation (Mean)...
+  R=0.9667
+  Running Online Evaluation (P90)...
+  R=0.9669
+  Running Online Evaluation (P70)...
+  R=0.9665
+
+════════════════════════════════════════════════════════════════════════════════
+  FINAL RESULTS -- Cohere 1024-dim (target recall = 0.99, n_test=1677)
+════════════════════════════════════════════════════════════════════════════════
+
+Method                    Mean R    5th%    1st%  HNSW DC  +Probe   =Total    Time  Avg EF  >=tgt%
+────────────────────────────────────────────────────────────────────────────────
+Vanilla(ef=200)           0.9232  0.6900  0.4400     4262             4262   5.25s   200.0   35.5%
+Vanilla(ef=400)           0.9588  0.8000  0.6252     8261             8261   5.83s   400.0   56.5%
+Vanilla(ef=600)           0.9707  0.8500  0.6576    12263            12263   7.69s   600.0   66.4%
+Vanilla(ef=800)           0.9771  0.8700  0.7352    16267            16267   9.89s   800.0   71.3%
+Vanilla(ef=1000)          0.9815  0.9000  0.7700    20266            20266  11.07s  1000.0   75.6%
+Vanilla(ef=1200)          0.9841  0.9200  0.7976    24256            24256  13.54s  1200.0   78.1%
+Ada-ef (exact)            0.9510  0.7700  0.5576     8949             8949   6.62s   431.0   50.5%
+Ours (K=1, Isotonic)      0.9806  0.9000  0.7852    18909      +1    18910  12.54s   813.7   73.0%
+Ours (K=1, Mean)          0.9659  0.8400  0.6676    11865      +1    11866   8.48s   480.5   59.7%
+Ours (K=1, P90)           0.9672  0.8400  0.6676    16191      +1    16192  10.46s   697.4   62.1%
+Ours (K=1, P70)           0.9660  0.8400  0.6676    12204      +1    12205   8.47s   497.8   59.6%
+Ours (K=8, Isotonic)      0.9752  0.8700  0.7376    15107      +8    15115   9.84s   631.0   68.5%
+Ours (K=8, Mean)          0.9652  0.8380  0.6676    10969      +8    10977   7.26s   436.4   59.8%
+Ours (K=8, P90)           0.9657  0.8400  0.6676    13199      +8    13207   8.81s   548.2   60.6%
+Ours (K=8, P70)           0.9648  0.8380  0.6676    10795      +8    10803   7.87s   428.4   59.0%
+Ours (K=30, Isotonic)     0.9723  0.8500  0.7176    13618     +30    13648   9.46s   559.6   66.0%
+Ours (K=30, Mean)         0.9659  0.8400  0.6676    11005     +30    11035   7.75s   437.8   59.8%
+Ours (K=30, P90)          0.9664  0.8400  0.6676    12386     +30    12416   8.63s   507.5   60.6%
+Ours (K=30, P70)          0.9656  0.8400  0.6676    10666     +30    10696   7.80s   421.5   59.3%
+Ours (K=297, Isotonic)    0.9677  0.8400  0.6876    11679    +297    11976  10.41s   467.8   62.4%
+Ours (K=297, Mean)        0.9667  0.8400  0.6676    11261    +297    11558   8.03s   447.9   61.7%
+Ours (K=297, P90)         0.9669  0.8400  0.6676    11717    +297    12014   8.39s   470.4   61.8%
+Ours (K=297, P70)         0.9665  0.8400  0.6676    11074    +297    11371   7.75s   439.3   61.3%
+
+Sweep Complete!
