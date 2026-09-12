@@ -1,0 +1,67 @@
+════════════════════════════════════════════════════════════════════════════════
+  Loading MS MARCO 8.8M Dataset
+════════════════════════════════════════════════════════════════════════════════
+  Corpus: (8841823, 384) | Train Q: (50000, 384) | Test Q: (6980, 384) | dim=384
+  Cluster Sweep Params: K_SWEEP=[1, 8, 30, 297]
+
+Loading 20000 calibration ground truth and test ground truth from cache...
+
+Loading HNSW index from custom_8.8M.index...
+
+════════════════════════════════════════════════════════════════════════════════
+  Shared Calibration for Our Arch (Individual Query Min-EF)
+════════════════════════════════════════════════════════════════════════════════
+  Loading calib_min_ef from cache calib_min_ef_cache_20000q.npz...
+
+════════════════════════════════════════════════════════════════════════════════
+  ADA-EF: Exact Paper Offline Phase (Bucket-Average Probing)
+════════════════════════════════════════════════════════════════════════════════
+  Building AdaEfPaperScorer (their exact Estimator + ApproximatedScoreCalculator)...
+  Calculated WAE for Ada-ef: 793
+  Ada-EF Offline Total: 42.6s
+
+════════════════════════════════════════════════════════════════════════════════
+  ONLINE EVALUATION  (Recall@100, target=0.99)
+════════════════════════════════════════════════════════════════════════════════
+  Vanilla(ef=200)... R=0.9646
+  Vanilla(ef=400)... R=0.9802
+  Vanilla(ef=600)... R=0.9854
+  Vanilla(ef=800)... R=0.9880
+  Vanilla(ef=1000)... R=0.9895
+  Vanilla(ef=1200)... R=0.9910
+  Ada-ef (exact)... R=0.9880
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware with K=1
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k1_8.8M_v2bins.pkl...
+  Running Online Evaluation (TargetRecall, matched to Ada-ef's calibration)...
+  R=0.9933
+  Running Online Evaluation (Isotonic)...
+  R=0.9893
+  Running Online Evaluation (Mean)...
+  R=0.9892
+  Running Online Evaluation (P90)...
+  R=0.9924
+  Running Online Evaluation (P70)...
+  R=0.9883
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware with K=8
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k8_8.8M_v2bins.pkl...
+  Running Online Evaluation (TargetRecall, matched to Ada-ef's calibration)...
+  R=0.9934
+  Running Online Evaluation (Isotonic)...
+  R=0.9890
+  Running Online Evaluation (Mean)...
+  R=0.9889
+  Running Online Evaluation (P90)...
+  R=0.9932
+  Running Online Evaluation (P70)...
+  R=0.9873
+
+────────────────────────────────────────────────────────────────────────────────
+  Cluster-Aware with K=30
+────────────────────────────────────────────────────────────────────────────────
+  [CACHE] Loading K-Means model and bins from kmeans_cache_k30_8.8M_v2bins.pkl...

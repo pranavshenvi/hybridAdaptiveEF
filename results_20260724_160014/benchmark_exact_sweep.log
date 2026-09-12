@@ -1,0 +1,28 @@
+════════════════════════════════════════════════════════════════════════════════
+  Loading MS MARCO 8.8M Dataset
+════════════════════════════════════════════════════════════════════════════════
+  Corpus: (8841823, 384) | Train Q: (50000, 384) | Test Q: (6980, 384) | dim=384
+  Cluster Sweep Params: K_SWEEP=[297, 500, 880]
+
+Loading 10k calibration ground truth and test ground truth from cache...
+
+Loading HNSW index from custom_8.8M.index...
+
+════════════════════════════════════════════════════════════════════════════════
+  Shared Calibration for Our Arch (Individual Query Min-EF)
+════════════════════════════════════════════════════════════════════════════════
+  ... calibrated 1000 queries
+  ... calibrated 2000 queries
+  ... calibrated 3000 queries
+  ... calibrated 4000 queries
+  ... calibrated 5000 queries
+  ... calibrated 6000 queries
+  ... calibrated 7000 queries
+  ... calibrated 8000 queries
+  ... calibrated 9000 queries
+  ... calibrated 10000 queries
+  Done in 1013.5s
+
+════════════════════════════════════════════════════════════════════════════════
+  ADA-EF: Exact Paper Offline Phase (Bucket-Average Probing)
+════════════════════════════════════════════════════════════════════════════════
