@@ -20,11 +20,21 @@ closed immediately -- the remaining, unwanted shards in the tar are never
 downloaded. Nothing is written to disk except the shards/queries you asked
 for (no 108GB intermediate .tar file, no full extractall of every shard).
 Cost scales with how far into the tar your requested shards + the query file
-happen to sit, not with the tar's full size -- for a small --n-shards this
-can be far cheaper than the full 108GB, but there's no way to know in advance
-where the query file sits in the archive, so the worst case is still a full
-read of the stream (still cheaper than the old download-then-extract version,
-which wrote the whole 108GB tar to disk first regardless).
+happen to sit, not with the tar's full size. On this mirror the query file
+happens to sit near the very end of the archive, so in practice most runs
+end up reading close to the full 108GB regardless of --n-shards -- the
+saving vs. the old download-then-extract approach is mainly "no 108GB temp
+.tar file on disk" and "only unwanted-shard parsing is skipped", not bandwidth.
+
+RESUMABLE: the mirror is Ceph RadosGW (S3-compatible), which supports HTTP
+Range requests. A socket timeout (SOCKET_TIMEOUT_S) turns a silently-stalled
+connection (observed in practice: the connection hangs forever with zero
+progress and zero CPU use, no exception, on this mirror) into a catchable
+error. The byte offset at the start of each tar member is checkpointed to
+`<OUT_DIR>/stream_resume_offset.txt` before that member is processed; on a
+stall or any network error, the script reconnects with `Range: bytes=<offset>-`
+and resumes a fresh streaming tar parse from exactly that member boundary,
+instead of restarting from byte 0. Retries up to MAX_RETRIES times.
 
 Run this on the server, not a laptop -- full corpus is ~8.84M x 1536 float32
 = ~54GB as a raw .npy.
@@ -37,9 +47,13 @@ import os
 import io
 import gzip
 import json
+import time
+import socket
 import tarfile
 import argparse
+import urllib.error
 import urllib.request
+import http.client
 
 import numpy as np
 from tqdm import tqdm
@@ -47,16 +61,24 @@ from tqdm import tqdm
 TAR_URL = "https://rgw.cs.uwaterloo.ca/pyserini/data/msmarco-passage-openai-ada2.tar"
 OUT_DIR = "msmarco_v1_openai1536"
 SHARD_CACHE_DIR = os.path.join(OUT_DIR, "shard_cache")
+RESUME_OFFSET_PATH = os.path.join(OUT_DIR, "stream_resume_offset.txt")
 N_SHARDS_TOTAL = 89  # matches data_prep.ipynb's `range(0, 89)`
+
+SOCKET_TIMEOUT_S = 90   # a silent stall (seen in practice on this mirror) raises after this long
+MAX_RETRIES = 20
+RETRY_SLEEP_S = 15
+
+RETRIABLE_ERRORS = (socket.timeout, TimeoutError, ConnectionError,
+                     http.client.IncompleteRead, urllib.error.URLError, OSError)
 
 
 class ProgressFileObj(io.RawIOBase):
     """Wraps the urllib response so tarfile's sequential reads print progress
     (a bare streaming read otherwise looks silent for a long time)."""
-    def __init__(self, resp, desc="downloading"):
+    def __init__(self, resp, desc="downloading", initial=0):
         self.resp = resp
-        self.total_bytes = 0
-        self.pbar = tqdm(unit="B", unit_scale=True, desc=desc)
+        self.total_bytes = initial
+        self.pbar = tqdm(unit="B", unit_scale=True, desc=desc, initial=initial)
 
     def readinto(self, b):
         data = self.resp.read(len(b))
@@ -80,6 +102,33 @@ def parse_vectors_from_gz_bytes(fileobj, desc):
     return np.array(vecs, dtype=np.float32)
 
 
+def open_stream(start_offset):
+    headers = {"User-Agent": "python-urllib"}
+    if start_offset > 0:
+        headers["Range"] = f"bytes={start_offset}-"
+        print(f"  Reconnecting with Range: bytes={start_offset}- ...")
+    req = urllib.request.Request(TAR_URL, headers=headers)
+    resp = urllib.request.urlopen(req, timeout=SOCKET_TIMEOUT_S)
+    return resp
+
+
+def save_resume_offset(offset):
+    with open(RESUME_OFFSET_PATH, "w") as f:
+        f.write(str(offset))
+
+
+def load_resume_offset():
+    if os.path.exists(RESUME_OFFSET_PATH):
+        with open(RESUME_OFFSET_PATH) as f:
+            return int(f.read().strip())
+    return 0
+
+
+def clear_resume_offset():
+    if os.path.exists(RESUME_OFFSET_PATH):
+        os.remove(RESUME_OFFSET_PATH)
+
+
 def stream_and_collect(n_shards):
     os.makedirs(SHARD_CACHE_DIR, exist_ok=True)
 
@@ -87,10 +136,8 @@ def stream_and_collect(n_shards):
     have_shards = {}
     query_emb = None
 
-    # Resume support: shards already parsed on a previous (possibly
-    # interrupted) run don't need re-parsing -- but the stream still has to
-    # be read sequentially past their bytes to reach anything later in the
-    # tar, so this only saves CPU/parse time, not bandwidth.
+    # Resume support (parse-level): shards/queries already fully saved on a
+    # previous run don't need re-fetching at all.
     for i in list(wanted_shards):
         cache_path = os.path.join(SHARD_CACHE_DIR, f"shard_{i}.npy")
         if os.path.exists(cache_path):
@@ -110,46 +157,89 @@ def stream_and_collect(n_shards):
     print(f"  need shards: {sorted(still_need_shards) if still_need_shards else '(none, cached)'}")
     print(f"  need queries: {still_need_query}")
 
-    req = urllib.request.Request(TAR_URL, headers={"User-Agent": "python-urllib"})
-    resp = urllib.request.urlopen(req)
-    wrapped = ProgressFileObj(resp, desc="tar stream")
+    # Byte-offset resume (connection-level): if a previous attempt got
+    # partway through the tar and died, pick up from that offset via an
+    # HTTP Range request instead of re-streaming from byte 0.
+    start_offset = load_resume_offset()
+    if start_offset > 0:
+        print(f"  Resuming from checkpointed offset {start_offset / 1e9:.2f}GB "
+              f"(from a previous interrupted attempt)...")
 
-    try:
-        with tarfile.open(fileobj=wrapped, mode="r|") as tf:
-            for member in tf:
-                if not still_need_shards and not still_need_query:
-                    break  # got everything we need -- stop reading the stream
+    attempt = 0
+    while True:
+        attempt += 1
+        resp = None
+        wrapped = None
+        try:
+            resp = open_stream(start_offset)
+            wrapped = ProgressFileObj(resp, desc="tar stream", initial=start_offset)
+            with tarfile.open(fileobj=wrapped, mode="r|") as tf:
+                for member in tf:
+                    if not still_need_shards and not still_need_query:
+                        clear_resume_offset()
+                        return have_shards, query_emb  # got everything we need
 
-                base = os.path.basename(member.name)
-                if not base.endswith(".jsonl.gz"):
-                    continue
-                stem = base[: -len(".jsonl.gz")]
+                    # Checkpoint BEFORE processing, using tarfile's own internal
+                    # member.offset (guaranteed 512-byte-block-aligned to this
+                    # member's header) rather than our raw byte counter -- the
+                    # latter can run ahead of tarfile's logical position due to
+                    # internal read-ahead buffering, which would land a Range
+                    # resume mid-block and corrupt parsing. member.offset is
+                    # relative to wherever THIS session's stream started
+                    # (start_offset), so add that back to get an absolute
+                    # position in the real file for the next Range request.
+                    save_resume_offset(start_offset + member.offset)
 
-                if stem.isdigit() and int(stem) in still_need_shards:
-                    idx = int(stem)
-                    fobj = tf.extractfile(member)
-                    arr = parse_vectors_from_gz_bytes(fobj, desc=f"shard {idx}")
-                    have_shards[idx] = arr
-                    np.save(os.path.join(SHARD_CACHE_DIR, f"shard_{idx}.npy"), arr)
-                    still_need_shards.discard(idx)
-                    print(f"  got shard {idx}: {arr.shape}")
+                    base = os.path.basename(member.name)
+                    if not base.endswith(".jsonl.gz"):
+                        continue
+                    stem = base[: -len(".jsonl.gz")]
 
-                elif "topics" in base and still_need_query:
-                    fobj = tf.extractfile(member)
-                    query_emb = parse_vectors_from_gz_bytes(fobj, desc="queries")
-                    np.savez(queries_cache, emb=query_emb)
-                    still_need_query = False
-                    print(f"  got queries: {query_emb.shape}")
-    finally:
-        wrapped.close()
-        resp.close()
+                    if stem.isdigit() and int(stem) in still_need_shards:
+                        idx = int(stem)
+                        fobj = tf.extractfile(member)
+                        arr = parse_vectors_from_gz_bytes(fobj, desc=f"shard {idx}")
+                        have_shards[idx] = arr
+                        np.save(os.path.join(SHARD_CACHE_DIR, f"shard_{idx}.npy"), arr)
+                        still_need_shards.discard(idx)
+                        print(f"  got shard {idx}: {arr.shape}")
 
-    if still_need_shards:
-        print(f"  WARNING: reached end of tar without finding shard(s) {sorted(still_need_shards)}.")
-    if still_need_query:
-        print(f"  WARNING: reached end of tar without finding the query (topics) file.")
+                    elif "topics" in base and still_need_query:
+                        fobj = tf.extractfile(member)
+                        query_emb = parse_vectors_from_gz_bytes(fobj, desc="queries")
+                        np.savez(queries_cache, emb=query_emb)
+                        still_need_query = False
+                        print(f"  got queries: {query_emb.shape}")
 
-    return have_shards, query_emb
+            # Fell out of the loop naturally -- reached end of tar.
+            clear_resume_offset()
+            if still_need_shards:
+                print(f"  WARNING: reached end of tar without finding shard(s) {sorted(still_need_shards)}.")
+            if still_need_query:
+                print(f"  WARNING: reached end of tar without finding the query (topics) file.")
+            return have_shards, query_emb
+
+        except RETRIABLE_ERRORS as e:
+            start_offset = load_resume_offset()  # best-known-good checkpoint
+            print(f"\n  Connection error on attempt {attempt}/{MAX_RETRIES} at "
+                  f"offset {start_offset / 1e9:.2f}GB: {type(e).__name__}: {e}")
+            if attempt >= MAX_RETRIES:
+                print("  Giving up after max retries. Re-run the script later to resume "
+                      f"from the checkpointed offset in {RESUME_OFFSET_PATH}.")
+                return have_shards, query_emb
+            print(f"  Retrying in {RETRY_SLEEP_S}s...")
+            time.sleep(RETRY_SLEEP_S)
+        finally:
+            if wrapped is not None:
+                try:
+                    wrapped.close()
+                except Exception:
+                    pass
+            if resp is not None:
+                try:
+                    resp.close()
+                except Exception:
+                    pass
 
 
 def main():
@@ -157,8 +247,7 @@ def main():
     parser.add_argument("--n-shards", type=int, default=N_SHARDS_TOTAL,
                          help=f"How many of the {N_SHARDS_TOTAL} passage shards (0-indexed, "
                               "shards 0..n-1) to pull -- the stream stops as soon as these "
-                              "plus the query file have been seen, so a small value here "
-                              "genuinely avoids downloading the rest of the 108GB tar "
+                              "plus the query file have been seen "
                               "(default: all, the paper-exact 8.84M-passage corpus).")
     args = parser.parse_args()
 
