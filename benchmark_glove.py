@@ -32,6 +32,7 @@ import numpy as np
 from scipy.spatial.distance import cdist
 from scipy.stats import norm
 from sklearn.cluster import MiniBatchKMeans
+from sklearn.isotonic import IsotonicRegression
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'chao_hybrid_ada_ef'))
 import chao_hybrid_ada_ef_cpp
@@ -82,6 +83,21 @@ def build_ef_table_p70(scores_int, required_efs):
     for s in np.unique(scores_int):
         table[int(s)] = int(np.percentile(required_efs[scores_int == s], 70))
     return table
+
+def build_isotonic_ef_table(scores_int, required_efs, min_ef, max_ef):
+    """Smooth, monotonic score->required-ef curve fit across ALL calibration
+    queries (isotonic regression), instead of discretizing into per-integer-
+    score buckets like build_ef_table_mean/p90/p70 -- those go noisy exactly
+    when a score is discriminative enough to spread queries across many
+    distinct values (few calibration queries per bucket). Isotonic borrows
+    statistical strength across nearby scores instead. See
+    benchmark_exact_paper_sweep.py's identical helper.
+    """
+    iso = IsotonicRegression(increasing='auto', out_of_bounds='clip')
+    iso.fit(scores_int, required_efs)
+    max_score = int(scores_int.max()) if len(scores_int) else 0
+    predicted = iso.predict(np.arange(max_score + 1))
+    return [int(np.clip(v, min_ef, max_ef)) for v in predicted]
 
 def lookup_ef(score, table, min_ef=10):
     max_ef = EF_SWEEP[-1]
@@ -439,7 +455,16 @@ for K_CLUSTERS in K_SWEEP:
         clust_calib_scores[i] = idx.get_dynamic_probe_score(calib_q[i], bins, CLUSTER_PROBE_COUNT)
 
     clust_calib_int = np.round(clust_calib_scores).astype(int)
-    
+
+    iso_ef_table = build_isotonic_ef_table(clust_calib_int, calib_min_ef, K_SEARCH, EF_SWEEP[-1])
+    with open(os.path.join(RESULTS_DIR, f"ef_table_k{K_CLUSTERS}_isotonic.json"), "w") as f_json:
+        json.dump(iso_ef_table, f_json, indent=4)
+
+    print(f"  Running Online Evaluation (Isotonic)...")
+    r_iso = eval_cluster_aware(f"Ours (K={K_CLUSTERS}, Isotonic)", K_CLUSTERS, centroids, cluster_bins, iso_ef_table)
+    print(f"  R={r_iso['mean_r']:.4f}")
+    all_results.append(r_iso)
+
     clust_table_mean = build_ef_table_mean(clust_calib_int, calib_min_ef)
     with open(os.path.join(RESULTS_DIR, f"ef_table_k{K_CLUSTERS}_mean.json"), "w") as f_json:
         json.dump(clust_table_mean, f_json, indent=4)
