@@ -71,30 +71,61 @@ class CappedReader:
         return data
 
 
+def _looks_like_html(resp):
+    return "text/html" in resp.headers.get("Content-Type", "")
+
+
 def get_gdrive_stream(file_id):
     """Handles Google Drive's virus-scan-skip confirmation flow for large
     files, returning a streaming requests.Response over the real file bytes.
+    Google has changed this flow more than once; tries the current direct
+    bypass endpoint first, then falls back to scraping a confirm token (both
+    the old plain-token form and the newer uuid-based form) out of the
+    interstitial HTML page.
     """
     session = requests.Session()
+
+    # Current (2023+) direct bypass endpoint -- usually skips the
+    # interstitial page entirely for a known-large file.
+    resp = session.get("https://drive.usercontent.google.com/download",
+                        params={"id": file_id, "export": "download", "confirm": "t"},
+                        stream=True)
+    if not _looks_like_html(resp):
+        return resp
+    resp.close()
+
+    # Fallback: old uc?export=download flow, scraping whatever confirm
+    # mechanism the interstitial page actually offers.
     url = "https://drive.google.com/uc?export=download"
     resp = session.get(url, params={"id": file_id}, stream=True)
+    if not _looks_like_html(resp):
+        return resp
 
-    # Small files download directly. Large files return an HTML warning page
-    # with a confirm token embedded either as a cookie or in the page body.
+    page = resp.text
+    resp.close()
+
     token = None
-    for key, value in resp.cookies.items():
+    for key, value in session.cookies.items():
         if key.startswith("download_warning"):
             token = value
             break
-    if token is None and "text/html" in resp.headers.get("Content-Type", ""):
-        match = re.search(r'confirm=([0-9A-Za-z_-]+)', resp.text)
+    if token is None:
+        match = re.search(r'confirm=([0-9A-Za-z_-]+)', page)
         if match:
             token = match.group(1)
 
+    params = {"id": file_id, "export": "download"}
     if token:
-        resp.close()
-        resp = session.get(url, params={"id": file_id, "confirm": token}, stream=True)
+        params["confirm"] = token
+    uuid_match = re.search(r'name="uuid"\s+value="([^"]+)"', page)
+    if uuid_match:
+        params["uuid"] = uuid_match.group(1)
 
+    resp = session.get(url, params=params, stream=True)
+    if _looks_like_html(resp):
+        print("  WARNING: still getting an HTML page back -- Google's confirm flow may have "
+              "changed again. First 500 chars of what came back:")
+        print(resp.text[:500])
     return resp
 
 
