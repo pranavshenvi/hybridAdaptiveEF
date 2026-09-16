@@ -251,10 +251,54 @@ exceptions to that pattern across everything tested.
 
 DeepImage's apparent exception to mechanism (1) at small scale was a fixable implementation
 artifact (clustering overhead disproportionate on a tiny DC budget), not a real weakness — resolved
-by testing at the paper's actual corpus scale (§4.4). With that fixed, both mechanisms now hold
-cleanly across all four real datasets tested, with zero unexplained exceptions.
+by testing at the paper's actual corpus scale (§4.4). **Caveat added after this was first written —
+see §4.6: even post-fix, DeepImage's DC outcome is a near-tie, not a win proportional to its (largest)
+rho advantage. That's not a contradiction of mechanism (1), but it does mean "worse Gaussian fit →
+bigger rho advantage" does NOT by itself predict "bigger DC-savings win" — a third factor explains
+the gap, see below.**
 
-### 4.6 Also downloaded/started: Laion-I2I (paper's 5th dataset)
+### 4.6 Refinement: rho advantage does not predict DC-savings size — a third factor (difficulty spread)
+
+Caught by direct questioning of the §4.5 synthesis (good catch, worth recording plainly): DeepImage
+has the *worst* Gaussian fit and the *largest* rho advantage (+0.26) of any dataset tested — yet its
+actual online DC outcome, even after fixing the overhead artifact (§4.4), is a near-tie, not the
+biggest win. MS MARCO, with a *smaller* rho advantage (+0.17), got a ~28% DC reduction (§3) — a
+bigger win despite a smaller score-quality edge. If rho-advantage-size directly predicted DC-savings-
+size, that ranking should run the other way. It doesn't.
+
+**Why:** rho measures whether a score *ranks* difficulty well. It says nothing about how much
+*headroom* exists to exploit that ranking — i.e. how different "easy" and "hard" queries in a
+dataset actually are from each other in required `ef`. If every query needs roughly the same `ef`
+regardless of difficulty, even a perfect score can't save much, because there's no meaningful
+easy/hard gap to route around. That's a separate, previously unmeasured property: **the spread of
+true difficulty across queries.**
+
+Checked directly using a proxy already available in every run's results — the ratio between the
+Mean-calibration average `ef` and the P90-calibration average `ef` (P90 targets the hardest 10% of
+each score bucket, so a bigger Mean→P90 gap means a wider spread of true difficulty across queries):
+
+| Dataset | Mean avg ef | P90 avg ef | P90/Mean ratio (difficulty spread) |
+|---|---|---|---|
+| MS MARCO-384 (K=8) | 551 | 1,440 | **2.62x** |
+| GloVe-100 (K=50) | 664 | 1,235 | 1.86x |
+| DeepImage-96, 1M subset (K=100) | 151 | 201 | 1.33x |
+| DeepImage-96, full 9.99M (K=100) | 300 | 353 | **1.18x (narrowest of anything tested)** |
+
+DeepImage's queries are far more *homogeneous* in difficulty than MS MARCO's or GloVe's — easy and
+hard queries aren't that different from each other there. MS MARCO has much more spread — some
+queries are genuinely, substantially easier than others, which is exactly what an adaptive method
+can exploit.
+
+**Corrected framing:** score quality (rho / Gaussian fit) determines *who wins the adaptive-ef
+contest* between our method and Ada-ef. Difficulty spread determines *how big a prize is even on the
+table* for either method to win, independent of score quality. DeepImage gives us the biggest
+score-quality edge of anything tested, but has the smallest prize pool available — hence a tie
+rather than a blowout, even with that edge. This isn't a contradiction of §4.5's two mechanisms; it's
+a missing third variable that should be reported alongside them, not left implicit. Should be
+measured directly (variance of `calib_min_ef` itself, not just this Mean/P90 proxy) and added for
+Cohere and Laion too once their results are in, for a complete picture.
+
+### 4.7 Also downloaded/started: Laion-I2I (paper's 5th dataset)
 
 Exact split protocol matched from the authors' own `data_prep.ipynb`: 31 shards of LAION image
 embeddings (float16, 512-dim, ~977MB each, ~30.6M rows total) from a live public URL, 10,000
