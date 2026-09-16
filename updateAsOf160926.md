@@ -153,6 +153,35 @@ diagnostic at the full 9.99M corpus too — participation ratio 45.23 vs 45.24, 
 ~0.067 at 1M — numbers essentially unchanged at 10x the data, confirming this is a stable property
 of the distribution, not a small-sample artifact.)
 
+**Correction, checked later (2026-09-16): participation ratio does NOT predict KS-fit quality
+either — caught by direct questioning of this table.** The original hypothesis (going back to
+`summary.md`'s first framing) was "anisotropy breaks the CLT argument, causing bad Gaussian fit" —
+implying the two columns above should rank together. They don't. Reranking by anisotropy alone
+(most→least, i.e. lowest participation-ratio % first): Laion (17.6%) and Cohere (18.8%) are the
+*most* anisotropic datasets tested, yet both have noticeably *better* Gaussian fit than MS MARCO
+(45.1%) and DeepImage (47.1%), which are far less anisotropic by this measure. DeepImage has the
+worst KS-fit of anything tested despite anisotropy barely different from MS MARCO's.
+
+**Why these don't have to track each other:** participation ratio is a single, global, second-moment
+(covariance-only) summary of the whole corpus, computed independent of any specific query. The KS
+test evaluates the *full shape* of one specific query's score distribution — skewness, tail
+weight, multi-modality — properties a covariance matrix alone doesn't capture. A dataset can have
+its variance spread reasonably evenly across directions (moderate participation ratio) while still
+having a badly non-Gaussian marginal shape for other reasons. One concrete, plausible mechanism for
+DeepImage specifically: it's raw CNN penultimate-layer features (ReLU-activated), which are
+naturally skewed/clipped-at-zero — exactly the kind of shape issue a KS test would catch that a
+covariance-eigenvalue summary wouldn't.
+
+**Practical consequence:** participation ratio is a legitimate, standard statistic (used widely in
+physics/spectral analysis for effective-dimensionality) but has NOT been shown to predict anything
+in this project — treat it as descriptive context, not as an explanatory or predictive variable.
+KS-fit is the more standard/reliable measuring factor **for this specific question**, precisely
+because it directly tests the exact claim Ada-ef's method depends on (is `q·v` Gaussian?), rather
+than testing a hypothesized *cause* of that claim failing. The three variables that have actually
+been shown to predict outcomes, and should be treated as load-bearing going forward, are: KS-fit
+(§4.1, predicts rho direction), rho advantage (§4.2, predicts win direction), and difficulty spread
+(§4.6/§4.6b, predicts win magnitude). Participation ratio is not among them.
+
 ### 4.2 Score-quality correlation (rho) — confirms the mechanism, not just the symptom
 
 `diagnose_correlation_glove100.py` / `diagnose_correlation_deepimage96.py` measure Spearman
