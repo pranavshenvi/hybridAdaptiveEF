@@ -142,6 +142,11 @@ print("═" * 80)
 with h5py.File('deep-image-96-angular.hdf5', 'r') as f:
     corpus = f['train'][:1000000].astype(np.float32)
     test_q = f['test'][:].astype(np.float32)
+
+print("  Normalizing vectors for angular distance approximation...")
+corpus /= np.linalg.norm(corpus, axis=1, keepdims=True)
+test_q /= np.linalg.norm(test_q, axis=1, keepdims=True)
+
 dim = corpus.shape[1]
 n_corpus = corpus.shape[0]
 
@@ -158,9 +163,8 @@ K_SWEEP = [100, 200, 500]
 print(f"  Corpus: {corpus.shape} | Train Q: {train_q_full.shape} | Test Q: {test_q.shape} | dim={dim}")
 _norms = np.linalg.norm(corpus[:1000], axis=1)
 print(f"  Corpus vector norm check (first 1000): mean={_norms.mean():.4f}, std={_norms.std():.4f} "
-      f"(AdaEfPaperScorer's CosineDistanceEstimator assumes unit-norm input -- distribution.h line ~303. "
-      f"This dataset is NOT explicitly normalized in this script, unlike GloVe/Spotify -- if mean isn't "
-      f"~1.0, Ada-ef's L2<->cosine score conversion is invalid here and its rows should be discounted.)")
+      f"(should be ~1.0 -- normalized above; AdaEfPaperScorer's CosineDistanceEstimator "
+      f"assumes unit-norm input, distribution.h line ~303)")
 print(f"  Cluster Sweep Params: K_SWEEP={K_SWEEP}")
 
 calib_q = train_q_full[np.random.choice(len(train_q_full), N_CALIB, replace=False)]

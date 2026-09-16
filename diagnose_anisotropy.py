@@ -67,10 +67,8 @@ def load_deepimage96():
     with h5py.File('deep-image-96-angular.hdf5', 'r') as f:
         corpus = f['train'][:1000000].astype(np.float32)  # matches benchmark_deep_image_new.py's subset
         test_q = f['test'][:].astype(np.float32)
-    # NOT normalized here, matching benchmark_deep_image_new.py's own behavior --
-    # that script flags this as a caveat (Ada-ef's cosine estimator assumes
-    # unit-norm input), so treat this dataset's normality/anisotropy numbers
-    # with that same caveat in mind.
+    corpus /= np.linalg.norm(corpus, axis=1, keepdims=True)
+    test_q /= np.linalg.norm(test_q, axis=1, keepdims=True)
     return corpus, test_q
 
 def load_cohere1024():
