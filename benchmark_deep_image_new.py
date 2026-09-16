@@ -181,7 +181,13 @@ n_corpus = corpus.shape[0]
 # matching the paper's own Sec 5.5 protocol.
 train_q_full = corpus[np.random.choice(n_corpus, min(350000, n_corpus), replace=False)]
 
-K_SWEEP = [100, 200, 500]
+# K=1 added: no clustering at all (single global set of empirical bins, zero
+# per-query clustering-lookup overhead). Per summary.md's MS MARCO finding,
+# K=1 alone already captures nearly all of clustering's benefit -- this
+# checks whether it also eliminates the probe_dc overhead tax that's been
+# keeping our method from beating Ada-ef's cost on this dataset's much
+# smaller DC budget, while keeping the same (much stronger, per rho) score.
+K_SWEEP = [1, 100, 200, 500]
 
 print(f"  Corpus: {corpus.shape} | Train Q: {train_q_full.shape} | Test Q: {test_q.shape} | dim={dim}")
 _norms = np.linalg.norm(corpus[:1000], axis=1)
