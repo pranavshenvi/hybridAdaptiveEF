@@ -42,9 +42,14 @@ np.random.seed(42)
 # ═══════════════════════════════════════════════════════════════════════
 #  Configuration
 # ═══════════════════════════════════════════════════════════════════════
-K_SEARCH       = 10
+# K_SEARCH was 10 -- deviates from the paper's own stated protocol (page 14,
+# "Parameters": "For the remaining datasets from the ANNS benchmark suite,
+# we adopt the commonly used setting of K = 100" -- GloVe/DeepImage are in
+# that category). Fixed to 100, with EF_SWEEP widened accordingly (K=100
+# needs a much larger ef range to reach TARGET_RECALL than K=10 did).
+K_SEARCH       = 100
 TARGET_RECALL  = 0.95
-EF_SWEEP       = list(range(10, 801, 10))
+EF_SWEEP       = list(range(50, 3001, 50))
 N_CALIB        = 2000
 CLUSTER_PROBE_COUNT = 100
 
@@ -169,7 +174,7 @@ print(f"  Cluster Sweep Params: K_SWEEP={K_SWEEP}")
 
 calib_q = train_q_full[np.random.choice(len(train_q_full), N_CALIB, replace=False)]
 
-gt_path = "ground_truth_deep_image.npz"
+gt_path = f"ground_truth_deep_image_k{K_SEARCH}.npz"  # sized by K_SEARCH so the old K=10 cache is never silently reused
 if os.path.exists(gt_path):
     print("\nLoading calibration ground truth and test ground truth from cache...")
     gt_data = np.load(gt_path)
@@ -187,7 +192,11 @@ else:
 # ═══════════════════════════════════════════════════════════════════════
 #  HNSW Index
 # ═══════════════════════════════════════════════════════════════════════
-index_path = "custom_1M_deep_image.index"
+# _efc500 suffix: ef_construction bumped from 200 to 500 to match the paper's
+# own stated parameters (page 14: "M = 16 ... and ef_construction = 500" for
+# ALL datasets). New filename forces a real rebuild instead of silently
+# reloading the old ef_construction=200 index.
+index_path = "custom_1M_deep_image_efc500.index"
 if os.path.exists(index_path):
     print(f"\nLoading HNSW index from {index_path}...")
     idx = chao_hybrid_ada_ef_cpp.Index(space='l2', dim=dim)
@@ -196,13 +205,13 @@ if os.path.exists(index_path):
     except Exception as e:
         print(f"  Failed ({e}), rebuilding...")
         idx = chao_hybrid_ada_ef_cpp.Index(space='l2', dim=dim)
-        idx.init_index(max_elements=corpus.shape[0], ef_construction=200, M=16)
+        idx.init_index(max_elements=corpus.shape[0], ef_construction=500, M=16)
         idx.add_items(corpus)
         idx.save_index(index_path)
 else:
     print("\nBuilding HNSW index (~30 min)...")
     idx = chao_hybrid_ada_ef_cpp.Index(space='l2', dim=dim)
-    idx.init_index(max_elements=corpus.shape[0], ef_construction=200, M=16)
+    idx.init_index(max_elements=corpus.shape[0], ef_construction=500, M=16)
     idx.add_items(corpus)
     idx.save_index(index_path)
 
@@ -251,7 +260,7 @@ ada_scores_int = np.round(ada_calib_scores).astype(int)
 
 # 2. Iterate through each unique score bucket to find EF that hits target avg recall
 ada_table_exact, WAE = load_or_build_target_recall_table(
-    "cache_target_recall_ada_paper_deep_image.json", ada_scores_int, calib_q, calib_gt)
+    f"cache_target_recall_ada_paper_deep_image_k{K_SEARCH}.json", ada_scores_int, calib_q, calib_gt)
 print(f"  Calculated WAE for Ada-ef: {WAE}")
 
 with open(os.path.join(RESULTS_DIR, "ef_table_ada_exact.json"), "w") as f_json:
@@ -276,7 +285,7 @@ t_ada_selfsamp = time.time()
 selfsamp_idx_arr = np.random.choice(n_corpus, SAMPLE_SIZE, replace=False)
 selfsamp_q = corpus[selfsamp_idx_arr]
 
-selfsamp_gt_path = f"deep_image_selfsamp_gt_{SAMPLE_SIZE}q.npz"
+selfsamp_gt_path = f"deep_image_selfsamp_gt_{SAMPLE_SIZE}q_k{K_SEARCH}.npz"
 if os.path.exists(selfsamp_gt_path):
     print(f"  Loading self-sampled ground truth from cache...")
     selfsamp_gt = np.load(selfsamp_gt_path)['selfsamp_gt']
@@ -292,7 +301,7 @@ ada_selfsamp_scores = np.array([
 ada_selfsamp_scores_int = np.round(ada_selfsamp_scores).astype(int)
 
 ada_table_selfsamp, WAE_selfsamp = load_or_build_target_recall_table(
-    f"cache_target_recall_ada_paper_deep_image_selfsamp_n{SAMPLE_SIZE}.json",
+    f"cache_target_recall_ada_paper_deep_image_selfsamp_n{SAMPLE_SIZE}_k{K_SEARCH}.json",
     ada_selfsamp_scores_int, selfsamp_q, selfsamp_gt)
 print(f"  Calculated WAE for Ada-ef (self-sampled-calib): {WAE_selfsamp}")
 
@@ -377,7 +386,7 @@ print(f"\n{'═' * 80}")
 print(f"  ONLINE EVALUATION  (Recall@{K_SEARCH}, target={TARGET_RECALL})")
 print(f"{'═' * 80}")
 
-for ef in [10, 20, 50, 100, 200, 400]:
+for ef in [100, 200, 400, 600, 800, 1000]:
     print(f"  Vanilla(ef={ef})...", end=" ", flush=True)
     r = eval_vanilla(f"Vanilla(ef={ef})", ef)
     print(f"R={r['mean_r']:.4f}")
