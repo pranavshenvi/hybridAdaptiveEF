@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Benchmark: Exact Ada-ef Paper Sweep vs Our Architecture
-Dataset: DEEP IMAGE (1M vectors)
+Dataset: DEEP IMAGE (full 9.99M vectors, matching Table 1 exactly)
 """
 
 import os, sys, time, pickle, json
@@ -163,7 +163,7 @@ print("═" * 80)
 print("  Loading DEEP IMAGE Dataset")
 print("═" * 80)
 with h5py.File('deep-image-96-angular.hdf5', 'r') as f:
-    corpus = f['train'][:1000000].astype(np.float32)
+    corpus = f['train'][:].astype(np.float32)  # full 9.99M, was truncated to [:1000000]
     test_q = f['test'][:].astype(np.float32)
 
 print("  Normalizing vectors for angular distance approximation...")
@@ -198,7 +198,7 @@ print(f"  Cluster Sweep Params: K_SWEEP={K_SWEEP}")
 
 calib_q = train_q_full[np.random.choice(len(train_q_full), N_CALIB, replace=False)]
 
-gt_path = f"ground_truth_deep_image_k{K_SEARCH}.npz"  # sized by K_SEARCH so the old K=10 cache is never silently reused
+gt_path = f"ground_truth_deep_image_full_k{K_SEARCH}.npz"  # _full: corpus is now 9.99M, not the old 1M subset -- never reuse that cache
 if os.path.exists(gt_path):
     print("\nLoading calibration ground truth and test ground truth from cache...")
     gt_data = np.load(gt_path)
@@ -216,11 +216,10 @@ else:
 # ═══════════════════════════════════════════════════════════════════════
 #  HNSW Index
 # ═══════════════════════════════════════════════════════════════════════
-# _efc500 suffix: ef_construction bumped from 200 to 500 to match the paper's
-# own stated parameters (page 14: "M = 16 ... and ef_construction = 500" for
-# ALL datasets). New filename forces a real rebuild instead of silently
-# reloading the old ef_construction=200 index.
-index_path = "custom_1M_deep_image_efc500.index"
+# _full suffix: corpus is now the full 9.99M vectors (was truncated to 1M) --
+# a different index entirely, must rebuild, not silently load the old 1M one.
+# ef_construction=500/M=16 match the paper's own stated parameters (page 14).
+index_path = "custom_full_deep_image_efc500.index"
 if os.path.exists(index_path):
     print(f"\nLoading HNSW index from {index_path}...")
     idx = chao_hybrid_ada_ef_cpp.Index(space='l2', dim=dim)
@@ -284,7 +283,7 @@ ada_scores_int = np.round(ada_calib_scores).astype(int)
 
 # 2. Iterate through each unique score bucket to find EF that hits target avg recall
 ada_table_exact, WAE = load_or_build_target_recall_table(
-    f"cache_target_recall_ada_paper_deep_image_k{K_SEARCH}.json", ada_scores_int, calib_q, calib_gt)
+    f"cache_target_recall_ada_paper_deep_image_full_k{K_SEARCH}.json", ada_scores_int, calib_q, calib_gt)
 print(f"  Calculated WAE for Ada-ef: {WAE}")
 
 with open(os.path.join(RESULTS_DIR, "ef_table_ada_exact.json"), "w") as f_json:
@@ -309,7 +308,7 @@ t_ada_selfsamp = time.time()
 selfsamp_idx_arr = np.random.choice(n_corpus, SAMPLE_SIZE, replace=False)
 selfsamp_q = corpus[selfsamp_idx_arr]
 
-selfsamp_gt_path = f"deep_image_selfsamp_gt_{SAMPLE_SIZE}q_k{K_SEARCH}.npz"
+selfsamp_gt_path = f"deep_image_selfsamp_gt_full_{SAMPLE_SIZE}q_k{K_SEARCH}.npz"
 if os.path.exists(selfsamp_gt_path):
     print(f"  Loading self-sampled ground truth from cache...")
     selfsamp_gt = np.load(selfsamp_gt_path)['selfsamp_gt']
@@ -325,7 +324,7 @@ ada_selfsamp_scores = np.array([
 ada_selfsamp_scores_int = np.round(ada_selfsamp_scores).astype(int)
 
 ada_table_selfsamp, WAE_selfsamp = load_or_build_target_recall_table(
-    f"cache_target_recall_ada_paper_deep_image_selfsamp_n{SAMPLE_SIZE}_k{K_SEARCH}.json",
+    f"cache_target_recall_ada_paper_deep_image_selfsamp_full_n{SAMPLE_SIZE}_k{K_SEARCH}.json",
     ada_selfsamp_scores_int, selfsamp_q, selfsamp_gt)
 print(f"  Calculated WAE for Ada-ef (self-sampled-calib): {WAE_selfsamp}")
 
@@ -431,7 +430,7 @@ for K_CLUSTERS in K_SWEEP:
     print(f"\n{'─' * 80}")
     print(f"  Cluster-Aware with K={K_CLUSTERS}")
     print(f"{'─' * 80}")
-    cache_file = f"kmeans_cache_k{K_CLUSTERS}_deep_image.pkl"
+    cache_file = f"kmeans_cache_k{K_CLUSTERS}_deep_image_full.pkl"
     if os.path.exists(cache_file):
         print(f"  [CACHE] Loading K-Means model and bins from {cache_file}...")
         with open(cache_file, 'rb') as f_cache:
@@ -479,7 +478,7 @@ for K_CLUSTERS in K_SWEEP:
         json.dump(clust_table_mean, f_json, indent=4)
         
     max_score_mean = max(clust_table_mean.keys()) if clust_table_mean else 0
-    ef_table_list_mean = [lookup_ef(s, clust_table_mean, min_ef=10, max_ef=800) for s in range(max_score_mean + 1)] if clust_table_mean else [10]
+    ef_table_list_mean = [lookup_ef(s, clust_table_mean, min_ef=10, max_ef=EF_SWEEP[-1]) for s in range(max_score_mean + 1)] if clust_table_mean else [10]
 
     print(f"  Running Online Evaluation (Mean)...")
     r_mean = eval_cluster_aware(f"Ours (K={K_CLUSTERS}, Mean)", K_CLUSTERS, centroids, cluster_bins, ef_table_list_mean)
@@ -491,7 +490,7 @@ for K_CLUSTERS in K_SWEEP:
         json.dump(clust_table_p90, f_json, indent=4)
         
     max_score_p90 = max(clust_table_p90.keys()) if clust_table_p90 else 0
-    ef_table_list_p90 = [lookup_ef(s, clust_table_p90, min_ef=10, max_ef=800) for s in range(max_score_p90 + 1)] if clust_table_p90 else [10]
+    ef_table_list_p90 = [lookup_ef(s, clust_table_p90, min_ef=10, max_ef=EF_SWEEP[-1]) for s in range(max_score_p90 + 1)] if clust_table_p90 else [10]
 
     print(f"  Running Online Evaluation (P90)...")
     r_p90 = eval_cluster_aware(f"Ours (K={K_CLUSTERS}, P90)", K_CLUSTERS, centroids, cluster_bins, ef_table_list_p90)
@@ -503,7 +502,7 @@ for K_CLUSTERS in K_SWEEP:
         json.dump(clust_table_p70, f_json, indent=4)
         
     max_score_p70 = max(clust_table_p70.keys()) if clust_table_p70 else 0
-    ef_table_list_p70 = [lookup_ef(s, clust_table_p70, min_ef=10, max_ef=800) for s in range(max_score_p70 + 1)] if clust_table_p70 else [10]
+    ef_table_list_p70 = [lookup_ef(s, clust_table_p70, min_ef=10, max_ef=EF_SWEEP[-1]) for s in range(max_score_p70 + 1)] if clust_table_p70 else [10]
 
     print(f"  Running Online Evaluation (P70)...")
     r_p70 = eval_cluster_aware(f"Ours (K={K_CLUSTERS}, P70)", K_CLUSTERS, centroids, cluster_bins, ef_table_list_p70)
