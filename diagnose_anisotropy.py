@@ -71,6 +71,19 @@ def load_deepimage96():
     test_q /= np.linalg.norm(test_q, axis=1, keepdims=True)
     return corpus, test_q
 
+def load_laion_i2i():
+    DATA_DIR = "laion_i2i_subset"
+    corpus = np.load(os.path.join(DATA_DIR, "corpus_emb.npy")).astype(np.float32)
+    q_data = np.load(os.path.join(DATA_DIR, "queries.npz"))
+    queries = q_data['emb'].astype(np.float32)
+    cn = np.linalg.norm(corpus[:2000], axis=1)
+    qn = np.linalg.norm(queries[:min(200, len(queries))], axis=1)
+    if abs(cn.mean() - 1) > 0.01 or abs(qn.mean() - 1) > 0.01:
+        print("  Not unit-normalized -- normalizing now.")
+        corpus = corpus / np.linalg.norm(corpus, axis=1, keepdims=True)
+        queries = queries / np.linalg.norm(queries, axis=1, keepdims=True)
+    return corpus, queries
+
 def load_cohere1024():
     DATA_DIR = "cohere_msmarco_v21_subset"
     corpus = np.load(os.path.join(DATA_DIR, "corpus_emb.npy")).astype(np.float32)
@@ -89,6 +102,7 @@ DATASETS = {
     "cohere1024": load_cohere1024,
     "glove100": load_glove100,
     "deepimage96": load_deepimage96,
+    "laion_i2i": load_laion_i2i,
 }
 
 # ═══════════════════════════════════════════════════════════════════════
