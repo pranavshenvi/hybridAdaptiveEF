@@ -298,6 +298,41 @@ a missing third variable that should be reported alongside them, not left implic
 measured directly (variance of `calib_min_ef` itself, not just this Mean/P90 proxy) and added for
 Cohere and Laion too once their results are in, for a complete picture.
 
+### 4.6b The completed pattern: difficulty spread predicts DC-reduction magnitude, exactly
+
+Pulling every factor together in one table, across the three "clean" comparisons (Cohere excluded —
+its outcome is governed by the separate calibration-collapse mechanism in §1/§4.6, not by score
+quality or difficulty spread at all):
+
+| Dataset | Rho advantage (ours − Ada-ef) | Difficulty spread (P90/Mean) | DC reduction | Recall delta | Target-hit delta |
+|---|---|---|---|---|---|
+| MS MARCO-384 | +0.17 | **2.62x (widest)** | **−28% (biggest win)** | +0.001 (tied) | +2.7pp |
+| GloVe-100 | +0.02 | 1.86x | −6.4% | +0.0062 | +0.9pp |
+| DeepImage-96, full | **+0.26 (biggest)** | 1.18x (narrowest) | ~0% (tied) | +0.0008 | +1.4pp |
+| DeepImage-96, 1M subset | +0.26 | 1.33x | +9.6% (worse — overhead-confounded, §4.3-4.4) | — | — |
+
+**Finding: difficulty spread predicts the *ranking* of DC-reduction size exactly (3 of 3) — more
+cleanly than rho does.** MS MARCO (widest spread) → biggest win. GloVe (middle) → middle win.
+DeepImage-full (narrowest) → smallest/no win. Rho alone would have predicted the opposite ordering
+at the top (DeepImage has the biggest rho advantage but the smallest win), which is exactly the
+tension that motivated this section.
+
+**Plain-language reading:** rho (score quality) determines *direction* — you need a genuinely
+better score to win at all, which holds everywhere tested except Cohere. But once that's true, **how
+big the win can be is capped by how different easy and hard queries actually are within that
+dataset.** MS MARCO has some very easy queries and some very hard ones — lots of room to route
+around that gap by picking `ef` per query. DeepImage's queries are all roughly equally hard — almost
+no gap to exploit, so even a much better score can't buy much savings.
+
+**What's honestly still unresolved:** recall and target-hit gains do *not* track spread as cleanly —
+DeepImage's target-hit gain (+1.4pp) beats GloVe's (+0.9pp) despite far less spread, likely because
+recall/target-hit quality reflects a joint effect of rho *and* spread together, not spread alone.
+Not claiming a fully solved formula here — three factors are now identified and each is directionally
+verified (Gaussian-fit/rho → win direction; difficulty spread → DC-savings magnitude; embedding
+symmetry → calibration robustness, dominates when in play), but the precise combination governing
+recall/target-hit size is still an open question worth checking against Cohere and Laion once their
+full numbers are in.
+
 ### 4.7 Also downloaded/started: Laion-I2I (paper's 5th dataset)
 
 Exact split protocol matched from the authors' own `data_prep.ipynb`: 31 shards of LAION image
