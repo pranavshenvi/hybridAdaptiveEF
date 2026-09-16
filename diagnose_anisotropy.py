@@ -65,7 +65,7 @@ def load_glove100():
 def load_deepimage96():
     import h5py
     with h5py.File('deep-image-96-angular.hdf5', 'r') as f:
-        corpus = f['train'][:1000000].astype(np.float32)  # matches benchmark_deep_image_new.py's subset
+        corpus = f['train'][:].astype(np.float32)  # full 9.99M, matches benchmark_deep_image_new.py
         test_q = f['test'][:].astype(np.float32)
     corpus /= np.linalg.norm(corpus, axis=1, keepdims=True)
     test_q /= np.linalg.norm(test_q, axis=1, keepdims=True)
