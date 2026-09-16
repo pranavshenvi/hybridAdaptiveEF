@@ -75,27 +75,58 @@ def main():
         dest_path = os.path.join(SHARD_DIR, f"img_emb_{i}.npy")
         download_shard(i, dest_path)
 
-    print("\nLoading and concatenating shards...")
-    parts = []
-    for i in range(n_shards):
-        arr = np.load(os.path.join(SHARD_DIR, f"img_emb_{i}.npy"))
-        print(f"  shard {i}: {arr.shape} {arr.dtype}")
-        parts.append(arr.astype(np.float32))
-    all_data = np.concatenate(parts, axis=0)
-    del parts
-    print(f"Total pool: {all_data.shape} ({all_data.nbytes / 1e9:.2f} GB as float32)")
+    # Stream-fill directly into two pre-allocated output buffers (corpus,
+    # queries) instead of concatenating all shards into one big array first
+    # and then slicing it -- that naive approach peaks at ~2x the final
+    # corpus size in memory at once (the combined array, then a fresh copy
+    # for the corpus split). At the full 31-shard scale (corpus alone is
+    # ~63GB as float32) that's a real OOM risk. This way peak memory is
+    # roughly the final corpus size plus one shard (~2GB) at a time.
+    print("\nReading shard shapes (no data loaded yet)...")
+    shard_paths = [os.path.join(SHARD_DIR, f"img_emb_{i}.npy") for i in range(n_shards)]
+    shard_rows = []
+    dim = None
+    for p in shard_paths:
+        mm = np.load(p, mmap_mode='r')
+        shard_rows.append(mm.shape[0])
+        dim = mm.shape[1]
+        del mm
+    total_rows = sum(shard_rows)
+    print(f"  {n_shards} shards, {total_rows} rows total, dim={dim}")
 
-    print(f"\nSplitting: {N_QUERY} random rows as queries, remainder as corpus (seed={args.seed})...")
+    print(f"\nSampling {N_QUERY} query rows out of {total_rows} (seed={args.seed})...")
     rng = np.random.RandomState(args.seed)
-    n_total = all_data.shape[0]
-    sampled_idx = rng.choice(n_total, size=min(N_QUERY, n_total), replace=False)
-    mask = np.ones(n_total, dtype=bool)
-    mask[sampled_idx] = False
+    n_query_actual = min(N_QUERY, total_rows)
+    sampled_idx = rng.choice(total_rows, size=n_query_actual, replace=False)
+    is_query = np.zeros(total_rows, dtype=bool)
+    is_query[sampled_idx] = True
 
-    query_vecs = all_data[sampled_idx]
-    corpus_vecs = all_data[mask]
-    del all_data
+    n_corpus = total_rows - n_query_actual
+    corpus_vecs = np.empty((n_corpus, dim), dtype=np.float32)
+    query_vecs = np.empty((n_query_actual, dim), dtype=np.float32)
+    corpus_ptr = 0
+    query_ptr = 0
 
+    print("\nStreaming shards into corpus/query buffers...")
+    offset = 0
+    for i, (path, n_rows) in enumerate(zip(shard_paths, shard_rows)):
+        arr = np.load(path).astype(np.float32)
+        shard_mask = is_query[offset:offset + n_rows]
+
+        shard_query = arr[shard_mask]
+        if len(shard_query) > 0:
+            query_vecs[query_ptr:query_ptr + len(shard_query)] = shard_query
+            query_ptr += len(shard_query)
+
+        shard_corpus = arr[~shard_mask]
+        corpus_vecs[corpus_ptr:corpus_ptr + len(shard_corpus)] = shard_corpus
+        corpus_ptr += len(shard_corpus)
+
+        print(f"  shard {i}: {n_rows} rows ({len(shard_query)} query, {len(shard_corpus)} corpus)")
+        offset += n_rows
+        del arr, shard_query, shard_corpus
+
+    assert corpus_ptr == n_corpus and query_ptr == n_query_actual
     print(f"  queries: {query_vecs.shape}")
     print(f"  corpus:  {corpus_vecs.shape}")
 
