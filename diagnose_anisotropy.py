@@ -53,6 +53,26 @@ def load_msmarco384():
     test_q = np.load('msmarco_qemb_validation.npz')['emb'].astype(np.float32)
     return corpus, test_q
 
+def load_glove100():
+    import h5py
+    with h5py.File('glove-100-angular.hdf5', 'r') as f:
+        corpus = f['train'][:].astype(np.float32)
+        test_q = f['test'][:].astype(np.float32)
+    corpus /= np.linalg.norm(corpus, axis=1, keepdims=True)
+    test_q /= np.linalg.norm(test_q, axis=1, keepdims=True)
+    return corpus, test_q
+
+def load_deepimage96():
+    import h5py
+    with h5py.File('deep-image-96-angular.hdf5', 'r') as f:
+        corpus = f['train'][:1000000].astype(np.float32)  # matches benchmark_deep_image_new.py's subset
+        test_q = f['test'][:].astype(np.float32)
+    # NOT normalized here, matching benchmark_deep_image_new.py's own behavior --
+    # that script flags this as a caveat (Ada-ef's cosine estimator assumes
+    # unit-norm input), so treat this dataset's normality/anisotropy numbers
+    # with that same caveat in mind.
+    return corpus, test_q
+
 def load_cohere1024():
     DATA_DIR = "cohere_msmarco_v21_subset"
     corpus = np.load(os.path.join(DATA_DIR, "corpus_emb.npy")).astype(np.float32)
@@ -69,6 +89,8 @@ def load_cohere1024():
 DATASETS = {
     "msmarco384": load_msmarco384,
     "cohere1024": load_cohere1024,
+    "glove100": load_glove100,
+    "deepimage96": load_deepimage96,
 }
 
 # ═══════════════════════════════════════════════════════════════════════

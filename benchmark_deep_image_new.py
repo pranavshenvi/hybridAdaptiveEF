@@ -141,10 +141,17 @@ print("  Loading DEEP IMAGE Dataset")
 print("═" * 80)
 with h5py.File('deep-image-96-angular.hdf5', 'r') as f:
     corpus = f['train'][:1000000].astype(np.float32)
-    train_q_full = f['learn'][:].astype(np.float32)
     test_q = f['test'][:].astype(np.float32)
 dim = corpus.shape[1]
 n_corpus = corpus.shape[0]
+
+# ann-benchmarks' deep-image-96-angular.hdf5 ships only train/test/neighbors/
+# distances -- there is no 'learn' key (confirmed against ann-benchmarks'
+# own dataset-generation source). The line above reading f['learn'] would
+# have raised a bare KeyError the moment this script ran. Fixed the same way
+# as GloVe: self-sample calibration points directly from the corpus itself,
+# matching the paper's own Sec 5.5 protocol.
+train_q_full = corpus[np.random.choice(n_corpus, min(350000, n_corpus), replace=False)]
 
 K_SWEEP = [100, 200, 500]
 

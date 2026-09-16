@@ -144,17 +144,27 @@ print("  Loading GloVe 100d Dataset (Normalized for L2)")
 print("═" * 80)
 with h5py.File('glove-100-angular.hdf5', 'r') as f:
     corpus = f['train'][:].astype(np.float32)
-
-train_q_full = np.load('glove_learn.npz')['emb'].astype(np.float32)
-test_q = np.load('glove_query.npz')['emb'].astype(np.float32)
+    test_q = f['test'][:].astype(np.float32)
 
 print("  Normalizing vectors for angular distance approximation...")
 corpus /= np.linalg.norm(corpus, axis=1, keepdims=True)
-train_q_full /= np.linalg.norm(train_q_full, axis=1, keepdims=True)
 test_q /= np.linalg.norm(test_q, axis=1, keepdims=True)
 
 dim = corpus.shape[1]
 n_corpus = corpus.shape[0]
+
+# ann-benchmarks' glove-100-angular.hdf5 ships only train/test/neighbors/
+# distances -- no separate calibration-query pool (unlike MS MARCO's
+# train/validation query files). A previous version of this script sourced
+# calibration queries from glove.6B.100d.txt (prepare_glove.py) -- a
+# DIFFERENT GloVe training run (Wikipedia-trained, not Twitter-trained like
+# this corpus), an unrelated vocabulary and coordinate system entirely.
+# Nearest-neighbor calibration against vectors from a different embedding
+# space is meaningless. Fixed: self-sample calibration points directly from
+# the corpus itself, matching the paper's own Sec 5.5 protocol and this
+# project's existing Cohere-1024 script (which has the same no-separate-
+# calibration-pool situation).
+train_q_full = corpus[np.random.choice(n_corpus, 350000, replace=False)]
 
 print(f"  Corpus: {corpus.shape} | Train Q: {train_q_full.shape} | Test Q: {test_q.shape} | dim={dim}")
 _norms = np.linalg.norm(corpus[:1000], axis=1)
