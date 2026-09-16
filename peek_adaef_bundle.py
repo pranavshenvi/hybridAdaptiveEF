@@ -35,7 +35,9 @@ MAX_MEMBERS members, whichever comes first -- adjust and re-run for more.
 Requires: pip install gdown
 """
 import argparse
+import errno
 import os
+import select
 import subprocess
 import tarfile
 import tempfile
@@ -44,6 +46,35 @@ import time
 FILE_ID = "1K1yeVxLe6L2ZMjnwLxHcJOPoFy9uNR-_"
 LISTING_BYTE_CAP_DEFAULT_GB = 5.0
 MAX_MEMBERS_DEFAULT = 2000
+FIFO_OPEN_TIMEOUT_S = 60
+
+
+def open_fifo_with_timeout(fifo_path, gdown_proc, timeout_s):
+    """Opening a FIFO for reading blocks until a writer opens it too. Do that
+    non-blockingly with a timeout instead, so a stuck/silent gdown (its own
+    confirm-flow prompt, a dead redirect, etc.) shows up as a clear timeout
+    with gdown's own stderr attached, instead of hanging forever."""
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        if gdown_proc.poll() is not None:
+            stderr = gdown_proc.stderr.read() if gdown_proc.stderr else ""
+            raise RuntimeError(f"gdown exited early (code {gdown_proc.returncode}) "
+                                f"before opening the FIFO. gdown stderr:\n{stderr}")
+        try:
+            fd = os.open(fifo_path, os.O_RDONLY | os.O_NONBLOCK)
+            return os.fdopen(fd, "rb")
+        except OSError as e:
+            if e.errno != errno.ENXIO:  # ENXIO: no writer yet, keep polling
+                raise
+            time.sleep(0.5)
+    stderr = ""
+    if gdown_proc.stderr:
+        r, _, _ = select.select([gdown_proc.stderr], [], [], 0)
+        if r:
+            stderr = os.read(gdown_proc.stderr.fileno(), 4000).decode(errors="replace")
+    raise TimeoutError(f"Timed out after {timeout_s}s waiting for gdown to open the FIFO. "
+                        f"gdown may be stuck on its own prompt/confirm flow. "
+                        f"gdown stderr so far:\n{stderr}")
 
 
 class CappedFifoReader:
@@ -83,17 +114,17 @@ def main():
 
     print(f"Starting gdown -> FIFO (id={FILE_ID}) ...")
     gdown_proc = subprocess.Popen(
-        ["gdown", f"https://drive.google.com/uc?id={FILE_ID}", "-O", fifo_path],
+        ["gdown", "--fuzzy", f"https://drive.google.com/uc?id={FILE_ID}", "-O", fifo_path],
+        stdin=subprocess.DEVNULL,  # never let gdown block on an interactive prompt
         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
     )
 
     n_members = 0
     reader = None
     try:
-        # Opening a FIFO for reading blocks until a writer (gdown) opens it
-        # too -- gdown should do so within a few seconds once it resolves
-        # the real download URL.
-        fifo_file = open(fifo_path, "rb")
+        print(f"Waiting up to {FIFO_OPEN_TIMEOUT_S}s for gdown to start writing...")
+        fifo_file = open_fifo_with_timeout(fifo_path, gdown_proc, FIFO_OPEN_TIMEOUT_S)
+        print("  gdown connected, reading...")
         reader = CappedFifoReader(fifo_file, byte_cap)
 
         with tarfile.open(fileobj=reader, mode="r|gz") as tf:
@@ -109,6 +140,8 @@ def main():
     except CappedFifoReader.CapReached:
         print(f"\nStopping: reached --byte-cap-gb {args.byte_cap_gb} "
               f"({reader.total / 1e9:.2f}GB read).")
+    except (RuntimeError, TimeoutError) as e:
+        print(f"\n{e}")
     except tarfile.ReadError as e:
         print(f"\nFailed to parse as a tar/gzip stream: {e}")
         # gdown may still be printing its own diagnostics to stderr -- surface
