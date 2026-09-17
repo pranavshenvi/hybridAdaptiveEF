@@ -100,6 +100,15 @@ def load_nytimes256():
     test_q /= test_norms
     return corpus, test_q
 
+def load_sift128():
+    import h5py
+    with h5py.File('sift-128-euclidean.hdf5', 'r') as f:
+        corpus = f['train'][:].astype(np.float32)
+        test_q = f['test'][:].astype(np.float32)
+    corpus /= np.linalg.norm(corpus, axis=1, keepdims=True)
+    test_q /= np.linalg.norm(test_q, axis=1, keepdims=True)
+    return corpus, test_q
+
 def load_cohere1024():
     DATA_DIR = "cohere_msmarco_v21_subset"
     corpus = np.load(os.path.join(DATA_DIR, "corpus_emb.npy")).astype(np.float32)
@@ -120,6 +129,7 @@ DATASETS = {
     "deepimage96": load_deepimage96,
     "laion_i2i": load_laion_i2i,
     "nytimes256": load_nytimes256,
+    "sift128": load_sift128,
 }
 
 # ═══════════════════════════════════════════════════════════════════════
