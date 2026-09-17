@@ -2498,41 +2498,73 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         candidate_set.emplace(-dist, currObj);
         visited_array[currObj] = visited_array_tag;
 
-        int current_ef = probe_count;
-        bool ef_updated = false;
+        int current_ef = min_ef;
 
+        // Phase 1: unpruned collection of exactly `probe_count` raw distances
+        // (no eviction from top_candidates) -- matches Ada-ef's real
+        // unpruned-probe mechanism (statics_length collection, ef=infinity;
+        // see AdaEfPaperScorer). A bounded/pruned probe here converges toward
+        // the query's true neighbors and permanently discards candidates that
+        // turn out to be needed once the decided ef is much larger than
+        // probe_count: harmless at small ef/probe_count ratios (tested up to
+        // ~8x on MS MARCO/Cohere/GloVe/DeepImage), catastrophic at large ones
+        // (Laion-I2I's K=1000 protocol forces a ~30-50x jump -- found via
+        // debug_laion_search_bug.py, 2026-09-17: recall collapsed to ~0.53
+        // vs ~0.99 even with ef pinned to the exact same value as a correct
+        // search). Never pruning here makes correctness independent of that
+        // ratio, for any dataset.
+        size_t collected = 1;
+        while (!candidate_set.empty() && collected < (size_t)probe_count) {
+            std::pair<dist_t, tableint> current_node_pair = candidate_set.top();
+            candidate_set.pop();
+
+            tableint current_node_id = current_node_pair.second;
+            int *data = (int *) get_linklist0(current_node_id);
+            size_t size = getListCount((linklistsizeint*)data);
+            metric_distance_computations += size;
+
+            for (size_t j = 1; j <= size; j++) {
+                int candidate_id = *(data + j);
+                if (!(visited_array[candidate_id] == visited_array_tag)) {
+                    visited_array[candidate_id] = visited_array_tag;
+                    char *currObj1 = getDataByInternalId(candidate_id);
+                    dist_t nd = fstdistfunc_(query_data, currObj1, dist_func_param_);
+                    candidate_set.emplace(-nd, candidate_id);
+                    top_candidates.emplace(nd, candidate_id);
+                    collected++;
+                }
+            }
+        }
+
+        // Score off the probe, decide the real ef, then continue this SAME
+        // traversal (no re-traversal) -- now as a standard bounded
+        // best-first search seeded from the full unpruned candidate_set/
+        // top_candidates gathered above.
+        {
+            std::vector<dist_t> top_dists;
+            auto temp_q = top_candidates;
+            while (!temp_q.empty()) {
+                top_dists.push_back(temp_q.top().first);
+                temp_q.pop();
+            }
+            float score = scoreFromDists(top_dists, bins, weights);
+            int score_idx = std::max(0, (int)std::round(score));
+            if (score_idx < (int)ef_table.size()) {
+                current_ef = ef_table[score_idx];
+            } else {
+                current_ef = ef_table.empty() ? max_ef : ef_table.back();
+            }
+            current_ef = std::max(min_ef, std::min(max_ef, current_ef));
+
+            while (top_candidates.size() > (size_t)current_ef) top_candidates.pop();
+            lowerBound = top_candidates.empty() ? std::numeric_limits<dist_t>::max() : top_candidates.top().first;
+        }
+
+        // Phase 2: standard bounded best-first continuation at the decided ef.
         while (!candidate_set.empty()) {
             std::pair<dist_t, tableint> current_node_pair = candidate_set.top();
             dist_t candidate_dist = -current_node_pair.first;
-
-            if (candidate_dist > lowerBound) {
-                if (!ef_updated) {
-                    std::vector<dist_t> top_dists;
-                    auto temp_q = top_candidates;
-                    while (!temp_q.empty()) {
-                        top_dists.push_back(temp_q.top().first);
-                        temp_q.pop();
-                    }
-                    float score = scoreFromDists(top_dists, bins, weights);
-                    int score_idx = std::max(0, (int)std::round(score));
-                    if (score_idx < (int)ef_table.size()) {
-                        current_ef = ef_table[score_idx];
-                    } else {
-                        current_ef = ef_table.empty() ? max_ef : ef_table.back();
-                    }
-                    current_ef = std::max(min_ef, std::min(max_ef, current_ef));
-                    ef_updated = true;
-
-                    if (top_candidates.size() < (size_t)current_ef) {
-                        lowerBound = std::numeric_limits<dist_t>::max();
-                        continue;
-                    } else {
-                        break;
-                    }
-                } else {
-                    break;
-                }
-            }
+            if (candidate_dist > lowerBound) break;
             candidate_set.pop();
 
             tableint current_node_id = current_node_pair.second;
@@ -2611,28 +2643,21 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
         char* ep_data = getDataByInternalId(currObj);
         dist_t dist = fstdistfunc_(query_data, ep_data, dist_func_param_);
-        dist_t lowerBound = dist;
         top_candidates.emplace(dist, currObj);
         candidate_set.emplace(-dist, currObj);
         visited_array[currObj] = visited_array_tag;
 
-        int current_ef = probe_count;
-        float final_score = 0;
-
-        while (!candidate_set.empty()) {
+        // Unpruned collection of exactly `probe_count` raw distances (no
+        // eviction from top_candidates) -- must match searchKnnDynamicWeighted's
+        // phase 1 exactly, since this function's whole purpose is producing
+        // the score that ef_table calibration is built from; a pruned probe
+        // here would compute a score distribution that doesn't match what
+        // the online search actually sees, silently invalidating the
+        // calibration table regardless of dataset. See searchKnnDynamicWeighted
+        // for the full rationale (debug_laion_search_bug.py, 2026-09-17).
+        size_t collected = 1;
+        while (!candidate_set.empty() && collected < (size_t)probe_count) {
             std::pair<dist_t, tableint> current_node_pair = candidate_set.top();
-            dist_t candidate_dist = -current_node_pair.first;
-
-            if (candidate_dist > lowerBound) {
-                std::vector<dist_t> top_dists;
-                auto temp_q = top_candidates;
-                while (!temp_q.empty()) {
-                    top_dists.push_back(temp_q.top().first);
-                    temp_q.pop();
-                }
-                final_score = scoreFromDists(top_dists, bins, weights);
-                break;
-            }
             candidate_set.pop();
 
             tableint current_node_id = current_node_pair.second;
@@ -2643,22 +2668,23 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                 int candidate_id = *(data + j);
                 if (!(visited_array[candidate_id] == visited_array_tag)) {
                     visited_array[candidate_id] = visited_array_tag;
-
                     char *currObj1 = getDataByInternalId(candidate_id);
                     dist_t nd = fstdistfunc_(query_data, currObj1, dist_func_param_);
-
-                    if (top_candidates.size() < (size_t)current_ef || lowerBound > nd) {
-                        candidate_set.emplace(-nd, candidate_id);
-                        top_candidates.emplace(nd, candidate_id);
-                        if (top_candidates.size() > (size_t)current_ef) {
-                            top_candidates.pop();
-                        }
-                        if (!top_candidates.empty())
-                            lowerBound = top_candidates.top().first;
-                    }
+                    candidate_set.emplace(-nd, candidate_id);
+                    top_candidates.emplace(nd, candidate_id);
+                    collected++;
                 }
             }
         }
+
+        std::vector<dist_t> top_dists;
+        auto temp_q = top_candidates;
+        while (!temp_q.empty()) {
+            top_dists.push_back(temp_q.top().first);
+            temp_q.pop();
+        }
+        float final_score = scoreFromDists(top_dists, bins, weights);
+
         visited_list_pool_->releaseVisitedList(vl);
         return final_score;
     }
