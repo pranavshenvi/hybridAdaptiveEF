@@ -264,7 +264,60 @@ distance score instead of the current bin-count design, or a larger `PROBE_COUNT
 requires more than 100/100 hits — but each of those is a real methodology change worth testing
 deliberately, not a quick patch, and none has been implemented or tested yet as of this writing.
 
-## 7. Bottom line
+## 7. Tested the saturation fix directly: real effect on the diagnostic, no effect online
+
+§6.4 named three candidate fixes for the score-saturation ceiling and explicitly flagged none of
+them as tested. Two of the three — tighter percentile bins (`QUANTILE_STEP`) and a bigger
+`PROBE_COUNT` — are plain config changes with no C++ rebuild required, so both were tested
+directly with `prototype_sift_desaturate.py` rather than left as an untested hypothesis.
+
+**Stage 1 (calibration-only sweep)**: swept `QUANTILE_STEP` ∈ {1e-3 (baseline), 1e-4, 1e-5, 1e-6}
+× `PROBE_COUNT` ∈ {100 (baseline), 300, 1000}. The fix worked exactly as diagnosed — saturation
+(fraction of calibration queries scoring at the ceiling) dropped from **21.8% (baseline) to
+1.1%** at the tightest/deepest setting, and rho *improved* alongside it, from **-0.4389 to
+-0.5213** (best single-parameter change) or **-0.4822** at the combined best config. Both
+mechanisms behaved as predicted: tighter bins and deeper probes genuinely give the score more
+room to differentiate queries that previously all landed at the same ceiling value.
+
+**Stage 2 (full online eval, same Isotonic recipe, best config)**: this is where the fix's
+practical value falls apart. Despite the large calibration-level improvement:
+
+| Config | DC | Recall | Target-hit |
+|---|---|---|---|
+| Baseline (QUANTILE_STEP=1e-3, PROBE_COUNT=100) | 2,858 | 0.9432 | 58.0% |
+| Best (QUANTILE_STEP=1e-6, PROBE_COUNT=1000) | 2,913 | 0.9443 | 58.4% |
+| Ada-ef (exact) | 3,652 | 0.9632 | 75.5% |
+
+Both DC and quality moved by less than a rounding error relative to the size of the calibration
+improvement, and the gap to Ada-ef (still ~17pp on target-hit) is essentially unchanged.
+**Desaturating the score did not translate into a better online tradeoff curve.**
+
+### 7.1 What this means: saturation was real, but not the dominant cause
+
+This corrects the strength of §6's conclusion, not its existence. The saturation mechanism is
+confirmed real (it fixes cleanly, exactly as predicted) and confirmed **not sufficient** to
+explain SIFT's online gap. The likely reason, consistent with something already measured in §6.3:
+even restricted to real, continuous score values, the *within-formerly-saturated-group*
+correlation with true required ef was only rho=-0.175 — weak, not zero. Splitting a weak signal
+across more score buckets raises the *aggregate* correlation number (more of the population now
+contributes a real, if modest, ranking signal instead of no signal at all), but doesn't hand the
+calibration table meaningfully more *useful* information to act on — the improvement is
+concentrated in a regime that doesn't reliably predict target-hit-relevant difficulty.
+
+This means the dominant explanation for SIFT's online loss reverts to §5's original framing:
+**narrow difficulty spread** (1.48–1.67x, in the same range as LAION/DeepImage, far below MS
+MARCO's 3.22x) capping how much even a genuinely-informative score can be exploited — not a
+fixable scoring-function artifact. The third, untested candidate from §6.4 (a fundamentally
+different continuous-distance score, not just tighter/deeper bins on the same bin-count design)
+remains open but unproven; nothing tested so far suggests it would fare differently, since the
+core limiting factor now looks like the underlying difficulty distribution itself, not the
+scoring formula's resolution.
+
+This is a negative result worth keeping on record precisely because it looked promising at the
+diagnostic level and didn't pan out online — the same standard of self-correction already applied
+to the participation-ratio and "Cohere is isotropic" claims in `updateAsOf160926.md`.
+
+## 8. Bottom line
 
 - NYTimes-256-angular's failure was fully diagnosed and is not a codebase bug: extreme exact
   duplication makes exact-top-K recall ill-posed for most of its queries, a known property of
@@ -279,12 +332,12 @@ deliberately, not a quick patch, and none has been implemented or tested yet as 
   cheap Isotonic recipe into a net loss, while a more conservative recipe (P90) still wins. This
   is a real, useful addition to the calibration-recipe-choice picture, not a contradiction of
   anything already established.
-- A full Pareto sweep (100 points, not 4) confirmed the loss is real, not a grid artifact — and
-  pinpointed the actual mechanism: our score saturates at its ceiling for ~22% of queries
-  (exactly the hardest ones), plausibly because of the same extreme anisotropy that otherwise
-  makes it far more informative than Ada-ef's. A concrete, fixable weak point in the scoring
-  function's bin design under extreme anisotropy, not a fundamental limit — untested as a fix
-  yet.
+- A full Pareto sweep (100 points, not 4) confirmed the loss is real, not a grid artifact, and a
+  score-saturation mechanism (ceiling hit by ~22% of queries) was identified and confirmed real —
+  but a direct test (tighter bins, deeper probe) fixed the saturation and improved rho
+  substantially while leaving the online tradeoff curve essentially unchanged. Saturation is a
+  real, secondary artifact, not the dominant cause of SIFT's online gap; narrow difficulty spread
+  (§5) is the more likely dominant factor, and stands uncontradicted after this test.
 - Next candidate datasets: the paper's own MS MARCO V1 (1536-dim OpenAI ada-002) remains blocked
   on the Google Drive query-file bundle rate limit (`updateAsOf160926.md` §2) — worth a retry
   given time elapsed. Otherwise, Fashion-MNIST-784-euclidean remains an easy, vetted-as-standard
