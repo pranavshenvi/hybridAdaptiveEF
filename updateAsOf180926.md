@@ -191,7 +191,80 @@ is not safe to assume without checking spread first. This wasn't visible on MS M
 spread, but rho advantage small enough that no recipe badly mis-provisions). SIFT is the first
 case where both conditions stack unfavorably for the cheap recipe specifically.
 
-## 6. Bottom line
+## 6. Is SIFT's loss the dataset's fault, our method's fault, or just an untested recipe?
+
+§5 found SIFT is the first dataset where the cheap Isotonic recipe loses outright to Ada-ef.
+Before accepting "narrow spread caps it" as the full explanation, the honest next question is
+whether that conclusion only holds because the 4-recipe x 4-K grid this project has used
+throughout (Mean/P70/P90/Isotonic x K∈{1,50,100,200}) simply never happened to land on a point
+that beats Ada-ef — i.e., whether the earlier finding was a property of the *grid*, not of the
+dataset or method.
+
+### 6.1 Pareto sweep: an exhaustive check, not four guesses
+
+`pareto_sweep_sift128.py` generalizes the P70/P90 recipes to an arbitrary-percentile version and
+sweeps P50 through P98 (step 2) at the same 4 K values (K is kept at the already-tested values
+since "K barely matters" has held across every dataset so far — the percentile axis is where the
+real, unexplored search space is). This produces 100 online-evaluated operating points, not 16,
+and lets the actual Pareto frontier be read off directly rather than inferred from 4 arbitrary
+recipes.
+
+**Result**: no point in the swept grid Pareto-dominates Ada-ef's own point (DC=3,652,
+recall=0.9632, target-hit=75.49%) on either recall or target-hit at equal-or-lower DC. But the
+frontier passes almost exactly *through* Ada-ef's point rather than staying below it: at matched
+DC (~3,650), the swept frontier interpolates to roughly 75.6% target-hit against Ada-ef's
+75.49% — a near-exact tie on the achievable cost/quality tradeoff curve, not a clear loss and not
+a hidden win. This reframes the question precisely: our raw score has far more ranking signal
+than Ada-ef's (rho -0.47 vs -0.02, the biggest gap of any dataset tested), yet that signal isn't
+converting into a better tradeoff curve. That gap between "much better score" and "same curve"
+is worth explaining, not just measuring.
+
+### 6.2 Ruling out score-quantization as the cause
+
+The calibration pipeline rounds the continuous score to an integer (`np.round(...).astype(int)`)
+before every recipe, including Isotonic regression — which doesn't actually need discrete
+buckets and could fit the continuous score directly. `debug_sift_score_resolution.py` checked
+whether this rounding step was destroying real signal: **it isn't**. Rho on the raw continuous
+score (-0.4389) and on the rounded integer (-0.4382) are essentially identical, ruling out simple
+resolution loss from rounding as the mechanism.
+
+### 6.3 The actual mechanism: the score saturates for ~22% of queries
+
+The same diagnostic found something more specific. Score=100 (the maximum possible value the
+scoring formula can produce) holds **437 of 2,000 calibration queries — 22% of the entire
+population**. Within that single maxed-out bucket, the true required ef (`calib_min_ef`) still
+spans **50 to 250 (a real 5x range)** — but the raw continuous score barely distinguishes them
+(within-bucket rho = -0.175, far weaker than the overall -0.44), and the next few largest buckets
+(scores 96-99) show essentially zero within-bucket correlation (p > 0.5 for all).
+
+So roughly a fifth of all queries — specifically the ones needing the widest range of ef (many
+of them the hardest queries in the dataset, exactly where target-hit-rate is won or lost) — get
+no differentiation at all from our score, regardless of how well it performs on the other 78%.
+
+**Why this likely happens specifically on SIFT**: the score reaches its maximum when all
+`PROBE_COUNT=100` probed candidates fall inside the single tightest empirical percentile bin.
+SIFT is the most anisotropic dataset tested by a wide margin (top-1 eigenvector alone holds 32%
+of total variance — see §4). That kind of concentrated structure plausibly creates locally dense
+"hubs" that a query's early graph traversal can land near, trivially satisfying the tightest bin
+for reasons unrelated to whether the query is actually easy or hard to find true top-100 for.
+Under this reading, the *same* extreme anisotropy that gives our score its huge rho advantage
+over Ada-ef (whose Gaussian assumption collapses under it, rho≈-0.02) is plausibly also what
+saturates our own score's ceiling for a meaningful chunk of queries — the two things share a
+root cause rather than being independent facts about this dataset.
+
+### 6.4 So: dataset, method, or grid?
+
+Not the grid — the Pareto sweep was exhaustive enough (100 points on the axis that actually
+varies) to rule out "we just didn't try the right recipe." Not simple score quantization either
+— ruled out directly, rounding barely changes anything. It's a specific, identified weak point in
+the *scoring function's bin design* under extreme anisotropy, not a fundamental ceiling on the
+adaptive approach itself and not a property of SIFT that dooms any possible method. In principle
+fixable — a finer/more extreme percentile range for highly anisotropic corpora, a continuous-
+distance score instead of the current bin-count design, or a larger `PROBE_COUNT` so saturation
+requires more than 100/100 hits — but each of those is a real methodology change worth testing
+deliberately, not a quick patch, and none has been implemented or tested yet as of this writing.
+
+## 7. Bottom line
 
 - NYTimes-256-angular's failure was fully diagnosed and is not a codebase bug: extreme exact
   duplication makes exact-top-K recall ill-posed for most of its queries, a known property of
@@ -206,6 +279,12 @@ case where both conditions stack unfavorably for the cheap recipe specifically.
   cheap Isotonic recipe into a net loss, while a more conservative recipe (P90) still wins. This
   is a real, useful addition to the calibration-recipe-choice picture, not a contradiction of
   anything already established.
+- A full Pareto sweep (100 points, not 4) confirmed the loss is real, not a grid artifact — and
+  pinpointed the actual mechanism: our score saturates at its ceiling for ~22% of queries
+  (exactly the hardest ones), plausibly because of the same extreme anisotropy that otherwise
+  makes it far more informative than Ada-ef's. A concrete, fixable weak point in the scoring
+  function's bin design under extreme anisotropy, not a fundamental limit — untested as a fix
+  yet.
 - Next candidate datasets: the paper's own MS MARCO V1 (1536-dim OpenAI ada-002) remains blocked
   on the Google Drive query-file bundle rate limit (`updateAsOf160926.md` §2) — worth a retry
   given time elapsed. Otherwise, Fashion-MNIST-784-euclidean remains an easy, vetted-as-standard
