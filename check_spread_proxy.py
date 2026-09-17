@@ -89,7 +89,7 @@ DATASETS = {
     "DeepImage-96":  (load_deepimage96, 1.177),  # K=100
 }
 
-print(f"{'Dataset':<15} {'Proxy (P90/Mean of Nth/1st-NN dist ratio)':>42} {'Actual spread':>15}")
+print(f"{'Dataset':<15} {'Proxy (P90/Median of Nth/1st-NN dist ratio)':>44} {'Actual spread':>15}")
 print("-" * 76)
 
 results = []
@@ -111,10 +111,20 @@ for name, (loader, actual_spread) in DATASETS.items():
         dK = np.linalg.norm(q - nnK)
         ratios[j] = dK / max(d1, 1e-8)
 
-    proxy_spread = float(np.percentile(ratios, 90) / np.mean(ratios))
-    print(f"  n={len(idx_sample)} queries, K={k}: "
-          f"1st-to-{k}th-NN distance ratio mean={ratios.mean():.3f}, "
-          f"P90/Mean of that ratio = {proxy_spread:.3f}")
+    n_degenerate = int(np.sum(ratios > 1000))  # near-duplicate 1st-NN (d1~=0) blows the ratio up
+    if n_degenerate:
+        print(f"  WARNING: {n_degenerate}/{len(ratios)} queries have a near-zero-distance "
+              f"1st-NN (near-duplicate corpus point), producing a degenerate ratio -- "
+              f"excluded from the spread statistic below.")
+    clean_ratios = ratios[ratios <= 1000]
+
+    # Median, not mean, for the denominator -- robust to exactly the kind of
+    # near-zero-distance outlier that breaks a mean-based statistic (this is
+    # what made LAION-I2I's proxy come out as a degenerate 0.000).
+    proxy_spread = float(np.percentile(clean_ratios, 90) / np.median(clean_ratios))
+    print(f"  n={len(clean_ratios)} clean queries, K={k}: "
+          f"1st-to-{k}th-NN distance ratio median={np.median(clean_ratios):.3f}, "
+          f"P90/Median of that ratio = {proxy_spread:.3f}")
     results.append((name, proxy_spread, actual_spread))
 
     # free memory before the next (potentially large) dataset
