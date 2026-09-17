@@ -89,8 +89,15 @@ def load_nytimes256():
     with h5py.File('nytimes-256-angular.hdf5', 'r') as f:
         corpus = f['train'][:].astype(np.float32)
         test_q = f['test'][:].astype(np.float32)
-    corpus /= np.linalg.norm(corpus, axis=1, keepdims=True)
-    test_q /= np.linalg.norm(test_q, axis=1, keepdims=True)
+    # A small number of NYTimes rows are exact zero vectors (rare all-stopword
+    # docs) -- clip their norm to 1 instead of dividing by zero (which would
+    # silently produce NaNs that corrupt everything downstream).
+    corpus_norms = np.linalg.norm(corpus, axis=1, keepdims=True)
+    test_norms = np.linalg.norm(test_q, axis=1, keepdims=True)
+    corpus_norms[corpus_norms == 0] = 1.0
+    test_norms[test_norms == 0] = 1.0
+    corpus /= corpus_norms
+    test_q /= test_norms
     return corpus, test_q
 
 def load_cohere1024():

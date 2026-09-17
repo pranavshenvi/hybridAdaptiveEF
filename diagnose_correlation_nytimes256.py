@@ -77,9 +77,18 @@ with h5py.File('nytimes-256-angular.hdf5', 'r') as f:
     corpus = f['train'][:].astype(np.float32)
     all_q = f['test'][:].astype(np.float32)
 
+def safe_normalize(x, label):
+    norms = np.linalg.norm(x, axis=1, keepdims=True)
+    n_zero = int(np.sum(norms.squeeze() == 0))
+    if n_zero:
+        print(f"  WARNING: {n_zero} zero-norm vectors in {label} -- clipping norm to "
+              f"1 to avoid divide-by-zero NaN (known quirk of this dataset).")
+        norms[norms == 0] = 1.0
+    return x / norms
+
 print("  Normalizing for angular distance approximation...")
-corpus /= np.linalg.norm(corpus, axis=1, keepdims=True)
-all_q /= np.linalg.norm(all_q, axis=1, keepdims=True)
+corpus = safe_normalize(corpus, "corpus")
+all_q = safe_normalize(all_q, "all_q")
 
 dim = corpus.shape[1]
 n_corpus = corpus.shape[0]
