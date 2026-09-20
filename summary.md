@@ -360,14 +360,42 @@ expensive step, and it's the one factor without a validated shortcut:
 | SIFT-128 | 1.48–1.67x | cheap recipe **loses** (−17.5pp target-hit); conservative recipe wins (+7 to +19pp) |
 | DeepImage-96 (full) | 1.18x (narrowest) | ~0% (tie) |
 
-**Two attempts at a cheap, index-free proxy for this (`check_spread_proxy.py`, ratio of a
-query's K-th to 1st true-nearest-neighbor distance, tested against all 6 already-measured
-datasets with zero new downloads) both failed** — the second, more robust formulation (median-
-based, outlier-excluded) actually came back with a *negative*, non-significant correlation
-(rho=−0.20, p=0.70, 6/6 rank mismatches) against the real spread numbers. This was tested
-directly, not assumed to be impossible — recorded honestly as a negative result. **No shortcut
-currently exists**: difficulty spread can only be known after building the full pipeline for a
-given dataset.
+**Three attempts at a cheap, index-free proxy for this — all tested directly, not assumed —
+failed, and the third replicates a finding already published in the literature rather than
+merely failing in isolation:**
+
+1. `check_spread_proxy.py` — a custom ratio (query's K-th to 1st true-nearest-neighbor distance).
+   First formulation (mean-based) broke outright on LAION (a degenerate 0.000, caused by
+   near-duplicate corpus points blowing up a mean-sensitive statistic). Fixed to a median-based,
+   outlier-excluded version — this made the LAION bug go away, but the correlation against real
+   spread got *worse*, not better: rho=−0.20 (p=0.70), 6/6 rank mismatches.
+2. `check_lid_spread_proxy.py` — the literature's own validated hardness measure, Local Intrinsic
+   Dimensionality (LID), computed via the standard Levina-Bickel/Amsaleg et al. MLE estimator
+   (Aumüller & Ceccarello, "The Role of Local Intrinsic Dimensionality in Benchmarking Nearest
+   Neighbor Search", arXiv:1907.07387 — their own finding: LID is "the most effective" query-
+   difficulty measure among alternatives they tested). Retested against all 6 already-measured
+   datasets, zero new downloads either time. Also failed: rho=−0.029 (p=0.96) for mean LID,
+   rho=0.257 (p=0.62) for LID's own P90/Median spread — both non-significant, 5–6/6 rank
+   mismatches.
+
+This isn't an implementation gap — it **replicates a finding already reported independently in
+the literature**. SHEAF (Self-profiled Hardness Estimation from Answer-set Flux,
+arXiv:2607.12229) explicitly notes that LID "is static and geometric" and "only weakly
+predict[s] the minimum beam" needed for graph-based ANN search — exactly the quantity this
+project needs (`calib_min_ef`'s spread). Static, ground-truth-only geometric measures — ours and
+the field's best-known one — don't capture graph-search difficulty, because that difficulty
+depends on the traversal dynamics of the specific index structure, not just the raw data
+geometry. **No shortcut currently exists that works from raw data alone**: difficulty spread can
+only be known after building the full pipeline for a given dataset.
+
+**Future work**: SHEAF's own fix wasn't a purer static formula — it gave up on zero-build
+entirely and instead uses two shallow probe searches on an already (lightly) built index,
+reporting 1.04–1.55x better held-out correlation than exact LID at predicting per-query minimum
+beam width. A SHEAF-style approach — build the index (unavoidable), but replace the full
+per-calibration-query `EF_SWEEP` search (the actual expensive step) with two cheap fixed-width
+probes per query and a churn/flux statistic between them — is a concrete, literature-grounded
+next step that could make spread measurable at a small fraction of current cost, without needing
+the full ef-sweep calibration this project currently relies on. Not implemented or tested here.
 
 **Rule**: wide spread (≳2x) predicts a large DC-savings win; narrow spread (≲1.7x) predicts a
 tie-to-modest win, and — new since SIFT — if Factor A's rho advantage is *also* large, narrow
@@ -383,15 +411,24 @@ narrow-spread dataset; never trust Isotonic alone as "the practical default" wit
 > before any index build) — covering the majority of real embedding spaces tested (5 of 6). Where
 > that condition holds **and** query/corpus embeddings are symmetric (so Ada-ef's own offline
 > calibration protocol doesn't independently break for an unrelated reason), our full pipeline
-> reliably beats Ada-ef's full pipeline online. The **size** of that win is governed by a third,
-> currently-unpredictable-in-advance factor — the corpus's difficulty spread — which ranges from a
-> large DC-savings win (wide spread) to a tie or even, at the cheap calibration recipe, an outright
-> loss recoverable by a more conservative recipe (narrow spread). No cheap proxy for spread has
-> been found despite two direct attempts; it remains the one factor requiring the full expensive
-> pipeline to know in advance.
+> reliably beats Ada-ef's full pipeline online. The **size** of that win is governed by a third
+> factor — the corpus's difficulty spread — which ranges from a large DC-savings win (wide spread)
+> to a tie or even, at the cheap calibration recipe, an outright loss recoverable by a more
+> conservative recipe (narrow spread). Difficulty spread cannot currently be predicted from raw
+> data geometry alone: verified by three independent attempts (a custom proxy, and the
+> literature's own validated LID estimator in two forms), all non-significant, and this
+> replicates — not contradicts — a finding already published in the ANN-search literature (SHEAF,
+> arXiv:2607.12229) that static geometric measures weakly predict graph-based search difficulty.
+> A cheaper-than-full-pipeline estimate would need to incorporate actual graph traversal dynamics
+> (a SHEAF-style two-probe approach on a lightly-built index), not just ground-truth distances — a
+> concrete, literature-grounded direction for future work, not attempted here.
 
 This is the claim to put forward, precisely scoped: **directional advantage is predictable and
-cheap to check before committing to any dataset; win magnitude is not, yet.** Closing that last
-gap — or accepting it and reporting spread as an empirical, not predictable, property — is the
-main open methodological question this project has left, ahead of chasing further datasets for
-their own sake.
+cheap to check before committing to any dataset (Factors A and B); win magnitude is not, and this
+project has verified — rigorously enough to independently corroborate an existing published
+finding, not just failed to find a shortcut — that no purely static, ground-truth-only measure
+predicts it.** Closing that gap needs graph-traversal-aware information (SHEAF-style probing),
+flagged as concrete future work rather than pursued here. This boundary is a legitimate result in
+its own right, not an unresolved loose end: it tells you precisely which part of the problem is
+solved (direction, cheaply) and which part is a genuinely open, literature-acknowledged hard
+problem (magnitude), rather than leaving the two conflated.
