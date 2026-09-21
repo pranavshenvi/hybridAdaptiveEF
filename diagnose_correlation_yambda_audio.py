@@ -78,14 +78,32 @@ norms = np.linalg.norm(corpus, axis=1, keepdims=True)
 norms[norms.squeeze() == 0] = 1.0
 corpus /= norms
 
+# Must reproduce benchmark_yambda_audio.py's exact same held-out split (same
+# seed=42, same first-random-call = permutation of the ORIGINAL n_corpus) so
+# this script's corpus matches the cached index's internal label IDs row for
+# row. That script's cached index was built on corpus WITH the held-out test
+# rows removed -- reloading the full, unmodified corpus here would silently
+# desync HNSW's internal IDs from actual rows.
+n_corpus_original = corpus.shape[0]
+N_TEST_MAIN = 10000  # must match benchmark_yambda_audio.py's N_TEST
+perm = np.random.permutation(n_corpus_original)
+held_out_idx = perm[:N_TEST_MAIN]
+remaining_idx = perm[N_TEST_MAIN:]
+
+# Calibration queries: a subset of the SAME held-out points (never in the
+# searchable corpus, matching the fix applied to the main benchmark's test
+# set -- correlation measurement needs genuinely held-out queries too, not
+# self-matched ones, since calib_min_ef is the exact quantity being
+# correlated against).
+calib_q = corpus[held_out_idx[:N_CALIB]].copy()
+corpus = corpus[remaining_idx]
+
 dim = corpus.shape[1]
 n_corpus = corpus.shape[0]
-print(f"  corpus: {corpus.shape}, dim={dim}")
-
-perm = np.random.permutation(n_corpus)
-calib_q = corpus[perm[:N_CALIB]]
-print(f"  Using {N_CALIB} self-sampled queries for correlation measurement "
-      f"(no real query file exists for this dataset).")
+print(f"  corpus: {corpus.shape} (held out {N_TEST_MAIN}, matching the cached index), dim={dim}")
+print(f"  Using {N_CALIB} held-out queries for correlation measurement "
+      f"(no real query file exists for this dataset; removed from the searchable "
+      f"corpus, not self-matched).")
 
 gt_path = f"yambda_audio_calib_gt_{N_CALIB}q_diag.npz"
 if os.path.exists(gt_path):

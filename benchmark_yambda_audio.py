@@ -244,14 +244,28 @@ print()
 dup_frac = check_duplicate_rate(corpus, "corpus")
 print()
 
-# No separate query file exists for this dataset -- self-sample both test
-# and calibration queries from the corpus (same pattern as Cohere/LAION's
-# no-separate-calibration-pool situation, extended here to test queries too
-# since there is no real query set at all for a pure track-embedding corpus).
+# No separate query file exists for this dataset -- self-sample queries from
+# the corpus. Calibration queries follow the established precedent (Cohere/
+# LAION, and the paper's own Sec 5.5 protocol): left IN the corpus, fine
+# since calibration isn't the reported metric. TEST queries are different:
+# every other dataset in this project has a genuinely separate, real held-out
+# test file, so leaving self-sampled test queries in the corpus here would
+# give every single reported query a guaranteed trivial self-match (itself,
+# distance 0) -- artificially inflating recall for every method alike and
+# making the headline numbers not real evidence of anything. Test queries are
+# therefore REMOVED from the searchable corpus entirely (a genuine holdout),
+# unlike calibration queries.
 perm = np.random.permutation(n_corpus)
 test_idx = perm[:N_TEST]
-train_pool_idx = perm[N_TEST:N_TEST + 200_000]
-test_q = corpus[test_idx]
+remaining_idx = perm[N_TEST:]
+
+test_q = corpus[test_idx].copy()
+corpus = corpus[remaining_idx]
+n_corpus = corpus.shape[0]
+print(f"  Held out {N_TEST} test queries and REMOVED them from the searchable "
+      f"corpus (no trivial self-match) -- corpus now {corpus.shape}.")
+
+train_pool_idx = np.random.choice(n_corpus, min(200_000, n_corpus), replace=False)
 train_q_full = corpus[train_pool_idx]
 
 print(f"  Corpus: {corpus.shape} | Train Q pool: {train_q_full.shape} | Test Q (self-sampled): {test_q.shape} | dim={dim}")
