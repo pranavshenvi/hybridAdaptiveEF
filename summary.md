@@ -293,35 +293,50 @@ query/document embeddings** — common in real dense-retrieval systems, not a co
 
 ## 7. Predictive framework: when does this method reliably beat Ada-ef?
 
-Six datasets have now been tested (MS MARCO-384, Cohere-1024, GloVe-100, DeepImage-96, LAION-I2I,
-SIFT-128), each with a different mix of dimension, domain, anisotropy, and embedding symmetry.
-Rather than a single blanket claim ("our method beats Ada-ef"), which the evidence does not
-support (SIFT ties, LAION only wins modestly, Cohere wins on a different axis than DC), the
-honest, defensible claim is a **conditional one**, built from three separable factors. Two of the
-three are cheap to measure and have held up consistently across every dataset tested; the third
-does not yet have a cheap predictor, and that gap — not the framework itself — is the source of
-most of the apparent inconsistency dataset-to-dataset.
+Seven datasets have now been tested (MS MARCO-384, Cohere-1024, GloVe-100, DeepImage-96,
+LAION-I2I, SIFT-128, dbpedia-openai-1536), each with a different mix of dimension, domain,
+anisotropy, and embedding symmetry. Rather than a single blanket claim ("our method beats
+Ada-ef"), which the evidence does not support (SIFT ties, LAION only wins modestly, Cohere wins on
+a different axis than DC), the honest, defensible claim is a **conditional one**, built from three
+separable factors. Two of the three are cheap to measure and have held up — one cleanly, one with
+a since-corrected precision claim — across every dataset tested; the third does not yet have a
+cheap predictor, and that gap — not the framework itself — is the source of most of the apparent
+inconsistency dataset-to-dataset.
 
 ### Factor A — Gaussian-fit quality (KS-fit): predicts *score-quality direction*, cheap, pre-build
 
 Measured via `diagnose_anisotropy.py`: KS-test the actual similarity-score distribution against
 Ada-ef's CLT-predicted Normal. This needs only the raw corpus and query vectors — no index build,
-no calibration, minutes not hours. Validated on **5 of 5 non-Cohere datasets**, in exact rank
-order, including two extreme points (SIFT worst fit, GloVe best fit) that bracket everything else:
+no calibration, minutes not hours.
 
 | Dataset | KS effect-size | Rho advantage (ours − Ada-ef) |
 |---|---|---|
-| SIFT-128 | 0.125 (worst) | **+0.45** |
+| SIFT-128 | 0.125 (worst) | +0.45 |
 | DeepImage-96 | 0.067 | +0.26 |
 | MS MARCO-384 | 0.047 | +0.17 |
+| dbpedia-openai-1536 | 0.0388 | **+0.056 (out of order — see below)** |
 | LAION-I2I | 0.029 | +0.10 |
 | GloVe-100 | 0.016 (best) | +0.02 |
 
+**Correction after the 7th dataset**: this was originally reported as "5 of 5 non-Cohere datasets
+in exact rank order," which was true at the time but did not survive a 6th non-Cohere test.
+dbpedia-openai-1536's KS-fit (0.0388) is worse than LAION's (0.029), so exact rank order predicts
+it should beat LAION's +0.10 advantage — instead it comes in at +0.056, smaller. This is a real,
+checked violation, not noise dismissed after the fact. **Revised claim**: KS-fit predicts
+direction reliably (a meaningfully non-Gaussian score, effect-size ≳0.03, reliably means *some*
+real advantage over Ada-ef's Gaussian score — true in all 6 non-Cohere datasets, including this
+one) and the *broad* ordering holds (SIFT/DeepImage/MS MARCO's clearly worse fit still means
+clearly bigger advantages than GloVe's near-isotropic case) — but it is not a precise rank
+predictor once enough datasets are tested. This is the same kind of refinement already applied to
+Factor C's difficulty-spread claim (LAION vs. DeepImage didn't resolve cleanly either) — coarse
+and directional, not exact.
+
 **Rule**: KS effect-size ≳0.03 (meaningfully non-Gaussian — the majority of real embedding spaces
-tested) predicts a real, often large, score-quality advantage for our empirical-percentile
-scoring over Ada-ef's Gaussian assumption. Below that threshold (near-isotropic, e.g. GloVe), the
-advantage is real but small. This is a *direction* predictor, not a *magnitude* predictor for the
-eventual online result — see Factor C.
+tested) predicts a real score-quality advantage for our empirical-percentile scoring over Ada-ef's
+Gaussian assumption; the size of that advantage is not precisely predictable from KS-fit alone.
+Below the threshold (near-isotropic, e.g. GloVe), the advantage is real but consistently small.
+This is a *direction* predictor, not a precise *magnitude* predictor for the eventual online
+result — see Factor C.
 
 ### Factor B — embedding symmetry: predicts *calibration-protocol robustness*, free, no measurement
 
@@ -331,15 +346,18 @@ modes for queries vs. documents (asymmetric, e.g. Cohere's `search_query`/`searc
 input types)? This determines whether Ada-ef's paper-stated self-sampled-calibration protocol
 (Sec 5.5: calibrate on corpus points as proxy queries) transfers safely to real queries.
 
-Validated: **5 of 5** symmetric-embedding configs checked (MS MARCO, GloVe, DeepImage at two
-corpus scales) showed only mild self-sampled-calibration degradation (recall/DC moved a few
-percent at most). The one asymmetric dataset tested (Cohere) collapsed badly under the same
-protocol (mean recall 0.951 vs. a 0.99 target, only 50.5% of queries hitting target) — and our
-own isotonic calibration degraded far more gracefully under the identical handicap (updateAsOf's
-§4b/§1). LAION and SIFT never had a real-query-calibration baseline to compare against (both used
-self-sampled calibration as their only option from the start, matching Cohere/LAION's situation
-in the paper's own data), so aren't part of this specific count, but both are symmetric
-(image-to-image, image-descriptor) and showed no signs of the Cohere-style collapse.
+Validated: **6 of 6** symmetric-embedding configs checked (MS MARCO, GloVe, DeepImage at two
+corpus scales, SIFT, dbpedia-openai-1536) showed only mild self-sampled-calibration degradation
+(recall/DC moved a few percent at most). dbpedia-openai-1536 (OpenAI `text-embedding-ada-002`,
+which has no Cohere-style separate query/document input-type modes) fits this cleanly:
+real-query-calib Ada-ef got 0.9507 recall / 67.9% target-hit, self-sampled-calib Ada-ef got 0.9463
+/ 64.5% — a few points, not a collapse. The one asymmetric dataset tested (Cohere) collapsed badly
+under the same protocol (mean recall 0.951 vs. a 0.99 target, only 50.5% of queries hitting
+target) — and our own isotonic calibration degraded far more gracefully under the identical
+handicap (updateAsOf's §4b/§1). LAION never had a real-query-calibration baseline to compare
+against (self-sampled calibration was its only option from the start, matching Cohere/LAION's
+situation in the paper's own data), so isn't part of this specific count, but is symmetric
+(image-to-image) and showed no signs of the Cohere-style collapse either.
 
 **Rule**: symmetric embeddings predict that Ada-ef's calibration protocol will transfer safely to
 real queries (a fair fight); asymmetric embeddings predict it may not, independent of score
@@ -355,10 +373,23 @@ expensive step, and it's the one factor without a validated shortcut:
 | Dataset | Spread (P90/Mean) | Online DC outcome (vs. Ada-ef) |
 |---|---|---|
 | MS MARCO-384 | 3.22x (widest) | **−42% DC** (biggest win) |
+| dbpedia-openai-1536 | 1.82x | **−11% DC, +0.7pp recall, +5.3pp target-hit** (clean win, all axes) |
 | GloVe-100 | 1.86x | −6.4% DC |
 | LAION-I2I | 1.51–1.61x | +1.1% to +5.4% DC premium, real target-hit gain |
 | SIFT-128 | 1.48–1.67x | cheap recipe **loses** (−17.5pp target-hit); conservative recipe wins (+7 to +19pp) |
 | DeepImage-96 (full) | 1.18x (narrowest) | ~0% (tie) |
+
+dbpedia-openai-1536 is the first dataset picked with an explicit hypothesis rather than tested
+opportunistically: both text-retrieval datasets already measured (MS MARCO 3.22x, Cohere spread
+not directly comparable due to its separate calibration-collapse mechanism) had the widest spread
+of anything tested, against every image/descriptor dataset being narrower (1.18x–1.86x) — a real,
+evidence-grounded domain heuristic, not a formal predictor (no formal predictor has survived
+testing — see below). The bet partially paid off: it produced a genuine MS-MARCO-shaped *clean*
+win (cheaper and better on every axis at once, unlike SIFT's split result), but the actual spread
+number (1.82x) landed in GloVe's range, not MS MARCO's — confirming the domain heuristic predicts
+*outcome shape* reasonably well so far (2 of 2 text datasets: clean win; 4 of 4 image/descriptor
+datasets: tie, modest win, or split result) without being a reliable predictor of the *spread
+number* itself.
 
 **Three attempts at a cheap, index-free proxy for this — all tested directly, not assumed —
 failed, and the third replicates a finding already published in the literature rather than
@@ -397,10 +428,14 @@ probes per query and a churn/flux statistic between them — is a concrete, lite
 next step that could make spread measurable at a small fraction of current cost, without needing
 the full ef-sweep calibration this project currently relies on. Not implemented or tested here.
 
-**Rule**: wide spread (≳2x) predicts a large DC-savings win; narrow spread (≲1.7x) predicts a
-tie-to-modest win, and — new since SIFT — if Factor A's rho advantage is *also* large, narrow
-spread can flip the cheap Isotonic recipe into a net **loss**, recoverable only with a more
-conservative recipe (P90-style, biases ef upward). Always sweep multiple recipes on a
+**Rule**: wide spread (≳3x, MS MARCO's territory) predicts a large DC-savings win; moderate spread
+(~1.8–2x, GloVe/dbpedia-openai) still reliably predicts a *clean* win (cheaper and better at once)
+just a smaller one; narrow spread (≲1.7x) predicts a tie-to-modest win or, if Factor A's rho
+advantage is *also* large (SIFT), can flip the cheap Isotonic recipe into a net **loss**,
+recoverable only with a more conservative recipe (P90-style, biases ef upward). The ≳2x threshold
+originally proposed for "large win" was too coarse — dbpedia-openai-1536 at 1.82x still produced a
+clean win, just moderate (−11%) rather than MS MARCO's (−42%) — revised to a three-band read
+(wide/moderate/narrow) rather than a single cutoff. Always sweep multiple recipes on a
 narrow-spread dataset; never trust Isotonic alone as "the practical default" without checking.
 
 ### Putting it together
@@ -408,8 +443,11 @@ narrow-spread dataset; never trust Isotonic alone as "the practical default" wit
 > Our cluster-aware empirical-percentile method's *score* is provably more informative than
 > Ada-ef's Gaussian-assumption score specifically on corpora whose similarity-score distribution
 > deviates meaningfully from Gaussian (KS effect-size ≳0.03, measurable from raw data alone,
-> before any index build) — covering the majority of real embedding spaces tested (5 of 6). Where
-> that condition holds **and** query/corpus embeddings are symmetric (so Ada-ef's own offline
+> before any index build) — covering the majority of real embedding spaces tested (6 of 7). This
+> predicts *direction* reliably; it does not precisely predict the *size* of that score advantage
+> (dbpedia-openai-1536 broke the exact-rank-order pattern seen in the first 5 non-Cohere
+> datasets, though the coarse ordering still holds). Where the non-Gaussian condition holds
+> **and** query/corpus embeddings are symmetric (so Ada-ef's own offline
 > calibration protocol doesn't independently break for an unrelated reason), our full pipeline
 > reliably beats Ada-ef's full pipeline online. The **size** of that win is governed by a third
 > factor — the corpus's difficulty spread — which ranges from a large DC-savings win (wide spread)
