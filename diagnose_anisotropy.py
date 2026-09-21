@@ -118,6 +118,17 @@ def load_dbpedia_openai1536():
     test_q /= np.linalg.norm(test_q, axis=1, keepdims=True)
     return corpus, test_q
 
+def load_yambda_audio():
+    corpus = np.load('yambda_audio_corpus.npy').astype(np.float32)
+    norms = np.linalg.norm(corpus, axis=1, keepdims=True)
+    norms[norms.squeeze() == 0] = 1.0
+    corpus = corpus / norms
+    n = corpus.shape[0]
+    rng = np.random.RandomState(0)
+    perm = rng.permutation(n)
+    test_q = corpus[perm[:10000]]
+    return corpus, test_q
+
 def load_cohere1024():
     DATA_DIR = "cohere_msmarco_v21_subset"
     corpus = np.load(os.path.join(DATA_DIR, "corpus_emb.npy")).astype(np.float32)
@@ -140,6 +151,7 @@ DATASETS = {
     "nytimes256": load_nytimes256,
     "sift128": load_sift128,
     "dbpedia_openai1536": load_dbpedia_openai1536,
+    "yambda_audio": load_yambda_audio,
 }
 
 # ═══════════════════════════════════════════════════════════════════════
