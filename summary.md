@@ -293,15 +293,15 @@ query/document embeddings** — common in real dense-retrieval systems, not a co
 
 ## 7. Predictive framework: when does this method reliably beat Ada-ef?
 
-Seven datasets have now been tested (MS MARCO-384, Cohere-1024, GloVe-100, DeepImage-96,
-LAION-I2I, SIFT-128, dbpedia-openai-1536), each with a different mix of dimension, domain,
-anisotropy, and embedding symmetry. Rather than a single blanket claim ("our method beats
-Ada-ef"), which the evidence does not support (SIFT ties, LAION only wins modestly, Cohere wins on
-a different axis than DC), the honest, defensible claim is a **conditional one**, built from three
-separable factors. Two of the three are cheap to measure and have held up — one cleanly, one with
-a since-corrected precision claim — across every dataset tested; the third does not yet have a
-cheap predictor, and that gap — not the framework itself — is the source of most of the apparent
-inconsistency dataset-to-dataset.
+Eight datasets have now been tested (MS MARCO-384, Cohere-1024, GloVe-100, DeepImage-96,
+LAION-I2I, SIFT-128, dbpedia-openai-1536, Yambda-5B audio), spanning three modalities (text,
+image, audio) with a different mix of dimension, domain, anisotropy, and embedding symmetry.
+Rather than a single blanket claim ("our method beats Ada-ef"), which the evidence does not
+support (SIFT ties, LAION only wins modestly, Cohere wins on a different axis than DC), the
+honest, defensible claim is a **conditional one**, built from three separable factors. Two of the
+three are cheap to measure and have held up — one cleanly, one with a since-corrected precision
+claim — across every dataset tested; the third does not yet have a cheap predictor, and that gap —
+not the framework itself — is the source of most of the apparent inconsistency dataset-to-dataset.
 
 ### Factor A — Gaussian-fit quality (KS-fit): predicts *score-quality direction*, cheap, pre-build
 
@@ -312,24 +312,33 @@ no calibration, minutes not hours.
 | Dataset | KS effect-size | Rho advantage (ours − Ada-ef) |
 |---|---|---|
 | SIFT-128 | 0.125 (worst) | +0.45 |
+| Yambda-5B audio | 0.0856 | +0.41–0.43 |
 | DeepImage-96 | 0.067 | +0.26 |
 | MS MARCO-384 | 0.047 | +0.17 |
 | dbpedia-openai-1536 | 0.0388 | **+0.056 (out of order — see below)** |
 | LAION-I2I | 0.029 | +0.10 |
 | GloVe-100 | 0.016 (best) | +0.02 |
 
-**Correction after the 7th dataset**: this was originally reported as "5 of 5 non-Cohere datasets
-in exact rank order," which was true at the time but did not survive a 6th non-Cohere test.
-dbpedia-openai-1536's KS-fit (0.0388) is worse than LAION's (0.029), so exact rank order predicts
-it should beat LAION's +0.10 advantage — instead it comes in at +0.056, smaller. This is a real,
-checked violation, not noise dismissed after the fact. **Revised claim**: KS-fit predicts
-direction reliably (a meaningfully non-Gaussian score, effect-size ≳0.03, reliably means *some*
-real advantage over Ada-ef's Gaussian score — true in all 6 non-Cohere datasets, including this
-one) and the *broad* ordering holds (SIFT/DeepImage/MS MARCO's clearly worse fit still means
-clearly bigger advantages than GloVe's near-isotropic case) — but it is not a precise rank
-predictor once enough datasets are tested. This is the same kind of refinement already applied to
-Factor C's difficulty-spread claim (LAION vs. DeepImage didn't resolve cleanly either) — coarse
-and directional, not exact.
+**Correction after the 7th dataset (dbpedia-openai-1536)**: this was originally reported as "5 of
+5 non-Cohere datasets in exact rank order," which was true at the time but did not survive a 6th
+non-Cohere test. dbpedia-openai-1536's KS-fit (0.0388) is worse than LAION's (0.029), so exact
+rank order predicts it should beat LAION's +0.10 advantage — instead it comes in at +0.056,
+smaller. This is a real, checked violation, not noise dismissed after the fact. **Revised claim**:
+KS-fit predicts direction reliably (a meaningfully non-Gaussian score, effect-size ≳0.03, reliably
+means *some* real advantage over Ada-ef's Gaussian score — true in all 7 non-Cohere datasets,
+including this one) and the *broad* ordering holds (SIFT/DeepImage/MS MARCO's clearly worse fit
+still means clearly bigger advantages than GloVe's near-isotropic case) — but it is not a precise
+rank predictor once enough datasets are tested. This is the same kind of refinement already
+applied to Factor C's difficulty-spread claim (LAION vs. DeepImage didn't resolve cleanly either)
+— coarse and directional, not exact.
+
+**8th dataset (Yambda-5B audio) confirms the coarse ordering rather than adding a new
+exception**: its KS-fit (0.0856) is the 2nd-worst of anything tested, and its rho advantage
+(+0.41–0.43) is the 2nd-biggest — landing in the correct relative slot between SIFT and DeepImage
+on both axes at once, exactly as the broad (not exact) ordering predicts. Also notable: Ada-ef's
+own rho on this dataset is +0.0049 — indistinguishable from zero, the most degenerate reading of
+any dataset tested (even worse than SIFT's -0.02). This is the first audio-modality data point,
+and it behaves consistently with the text/image datasets already tested, not differently.
 
 **Rule**: KS effect-size ≳0.03 (meaningfully non-Gaussian — the majority of real embedding spaces
 tested) predicts a real score-quality advantage for our empirical-percentile scoring over Ada-ef's
@@ -357,7 +366,11 @@ target) — and our own isotonic calibration degraded far more gracefully under 
 handicap (updateAsOf's §4b/§1). LAION never had a real-query-calibration baseline to compare
 against (self-sampled calibration was its only option from the start, matching Cohere/LAION's
 situation in the paper's own data), so isn't part of this specific count, but is symmetric
-(image-to-image) and showed no signs of the Cohere-style collapse either.
+(image-to-image) and showed no signs of the Cohere-style collapse either. Yambda-5B audio is a
+degenerate case of "symmetric" — there's no query/document distinction at all (a pure track
+corpus, queries are held-out tracks from the same embedding space) — so it can't be tested for
+this specific protocol-transfer question, but by the same logic has no way to exhibit Cohere's
+asymmetric-encoding failure mode either.
 
 **Rule**: symmetric embeddings predict that Ada-ef's calibration protocol will transfer safely to
 real queries (a fair fight); asymmetric embeddings predict it may not, independent of score
@@ -377,7 +390,18 @@ expensive step, and it's the one factor without a validated shortcut:
 | GloVe-100 | 1.86x | −6.4% DC |
 | LAION-I2I | 1.51–1.61x | +1.1% to +5.4% DC premium, real target-hit gain |
 | SIFT-128 | 1.48–1.67x | cheap recipe **loses** (−17.5pp target-hit); conservative recipe wins (+7 to +19pp) |
-| DeepImage-96 (full) | 1.18x (narrowest) | ~0% (tie) |
+| DeepImage-96 (full) | 1.18x | ~0% (tie) |
+| Yambda-5B audio | 1.08x (narrowest) | **−4.4% DC, +0.1pp recall, +0.9pp target-hit** (small but clean win) |
+
+Yambda audio is the third dataset (after SIFT and DeepImage) showing a large Factor A rho
+advantage (+0.41–0.43, 2nd-biggest of anything tested) fail to translate into a large online win,
+because it has the narrowest difficulty spread measured so far (1.08x) — the corpus is simply
+"easy" overall (`Vanilla(ef=50)`, the floor of the ef sweep, already clears the 0.95 target
+recall), leaving little headroom for any adaptive method to exploit regardless of score quality.
+Unlike SIFT, this doesn't flip into a loss — the win is small but still clean (cheaper *and*
+better, not a tradeoff) — consistent with a spread this narrow but not quite as narrow as
+DeepImage's near-tie. This is now a well-corroborated pattern (3 of 3 large-rho-advantage,
+narrow-spread cases behave this way), not a one-off.
 
 dbpedia-openai-1536 is the first dataset picked with an explicit hypothesis rather than tested
 opportunistically: both text-retrieval datasets already measured (MS MARCO 3.22x, Cohere spread
@@ -443,10 +467,12 @@ narrow-spread dataset; never trust Isotonic alone as "the practical default" wit
 > Our cluster-aware empirical-percentile method's *score* is provably more informative than
 > Ada-ef's Gaussian-assumption score specifically on corpora whose similarity-score distribution
 > deviates meaningfully from Gaussian (KS effect-size ≳0.03, measurable from raw data alone,
-> before any index build) — covering the majority of real embedding spaces tested (6 of 7). This
-> predicts *direction* reliably; it does not precisely predict the *size* of that score advantage
-> (dbpedia-openai-1536 broke the exact-rank-order pattern seen in the first 5 non-Cohere
-> datasets, though the coarse ordering still holds). Where the non-Gaussian condition holds
+> before any index build) — covering the majority of real embedding spaces tested (7 of 8), across
+> text, image, and audio modalities alike. This predicts *direction* reliably; it does not
+> precisely predict the *size* of that score advantage (dbpedia-openai-1536 broke the
+> exact-rank-order pattern seen in the first 5 non-Cohere datasets, though the coarse ordering
+> still holds, and the 8th dataset — Yambda-5B audio — confirmed that coarse ordering rather than
+> adding a new exception). Where the non-Gaussian condition holds
 > **and** query/corpus embeddings are symmetric (so Ada-ef's own offline
 > calibration protocol doesn't independently break for an unrelated reason), our full pipeline
 > reliably beats Ada-ef's full pipeline online. The **size** of that win is governed by a third
