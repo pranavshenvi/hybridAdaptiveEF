@@ -51,8 +51,8 @@ def main():
         print("No results_controlled_*/summary.json found -- run benchmark_controlled.py first.")
         return
 
-    hdr = (f"{'Config':<22} {'Exp':>3} {'KS':>7} {'rho Ada':>8} {'rho ours':>9} {'adv':>7} "
-           f"{'Spread':>7} {'minEF P90/med':>13} {'Ada DC':>8} {'Ada R':>7} {'dDC@R':>9} {'dDC@tgt':>9}")
+    hdr = (f"{'Config':<24} {'Exp':>3} {'KS':>7} {'rho Ada':>8} {'rho ours':>9} {'adv':>7} "
+           f"{'Spread':>7} {'minEF P90/med':>13} {'@floor':>6} {'Ada DC':>8} {'Ada R':>7} {'dDC@R':>9} {'dDC@tgt':>9}")
     print(hdr)
     print("─" * len(hdr))
     for s in runs:
@@ -60,9 +60,9 @@ def main():
             r = s.get(key)
             if r is None: return "never"
             return ("<=" if r["bound"] else "") + f"{r['delta_pct']:+.1f}%"
-        print(f"{s['config']:<22} {s['experiment']:>3} {s['ks_mean']:>7.4f} {s['rho_ada']:>+8.3f} "
+        print(f"{s['config']:<24} {s['experiment']:>3} {s['ks_mean']:>7.4f} {s['rho_ada']:>+8.3f} "
               f"{s['rho_ours_best']:>+9.3f} {s['rho_advantage']:>+7.3f} {s['spread_proxy_k1']:>6.2f}x "
-              f"{s['calib_min_ef']['p90_over_median']:>12.2f}x {s['ada']['dc']:>8.0f} {s['ada']['recall']:>7.4f} "
+              f"{s['calib_min_ef']['p90_over_median']:>12.2f}x {s['calib_min_ef'].get('frac_at_ef_floor', float('nan'))*100:>5.0f}% {s['ada']['dc']:>8.0f} {s['ada']['recall']:>7.4f} "
               f"{d('equal_recall'):>9} {d('equal_target'):>9}")
 
     out_dir = f"results_controlled_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -94,7 +94,7 @@ def main():
             c = EXP_COLOR[s["experiment"]]
             ax.scatter(s["spread_proxy_k1"], r["delta_pct"], s=60, zorder=3,
                        facecolors="none" if r["bound"] else c, edgecolors=c, linewidths=1.5)
-            label = f"{int(s['hard_frac']*100)}% hard" + (f", α={s['alpha']}" if s["base"] == "synth" else "")
+            label = f"{int(s['hard_frac']*100)}% hard" + (f" σ={s['hard_sigma']}" if s["hard_frac"] else "") + (f", α={s['alpha']}" if s["base"] == "synth" else "")
             ax.annotate(label, (s["spread_proxy_k1"], r["delta_pct"]), fontsize=8, xytext=(5, -10), textcoords="offset points")
     ax.axhline(0, color="#999", lw=0.8)
     ax.set_xlabel("Difficulty spread (P90 / Mean calibrated ef, K=1)")

@@ -52,7 +52,10 @@ DATA_DIR = "controlled_data"
 
 N_CALIB   = 2000
 N_TEST    = 8000          # SIFT only ships 10,000 test queries: 2,000 calib + 8,000 test
-HARD_SIGMA = 0.6          # perturbation norm on unit vectors (~31 degrees off the original query)
+HARD_SIGMA = 0.6          # default perturbation norm on unit vectors (~31 degrees off the original query)
+# First A run: sigma=0.6 made hard queries only ~1.55x harder (mean min-ef 194 vs 125), so
+# spread barely moved. Second sweep: fix the 50% mix (max spread) and grow the easy/hard gap.
+A_SIGMA_SWEEP = [1.0, 1.5, 2.0]
 
 SYNTH_N         = 1_000_000
 SYNTH_DIM       = 128
@@ -66,6 +69,8 @@ SYNTH_TAG = f"c{SYNTH_CLUSTERS}_s{SYNTH_CENTER_SCALE:g}"   # in every synthetic 
 
 # name -> (base corpus, alpha for synthetic or None, hard-query fraction, experiment)
 CONFIGS = {f"A_sift_hard{int(p*100):02d}": ("sift128", None, p, "A") for p in (0.0, 0.1, 0.3, 0.5)}
+CONFIGS.update({f"A_sift_hard50_s{s:.1f}": ("sift128", None, 0.5, "A") for s in A_SIGMA_SWEEP})
+HARD_SIGMAS = {f"A_sift_hard50_s{s:.1f}": s for s in A_SIGMA_SWEEP}   # everything else uses HARD_SIGMA
 CONFIGS.update({f"B_synth_a{a:.1f}": ("synth", a, 0.0, "B") for a in SYNTH_ALPHAS})
 CONFIGS[f"C_synth_a{max(SYNTH_ALPHAS):.1f}_hard50"] = ("synth", max(SYNTH_ALPHAS), 0.5, "C")
 
@@ -132,7 +137,10 @@ def load_corpus(base, alpha):
             return normalize(f["train"][:].astype(np.float32))
     return np.load(synth_corpus_path(alpha))
 
-def perturb_hard(queries, hard_frac, seed):
+def hard_sigma(name):
+    return HARD_SIGMAS.get(name, HARD_SIGMA)
+
+def perturb_hard(queries, hard_frac, seed, sigma=HARD_SIGMA):
     """Push the first round(hard_frac*n) queries of a fixed permutation off the
     manifold. The permutation and each query's noise direction are fixed by
     `seed`, so the hard set at 10% is a subset of the hard set at 30%, and a
@@ -145,7 +153,7 @@ def perturb_hard(queries, hard_frac, seed):
     is_hard = np.zeros(n, dtype=bool)
     is_hard[order[:int(round(hard_frac * n))]] = True
     out = queries.copy()
-    out[is_hard] = normalize(queries[is_hard] + HARD_SIGMA * g[is_hard])
+    out[is_hard] = normalize(queries[is_hard] + sigma * g[is_hard])
     return out, is_hard
 
 def load_config(name):
@@ -154,7 +162,7 @@ def load_config(name):
     d = np.load(config_path(name))
     corpus = load_corpus(base, alpha)
     meta = dict(name=name, base=base, alpha=alpha, hard_frac=hard_frac, experiment=exp,
-                corpus_key=corpus_key(base, alpha), cache_tag=cache_tag(name), hard_sigma=HARD_SIGMA)
+                corpus_key=corpus_key(base, alpha), cache_tag=cache_tag(name), hard_sigma=hard_sigma(name))
     if base == "synth":
         meta.update(synth_clusters=SYNTH_CLUSTERS, synth_center_scale=SYNTH_CENTER_SCALE)
     return corpus, d["calib_q"], d["test_q"], d["is_hard_calib"], d["is_hard_test"], meta
@@ -234,8 +242,8 @@ def main():
         split = np.random.default_rng(7).permutation(len(base_q))
         calib_base = base_q[split[:N_CALIB]]
         test_base = base_q[split[N_CALIB:N_CALIB + N_TEST]]
-        calib_q, is_hard_calib = perturb_hard(calib_base, hard_frac, seed=11)
-        test_q, is_hard_test = perturb_hard(test_base, hard_frac, seed=12)
+        calib_q, is_hard_calib = perturb_hard(calib_base, hard_frac, seed=11, sigma=hard_sigma(name))
+        test_q, is_hard_test = perturb_hard(test_base, hard_frac, seed=12, sigma=hard_sigma(name))
         np.savez(config_path(name), calib_q=calib_q, test_q=test_q,
                  is_hard_calib=is_hard_calib, is_hard_test=is_hard_test)
         print(f"  {name}: calib {calib_q.shape} ({is_hard_calib.mean()*100:.0f}% hard), "

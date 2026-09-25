@@ -299,12 +299,13 @@ minef_stats = dict(
     cv=float(calib_min_ef.std() / calib_min_ef.mean()),
     p90_over_median=float(np.percentile(calib_min_ef, 90) / np.median(calib_min_ef)),
     frac_capped_at_max_ef=float(calib_capped.mean()),
+    frac_at_ef_floor=float(np.mean(calib_min_ef <= K_SEARCH)),   # ef<K behaves as ef=K: no method can go cheaper
     mean_easy=float(calib_min_ef[~is_hard_calib].mean()) if (~is_hard_calib).any() else None,
     mean_hard=float(calib_min_ef[is_hard_calib].mean()) if is_hard_calib.any() else None,
 )
 print(f"  calib_min_ef: mean={minef_stats['mean']:.0f} median={minef_stats['median']:.0f} "
       f"P10={minef_stats['p10']:.0f} P90={minef_stats['p90']:.0f} CV={minef_stats['cv']:.2f} "
-      f"capped={minef_stats['frac_capped_at_max_ef']*100:.1f}%")
+      f"capped={minef_stats['frac_capped_at_max_ef']*100:.1f}% at-floor(ef<=K)={minef_stats['frac_at_ef_floor']*100:.1f}%")
 if minef_stats['mean_hard'] is not None:
     print(f"  easy queries mean min-ef={minef_stats['mean_easy']:.0f} | hard queries mean min-ef="
           f"{minef_stats['mean_hard']:.0f}  (hard should be clearly larger, or the spread knob isn't working)")
