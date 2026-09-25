@@ -386,7 +386,7 @@ KS-fit, 0.043, but still lost this specific comparison for a different reason).
 > corpus-point vs real calibration queries, different index parameters). Re-measured directly on
 > equal terms (`measure_direct_spread.py`, real test queries, same grid): at target 0.95 MS MARCO's
 > headroom is 1.68×, mid-pack; it is widest only at 0.99 (4.77×). Spread depends on the target, and
-> headroom only weakly tracks savings across six datasets (Spearman ≈0.49). The band rule and the
+> headroom only weakly tracks savings across six datasets (Spearman ≈0.43). The band rule and the
 > "text datasets have wider spread" pattern below do not hold.
 
 Measured as the ratio of P90-calibration to Mean-calibration average `ef` from the *full* online

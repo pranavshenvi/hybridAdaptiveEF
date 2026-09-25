@@ -3,7 +3,8 @@
 Follow-up to `updateAsOf180926.md` and `summary.md` §7 (the 8-dataset predictive framework,
 last updated 2026-09-21 with dbpedia-openai-1536 and Yambda-5B audio). Covers: (1) re-reading
 all 8 real datasets at **equal quality** instead of per chosen config, which changes how several
-of them read, (1.4–1.5) a check that found the spread numbers were wrong, (2) the ef floor, (3) four rounds
+of them read, (1.4–1.5) a check that found the spread numbers were wrong, (1.6) a fixed-ef
+reference and tail recall read against the Ada-ef paper's actual claims, (2) the ef floor, (3) four rounds
 of **controlled-factor experiments** (A, B, C, D) meant to vary KS and difficulty spread
 independently, what each actually showed, and where the design went wrong, (4) what is now
 established vs. still open, and (5) future directions.
@@ -14,9 +15,17 @@ established vs. still open, and (5) future directions.
 > aligned (§1.4). `measure_direct_spread.py` then re-measured spread directly on equal terms
 > (§1.5): **at target 0.95 MS MARCO is not wider than the others** (headroom 1.68×, mid-pack); it
 > is widest only at target 0.99 (4.77×). Spread depends on the target, not just the dataset, and
-> across six datasets it only weakly tracks our savings (Spearman ≈0.49, n=6). Claims below that
+> across six datasets it only weakly tracks our savings (Spearman ≈0.43, n=6). Claims below that
 > ranked or banded datasets by spread are marked **[NOT SUPPORTED, §1.5]**. The equal-recall DC
-> results (§1.2) come straight from recall and DC and are **not** affected.
+> results (§1.2) come straight from recall and DC and are **not** affected by that.
+>
+> **Second correction, also the same day: §1.2's DC numbers left out our probe cost on 6 of the 8
+> datasets.** The original six-dataset results page stored our DC as HNSW traversal only
+> (`hnsw_dc`), without the cluster-lookup probe (`probe_dc` = K), and those rows were copied
+> unchecked. §1.2 now uses HNSW + probe for all 8. SIFT moves from a tie (+0.3%) to **+4.1%
+> (costlier)**, so the tally is **5 cheaper, 2 tied, 1 costlier** — not "never worse". §1.6 adds
+> a fixed-ef reference and Ada-ef's tail recall, read against what the Ada-ef paper actually
+> claims.
 
 ---
 
@@ -38,21 +47,26 @@ true equal-quality saving is at least that large.
 
 ### 1.2 Results
 
-| Dataset | KS | ρ advantage | Spread (P90/Mean proxy) **[not a dataset property, §1.4; direct values in §1.5]** | Our DC at Ada-ef's recall |
-|---|---|---|---|---|
-| MS MARCO-384 | 0.047 | +0.17 | 3.22× | **−12.1%** (−43.9% at equal target-hit) |
-| dbpedia-openai-1536 | 0.039 | +0.056 | 1.82× | **≤ −11.1%** |
-| Cohere-1024 | 0.043 | −0.24 | 2.18× | −9.1% (Ada-ef's calibration undershoots; Factor B) |
-| GloVe-100 | 0.016 | +0.02 | 1.86× | ≤ −6.9% |
-| Yambda audio | 0.086 | +0.42 | 1.08× | ≤ −4.4% |
-| SIFT-128 | 0.125 | +0.45 | 1.48× | **+0.3% (tie)** |
-| DeepImage-96 | 0.067 | +0.26 | 1.18× | ≤ +0.7% (tie) |
-| LAION-I2I | 0.029 | +0.10 | 1.51× | ≤ +1.1% (tie) |
+DC below is HNSW traversal **plus** our cluster-lookup probe (K distance computations per
+query). Ada-ef has no separate probe.
 
-**5 cheaper, 3 tied (within ±3%), 0 costlier.** SIFT is a tie, not a loss — matching the
-100-point Pareto sweep in `updateAsOf180926.md` §6.1. This is the fairer headline:
-*our method is never worse than Ada-ef at equal recall on any of the 8 datasets; how much it
-saves depends on the dataset.*
+| Dataset | KS | ρ advantage | Spread (P90/Mean proxy) **[not a dataset property, §1.4; direct values in §1.5]** | Our DC at Ada-ef's recall (first published, probe left out) |
+|---|---|---|---|---|
+| MS MARCO-384 | 0.047 | +0.17 | 3.22× | **−10.8%** (was −12.1%); −42.4% at equal target-hit |
+| dbpedia-openai-1536 | 0.039 | +0.056 | 1.82× | **≤ −11.1%** (unchanged) |
+| Cohere-1024 | 0.043 | −0.24 | 2.18× | ≤ −9.0% (was −9.1%; Ada-ef's calibration undershoots, Factor B) |
+| GloVe-100 | 0.016 | +0.02 | 1.86× | ≤ −6.8% (was ≤ −6.9%) |
+| Yambda audio | 0.086 | +0.42 | 1.08× | ≤ −4.4% (unchanged) |
+| SIFT-128 | 0.125 | +0.45 | 1.48× | **+4.1% (costlier)** (was +0.3%) |
+| DeepImage-96 | 0.067 | +0.26 | 1.18× | ≤ +0.8% (tie) (was ≤ +0.7%) |
+| LAION-I2I | 0.029 | +0.10 | 1.51× | ≤ +1.1% (tie) (unchanged) |
+
+**5 cheaper, 2 tied (within ±3%), 1 costlier (SIFT, +4.1%).** SIFT's shift comes almost entirely
+from the probe: its frontier runs through `Ours (K=200, Isotonic)`, whose 200-DC probe is ~5% of
+a ~3,600-DC query. (The earlier "SIFT is a tie, matching the 100-point Pareto sweep in
+`updateAsOf180926.md` §6.1" should be re-checked for the same omission.) Headline, corrected:
+*at equal recall our method is cheaper than Ada-ef on 5 of 8 datasets, tied on 2, and 4%
+costlier on SIFT.*
 
 Published as the **Eight-Dataset Results** page (private; share from its Share menu):
 https://claude.ai/artifact/HuvSrsEY9o1L2pLaykDWQu — Overview tab has one row per dataset
@@ -67,8 +81,8 @@ recall and at equal target-hit), plus one tab per dataset with every method's ra
 - **[NOT SUPPORTED, §1.5] Spread → savings (Factor C)** appeared to hold in bands, not as a
   ranking: every dataset with proxy spread ≥1.8× is cheaper at equal recall (4/4: −7% to −12%);
   every dataset below 1.6× is a tie or a small win. Re-measured directly, spread only weakly
-  tracks savings (Spearman ≈0.49, n=6): DeepImage has the 3rd-highest headroom and ties, dbpedia
-  has low headroom and the 2nd-biggest saving.
+  tracks savings (Spearman ≈0.43, n=6): DeepImage has the 3rd-highest headroom and ties, dbpedia
+  has low headroom and the biggest saving.
 - **[NOT SUPPORTED, §1.5] Text vs. image/audio spread:** all 4 text datasets had wider *proxy*
   spread than all 4 image/audio datasets (MS MARCO 3.22, Cohere 2.18, GloVe 1.86, dbpedia 1.82 vs
   LAION 1.51, SIFT 1.48, DeepImage 1.18, Yambda 1.08), Mann-Whitney p≈0.03. **That p-value is
@@ -119,7 +133,7 @@ share at the ef floor and the share capped. Index parameters still differ and ar
 fixed. `--cached` summarizes the existing cached min-ef arrays as they are. Cohere and LAION are
 not wired in yet.
 
-**Unaffected:** the equal-recall DC results in §1.2 (5 cheaper, 3 tied, 0 costlier) and the KS
+**Unaffected:** the equal-recall DC results in §1.2 (now 5 cheaper, 2 tied, 1 costlier after the probe-cost correction) and the KS
 and ρ values. Resolved in §1.5.
 
 ### 1.5 Direct spread on equal terms: MS MARCO is not wider at 0.95; spread only weakly predicts savings
@@ -164,15 +178,15 @@ are not wired in yet.)
 
    | Dataset (benchmark target) | Headroom | Our DC at Ada-ef's recall |
    |---|---|---|
-   | MS MARCO (0.99) | 4.77× | −12.1% |
-   | GloVe (0.95) | 2.75× | ≤ −6.9% |
-   | DeepImage (0.95) | 2.09× | ≤ +0.7% (tie) |
+   | MS MARCO (0.99) | 4.77× | −10.8% |
+   | GloVe (0.95) | 2.75× | ≤ −6.8% |
+   | DeepImage (0.95) | 2.09× | ≤ +0.8% (tie) |
    | dbpedia (0.95) | 1.71× | ≤ −11.1% |
-   | SIFT (0.95) | 1.70× | +0.3% (tie) |
+   | SIFT (0.95) | 1.70× | +4.1% (costlier) |
    | Yambda (0.95) | 1.33× | ≤ −4.4% |
 
-   Spearman ≈0.49 over 6 datasets, far from significant. DeepImage (3rd-highest headroom) ties;
-   dbpedia (low headroom) has the 2nd-biggest saving. MS MARCO is the only clean supporting case.
+   Spearman ≈0.43 over 6 datasets, far from significant. DeepImage (3rd-highest headroom) ties;
+   dbpedia (low headroom) has the biggest saving. MS MARCO (highest headroom, 2nd-biggest saving) is the only clean supporting case.
 6. **Calibration-query source matters.** On SIFT, corpus-point queries are easier than real test
    queries (63.9% vs 49.0% at the floor, headroom 1.52× vs 1.69×). SIFT, dbpedia and Yambda
    calibrated on corpus points, so their calibration population was easier than their test
@@ -181,6 +195,76 @@ are not wired in yet.)
 **Conclusion.** Factor C as written ("wider spread → bigger savings") is **not supported**.
 Headroom is what the data offers an adaptive method; savings *relative to Ada-ef* also depend on
 how much of that headroom each method captures, which headroom alone cannot tell (§6 item 2).
+
+### 1.6 A fixed-ef reference, tail recall, and what the Ada-ef paper actually claims
+
+Every results file also contains HNSW at fixed ef (`Vanilla(ef=…)` rows) on the same test
+queries. Interpolating those rows to exactly Ada-ef's mean recall gives a fixed-ef reference
+(all DC includes our probe; `≤` = bound):
+
+| Dataset | Fixed ef DC vs Ada-ef | Our DC vs Ada-ef | p5 recall: Ada-ef / fixed | p1 recall: Ada-ef / fixed |
+|---|---|---|---|---|
+| MS MARCO-384 (t 0.99) | −14.1% | −10.8% | 0.950 / 0.940 | **0.890 / 0.850** |
+| Cohere-1024 (t 0.99) | −17.4% | ≤ −9.0% | 0.770 / 0.776 | 0.558 / 0.585 |
+| GloVe-100 | n/a (Vanilla sweep stops at ef=400) | ≤ −6.8% | n/a | n/a |
+| LAION-I2I (t 0.99) | +12.5% | ≤ +1.1% | 0.960 / 0.957 | **0.914 / 0.889** |
+| SIFT-128 | +12.6% | +4.1% | 0.880 / 0.881 | 0.810 / 0.825 |
+| DeepImage-96 | +11.7% | ≤ +0.8% | 0.830 / 0.813 | **0.730 / 0.696** |
+| dbpedia-openai-1536 | −5.9% | ≤ −11.1% | 0.840 / 0.829 | **0.750 / 0.726** |
+| Yambda audio | −4.9% | ≤ −4.4% | 0.920 / 0.921 | 0.850 / 0.851 |
+
+**How to read this — checked against the paper (`adaptive_EF.pdf` §7.2).**
+
+1. **This fixed ef is tuned with hindsight** on the test queries' ground truth (interpolated to
+   exactly Ada-ef's recall). The paper plots HNSW at fixed ef "as references because tuning ef
+   values requires ground-truth for incoming queries" — it does **not** claim Ada-ef beats such
+   a tuned fixed ef on mean recall per unit cost. Its claims are: (a) it approximately meets a
+   declarative target recall without per-workload tuning, (b) it improves the hardest queries
+   (1st/5th-percentile recall), and (c) up to 4× lower latency than DARTH at the same average
+   recall.
+2. **Claim (b) holds in our runs.** At equal mean recall, Ada-ef's 1st-percentile recall beats
+   the fixed ef on MS MARCO (+0.040), LAION (+0.025), DeepImage (+0.034) and dbpedia (+0.024); it
+   is level on SIFT and Yambda and lower only on Cohere, where its self-sampled calibration
+   undershoots (Factor B).
+3. **Cost against the hindsight fixed ef is mixed:** Ada-ef is ~11% cheaper on LAION, SIFT and
+   DeepImage, and costlier on MS MARCO (+16%), Cohere (+21%), dbpedia (+6%) and Yambda (+5%) — on
+   MS MARCO and dbpedia buying the better tail with that cost.
+4. **Our setups differ from the paper's,** so these numbers describe Ada-ef in our settings and
+   neither test nor contradict the paper's reported results: MS MARCO-384 uses MiniLM (paper:
+   OpenAI-1536), K=100, target 0.99 and an efC=200 index; Cohere is a 1.76M subset; LAION uses 10
+   of 31 shards; our ef cap is 3,000 (paper: 5,000); the WAE floor of Algorithm 1 is not applied
+   because the shipped `Sketch` class does not implement it (`summary.md` §2); and MS MARCO,
+   Cohere and LAION ran at target 0.99 where the paper's main experiments use 0.95.
+5. **Retraction.** In discussion the same day this was summarized as "a fixed ef beats Ada-ef on
+   4 of 7 datasets, so our wins mostly reflect Ada-ef being badly calibrated". That was wrong: it
+   compared against a hindsight-tuned ef the paper explicitly says is unavailable in practice,
+   and ignored the tail recall Ada-ef spends that cost on. It is not in this document's
+   conclusions.
+6. **For our method, against the same reference:** at equal mean recall ours is ~4% costlier than
+   the hindsight fixed ef on MS MARCO, about level on Yambda, and cheaper on SIFT (−7.5%),
+   dbpedia (≤ −5.5%), DeepImage (≤ −9.8%) and LAION (≤ −10.1%); Cohere and GloVe are undetermined. **Our tail
+   recall has not been compared yet** — that comparison (ours vs Ada-ef vs fixed ef on cost, mean
+   recall *and* p1/p5) is the fair three-way table for the paper.
+
+**Captured headroom** (computed ad hoc from the §1.5 per-query min-ef arrays; script not yet in
+the repo). At each method's own target-hit rate p: *fixed* = the p-quantile of min-ef (one ef
+for everyone, hindsight), *oracle* = easiest p·n queries get exactly their min-ef, the rest the
+floor. Captured share = (fixed − method's avg ef) ÷ (fixed − oracle): 1 = oracle, 0 = no better
+than one fixed ef. Reliable only where the fixed-to-oracle gap is much larger than the 50-step ef
+grid:
+
+| Dataset | Fixed ÷ oracle cost | Ada-ef captures | Ours captures (median / best config) |
+|---|---|---|---|
+| GloVe-100 | 3.8× | −2% | 17% / 28% |
+| MS MARCO-384 | 3.4× | −110% | −17% / 18% |
+| DeepImage-96 | 1.9× | −5% | 12% / 25% |
+
+Neither method captures much of the gap between one fixed ef and a per-query oracle, measured by
+target-hit rate. This measure does not credit tail recall, so Ada-ef's −110% on MS MARCO partly
+reflects cost it spends on the worst queries (point 2), not only waste. For SIFT, dbpedia and
+Yambda the gap is only 1–2 grid steps and the captured share is not meaningful at this
+resolution. The consistency check passed: on every dataset, the target-hit rate the min-ef
+arrays predict at each fixed ef matches the Vanilla runs within 0–3.4 points.
 
 ---
 
@@ -414,10 +498,15 @@ used, which may affect their DC. MS MARCO, previously cited as "closest", is wid
 
 ### 4.4 Corrections to earlier statements
 
-- "SIFT loses to Ada-ef" / "SIFT is split" → **tie at equal recall** (+0.3%).
+- "SIFT loses to Ada-ef" / "SIFT is split" → first corrected to "tie at equal recall (+0.3%)", then
+  to **+4.1% (costlier)** once our probe cost is included (§1.2).
+- "Our method is never worse than Ada-ef at equal recall" → **withdrawn**: 5 cheaper, 2 tied, 1
+  costlier (§1.2).
+- In-discussion claim "a fixed ef beats Ada-ef, so our wins mostly reflect Ada-ef miscalibration"
+  → **retracted** (§1.6): it used a hindsight-tuned ef and ignored Ada-ef's tail recall.
 - "Difficulty spread predicts win size" (Factor C) → **not supported** (§1.5). The P90/Mean proxy
   depends on the score, K and protocol (§1.4); measured directly, headroom only weakly tracks our
-  savings (Spearman ≈0.49, n=6).
+  savings (Spearman ≈0.43, n=6).
 - "MS MARCO has the widest spread" → **only at target 0.99** (4.77×); at 0.95 it is mid-pack
   (1.68×).
 - "Text datasets have wider spread" → **not supported**; the groups overlap on equal terms, and
@@ -432,7 +521,10 @@ used, which may affect their DC. MS MARCO, previously cited as "closest", is wid
 
 ## 5. Current state
 
-- 8 real datasets benchmarked and re-read at equal quality: 5 cheaper, 3 tied, 0 costlier.
+- 8 real datasets benchmarked and re-read at equal quality, probe cost included: 5 cheaper, 2 tied,
+  1 costlier (SIFT, +4.1%). The published results page still shows the version without the probe.
+- At equal mean recall Ada-ef delivers its paper's tail-recall claim on 4 of 7 comparable datasets
+  (§1.6). Our tail recall has not been compared yet.
 - Predictive framework (`summary.md` §7): Factors A and B stand with the refinements in §4.4.
   **Factor C (spread) is not supported as stated** (§1.5). What decides *how much* we save
   relative to Ada-ef is currently unexplained: neither KS/ρ advantage nor direct headroom
@@ -463,58 +555,61 @@ used, which may affect their DC. MS MARCO, previously cited as "closest", is wid
 
 In rough priority order.
 
-1. **Done: direct spread on equal terms** (`measure_direct_spread.py`, §1.5). Remaining: wire in
-   Cohere and LAION (different data layouts; LAION is K=1000).
+1. **Next: the fair three-way table — ours vs Ada-ef vs fixed ef, on cost, mean recall *and*
+   tail recall (p1/p5).** §1.6 shows Ada-ef trades cost for better worst-case recall; our method
+   has only been compared on cost at equal mean recall. Everything needed is in the existing
+   results files (they record p1/p5 for every run). This is the comparison a reviewer will ask
+   for, and it should replace the single-number "DC at Ada-ef's recall" headline.
 
-2. **Next: captured-headroom analysis (explains savings, not just headroom).** Headroom says how
-   much an adaptive method *could* save; savings relative to Ada-ef depend on how much of it each
-   method *captures*. For each dataset, place three costs on one axis at the same target-hit rate:
-   an oracle that gives every query exactly its min-ef (floor-clipped mean), one fixed ef (P90),
-   and where Ada-ef and our method actually land. Our lead over Ada-ef is then the difference in
-   the share of headroom each captures, which can be compared across datasets. This should say why
-   DeepImage tied while dbpedia won. Uses the saved per-query min-ef arrays and existing results;
-   no new server runs for the six covered datasets.
+2. **Fix the published results page.** It still leaves out our probe cost on 6 datasets, shows
+   the proxy spread column, and has no fixed-ef reference. Correct DC to HNSW + probe, replace
+   spread with direct headroom (with its target), and add the fixed-ef and tail-recall columns
+   from item 1. Update `summary.md` §7 (Factor C restated as "not supported").
 
-3. **Stop tuning synthetic generators.** Each new generator introduced its own side effect
+3. **Re-check earlier results for the same probe omission.** In particular the 100-point SIFT
+   Pareto sweep (`updateAsOf180926.md` §6.1, "frontier passes through Ada-ef's point") and any
+   other figure computed from `hnsw_dc` alone.
+
+4. **Extend GloVe's fixed-ef sweep past ef=400** (it never reaches Ada-ef's recall, so GloVe has
+   no fixed-ef reference). Cheap: the index is cached.
+
+5. **Captured headroom — first pass done (§1.6), finish it properly.** Move the analysis into the
+   repo as a Python script, re-measure min-ef on a finer grid near the floor (step 10 up to ef≈300)
+   so SIFT, dbpedia and Yambda become measurable, and add a tail-aware version (the current
+   measure credits only target-hit rate). Wire in Cohere and LAION (different data layouts; LAION
+   is K=1000) for both this and `measure_direct_spread.py`.
+
+6. **Stop tuning synthetic generators.** Each new generator introduced its own side effect
    (collapsed dimension in B, uniform difficulty in D), and a reviewer can question any of
    them. Report §4.1 as the controlled experiment (two independent generators), §4.2 as
    supporting evidence, and state the untested corner openly as a limitation.
 
-4. **Align the benchmark protocols before comparing datasets.** The per-dataset runs differ in
+7. **Align the benchmark protocols before comparing datasets.** The per-dataset runs differ in
    target recall (0.99 vs 0.95), calibration-query source (real queries vs corpus points already
-   in the index), index parameters (MS MARCO efC=200, GloVe M=32) and code path (GloVe and
-   DeepImage use the older two-step search). Spread depends on the target (§1.5), so a common
-   target matters most. Re-running the K=100 datasets at one target with real calibration queries
-   and the fused path would make cross-dataset statements defensible. Indexes and ground truth
-   are cached for most of them.
+   in the index), index parameters (MS MARCO efC=200, GloVe M=32), code path (GloVe and DeepImage
+   use the older two-step search) and, relative to the Ada-ef paper, ef cap (3,000 vs 5,000) and
+   the WAE floor (§1.6 point 4). Spread depends on the target (§1.5), so a common target matters
+   most. Re-running the K=100 datasets at one target with real calibration queries and the fused
+   path would make cross-dataset statements defensible. Indexes and ground truth are cached for
+   most of them.
 
-5. **Not pursued for now: MS MARCO with difficulty-stratified query sets.** It was meant to test
+8. **Not pursued for now: MS MARCO with difficulty-stratified query sets.** It was meant to test
    "wider spread → bigger savings with the score advantage held". §1.5 removed its premise: MS
-   MARCO is wide only at 0.99, and headroom only weakly predicts savings across datasets. Revisit
-   only if item 2 shows headroom capture, not headroom, is what matters, and even then at 0.99
-   with a larger ef cap (9.4% of MS MARCO queries hit ef=3000).
+   MARCO is wide only at 0.99, and headroom only weakly predicts savings across datasets.
 
-6. **Test the §3.8 hypothesis cheaply.** Measure, per dataset, how much the KS statistic varies
+9. **Test the §3.8 hypothesis cheaply.** Measure, per dataset, how much the KS statistic varies
    *across queries* (the spread of per-query KS values, already in each
    `anisotropy_results.json`), not just its mean. If the variation predicts ρ advantage better
    than the mean does — including the dbpedia exception — that is a better Factor A.
 
-7. **Use the equal-quality metric everywhere.** Replace "best config" comparisons in
-   `summary.md` and any paper tables with DC at Ada-ef's recall / target-hit.
+10. **Report the ef floor and headroom, always with the target.** Both are now measured on equal
+    terms for six datasets (§1.5). The floor is large at 0.95 (30–88% of queries) and worth
+    stating in the paper as a limit on any adaptive method.
 
-8. **Report the ef floor and headroom, always with the target.** Both are now measured on equal
-   terms for six datasets (§1.5). The floor is large at 0.95 (30–88% of queries) and worth stating
-   in the paper as a limit on any adaptive method.
-
-9. **Update the published results page and `summary.md` §7.** The page's spread column still
-   shows the proxy values; `summary.md` §7 Factor C still states the band rule (it carries an
-   "unverified" pointer to this file). Both should show the direct headroom with its target, and
-   Factor C should be restated as "not supported".
-
-10. **Clean up `summary.md` §1–§4** (pre-fix numbers, superseded Cohere explanation) so the
+11. **Clean up `summary.md` §1–§4** (pre-fix numbers, superseded Cohere explanation) so the
     document matches the current state.
 
-11. **Carried over:** SHEAF-style two-probe estimate of difficulty spread (`summary.md` §7; its
+12. **Carried over:** SHEAF-style two-probe estimate of difficulty spread (`summary.md` §7; its
     motivation — a cheap predictor of spread — matters less now that spread itself does not
     predict savings well); MS MARCO V1 1536-dim once the query file is obtainable; a
     continuous-distance score for SIFT-type data (`updateAsOf180926.md` §6.4).
@@ -523,18 +618,24 @@ In rough priority order.
 
 ## 7. Bottom line
 
-- At equal recall, our method is **never worse than Ada-ef on any of the 8 real datasets**
-  (5 cheaper by 4–12%, 3 tied). That is the fair headline, it replaces the per-config comparison
-  that made SIFT look like a loss, and nothing found later in this update changes it.
+- At equal mean recall, with our probe cost included, our method is **cheaper than Ada-ef on 5 of
+  8 real datasets (−4% to −11%), tied on 2, and 4% costlier on SIFT**. That replaces both the
+  per-config comparison that made SIFT look like a large loss and the earlier "never worse"
+  headline, which left out our probe cost on 6 datasets.
+- **Ada-ef does what its paper claims** in our runs: at equal mean recall it lifts worst-case
+  (1st-percentile) recall above a fixed ef on 4 of 7 comparable datasets. The paper does not claim
+  to beat a hindsight-tuned fixed ef on mean recall per unit cost, and neither comparison here
+  should be read that way. Our setups also differ from the paper's (§1.6 point 4), so these
+  results do not test its reported numbers.
+- The fair comparison for the paper is three-way — ours, Ada-ef and a fixed ef — on cost, mean
+  recall **and** tail recall. Our tail recall has not been compared yet; that is the next step.
 - The controlled experiments produced **one clean result**: on Gaussian data Ada-ef wins, and the
-  crossover sits at KS ≈ 0.02–0.04, confirmed with two independent generators. That gives the
-  paper an honest boundary for when to use which method.
+  crossover sits at KS ≈ 0.02–0.04, confirmed with two independent generators.
 - **The spread story did not survive checking.** The spread numbers used so far were a
   score-dependent proxy under mismatched protocols. Measured directly on equal terms, MS MARCO
   is not wider than the others at 0.95 (it is widest only at 0.99), text vs. image does not
   separate, spread depends on the target recall, and headroom only weakly tracks our savings
-  (Spearman ≈0.49, n=6). Factor C is not supported as stated.
-- **What decides how much we save relative to Ada-ef is currently open.** The nearest real
-  example of the predicted best case (DeepImage: sizeable KS, large ρ advantage, wide headroom)
-  ties. The next step is to measure how much of the available headroom each method captures
-  (§6 item 2), not another spread experiment.
+  (Spearman ≈0.43, n=6). Factor C is not supported as stated.
+- Where there is real headroom (GloVe, MS MARCO, DeepImage: one fixed ef costs 1.9–3.8× an
+  ideal per-query assignment), neither method captures much of it by target-hit rate — the
+  clearest room for a method improvement.
