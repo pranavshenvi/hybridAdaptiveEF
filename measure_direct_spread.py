@@ -34,6 +34,13 @@ still differ (MS MARCO efC=200, GloVe M=32) and are reported, not fixed.
 ef < K behaves exactly as ef = K, so min-ef <= K means "at the floor": no
 adaptive method can make that query any cheaper.
 
+Main measure: headroom = P90 / floor-clipped mean. One fixed ef that gets 90%
+of queries to target costs ef=P90; an oracle giving each query exactly its
+min-ef pays the mean (anything below the floor still costs K). So headroom is
+the most an adaptive method could save at that target-hit rate. P90/median is
+also printed but is unstable when the median sits on the floor (the first
+--cached run: SIFT 4.00x on corpus points vs 1.67x on real queries).
+
 Usage:
   python measure_direct_spread.py --cached            # summarize cached calib_min_ef as-is (mixed protocols, seconds)
   python measure_direct_spread.py                      # equal-terms re-measurement, every dataset whose files exist
@@ -75,17 +82,23 @@ def spread_stats(min_ef, k, capped=None):
         p90_over_median=float(np.percentile(min_ef, 90) / med) if med > 0 else float('nan'),
         cv=float(min_ef.std() / min_ef.mean()) if min_ef.mean() > 0 else float('nan'),
         frac_at_floor=float(np.mean(min_ef <= k)),
+        # Floor-aware headroom: one fixed ef that gets 90% of queries to target costs ef=P90; an oracle
+        # giving each query exactly its min-ef pays the mean, where anything below the floor still
+        # costs K. P90/median is unstable when the median sits on the floor (SIFT: 4.00x on corpus
+        # points vs 1.67x on real queries, driven only by where the median lands); this is not.
+        mean_cost=float(np.maximum(min_ef, k).mean()),
+        headroom=float(max(np.percentile(min_ef, 90), k) / np.maximum(min_ef, k).mean()),
     )
     if capped is not None:
         out['frac_capped'] = float(np.mean(capped))
     return out
 
 STAT_HDR = (f"{'n':>6} {'mean':>7} {'median':>7} {'P10':>6} {'P90':>6} {'P99':>6} "
-            f"{'P90/med':>8} {'CV':>5} {'@floor':>7}")
+            f"{'P90/med':>8} {'CV':>5} {'@floor':>7} {'headroom':>9}")
 
 def stat_row(s):
     return (f"{s['n']:>6} {s['mean']:>7.0f} {s['median']:>7.0f} {s['p10']:>6.0f} {s['p90']:>6.0f} "
-            f"{s['p99']:>6.0f} {s['p90_over_median']:>7.2f}x {s['cv']:>5.2f} {s['frac_at_floor']*100:>6.1f}%")
+            f"{s['p99']:>6.0f} {s['p90_over_median']:>7.2f}x {s['cv']:>5.2f} {s['frac_at_floor']*100:>6.1f}% {s['headroom']:>8.2f}x")
 
 def summarize_cached():
     print("Cached calib_min_ef, as stored by each benchmark script.")
@@ -237,7 +250,9 @@ def main():
         for r in results.values():
             s = r[f"t{t}"]
             print(f"  {r['label']:<22} {stat_row(s)} {s['frac_capped']*100:>6.1f}%  {r['build']}")
-    print("\n  Spread = P90/med and CV (higher = wider). @floor = share of queries no method can make cheaper.")
+    print("\n  headroom = P90 / floor-clipped mean: the most an adaptive method can save vs one fixed ef")
+    print("  at 90% target-hit. It is the main spread measure; P90/med is unstable when the median sits")
+    print("  on the floor, CV is shown for reference. @floor = share of queries no method can make cheaper.")
     print("  capped = never reached the target by ef=3000 (their min-ef is recorded as 3000, a lower bound).")
 
     with open(os.path.join(out_dir, "direct_spread.json"), "w") as f:
