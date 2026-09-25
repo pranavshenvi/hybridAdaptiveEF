@@ -379,6 +379,14 @@ KS-fit, 0.043, but still lost this specific comparison for a different reason).
 
 ### Factor C — difficulty spread: predicts *win magnitude* (and can flip a cheap recipe into a loss) — no cheap predictor exists
 
+> **[UNVERIFIED as of 2026-09-25 — see `updateAsOf250926.md` §1.4.]** The spread values below
+> are computed inside our score's buckets, so they depend on the score (MS MARCO: 2.62× before
+> the 2026-09-17 probe-phase fix, 3.22× after, same queries and same true min-ef), on K, and on
+> per-dataset protocols that were never aligned (target 0.99 vs 0.95, different ef grids,
+> corpus-point vs real calibration queries, different index parameters). They are not comparable
+> across datasets, and the bands in this section's rule are not established until
+> `measure_direct_spread.py` re-measures spread directly on equal terms.
+
 Measured as the ratio of P90-calibration to Mean-calibration average `ef` from the *full* online
 sweep — requires a built HNSW index and a real ef-sweep per calibration query. This is the
 expensive step, and it's the one factor without a validated shortcut:
