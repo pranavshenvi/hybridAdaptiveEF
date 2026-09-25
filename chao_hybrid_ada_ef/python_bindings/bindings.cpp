@@ -933,6 +933,19 @@ public:
         estimator = std::make_shared<hnswdis::CosineDistanceEstimator>(data);
         score_cal = std::make_shared<hnswdis::ApproximatedScoreCalculator>(estimator, quantile_step);
     }
+
+    // Same estimator, loaded from dataset statistics (mean, covariance,
+    // variances) saved in their own serialization format and read back with
+    // their own hnswdis::load_estimator_from_file. Lets corpora too large to
+    // copy into memory (Cohere 9.5M x 1024) compute the statistics in chunks
+    // and still use the unmodified estimator. Glue only, no algorithm change.
+    AdaEfPaperScorer() = default;
+    static std::shared_ptr<AdaEfPaperScorer> fromStatsFile(const std::string &path, float quantile_step) {
+        auto s = std::make_shared<AdaEfPaperScorer>();
+        s->estimator = hnswdis::load_estimator_from_file(path);
+        s->score_cal = std::make_shared<hnswdis::ApproximatedScoreCalculator>(s->estimator, quantile_step);
+        return s;
+    }
 };
 
 class AdaEfPaperSketch {
@@ -959,7 +972,9 @@ PYBIND11_PLUGIN(chao_hybrid_ada_ef_cpp) {
 
         py::class_<AdaEfPaperScorer, std::shared_ptr<AdaEfPaperScorer>>(m, "AdaEfPaperScorer")
         .def(py::init<py::array_t<float, py::array::c_style | py::array::forcecast>, float>(),
-             py::arg("corpus"), py::arg("quantile_step"));
+             py::arg("corpus"), py::arg("quantile_step"))
+        .def_static("from_stats_file", &AdaEfPaperScorer::fromStatsFile,
+                    py::arg("path"), py::arg("quantile_step"));
 
         py::class_<AdaEfPaperSketch, std::shared_ptr<AdaEfPaperSketch>>(m, "AdaEfPaperSketch")
         .def(py::init<std::vector<std::pair<int, std::vector<std::pair<int, float>>>>, float>(),

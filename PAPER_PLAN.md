@@ -47,16 +47,37 @@ reported as it came out. Either way the headline is written *after* step 3, from
 
 ## Datasets
 
-| Dataset | In Ada-ef paper? | Note |
-|---|---|---|
-| GloVe-100, DeepImage-96 | yes | full size |
-| Cohere-1024 (MS MARCO V2.1) | yes | 1.76M of 18.4M passages — state as subset |
-| LAION-I2I | yes | 10 of 31 shards (server RAM) — state as subset |
-| MS MARCO-384 (MiniLM) | no | stands in for the paper's MS MARCO V1 (query file still unavailable); rebuild index at efC = 500 |
-| SIFT-128, dbpedia-openai-1536, Yambda audio | no | extra: non-neural descriptor, OpenAI text, audio |
+| Dataset | In Ada-ef paper? | Size used | Index |
+|---|---|---|---|
+| GloVe-100 | yes | full (1.18M) | **rebuild** (old one had M = 32) |
+| DeepImage-96 | yes | full (9.99M) | reuse (efC 500, M 16) |
+| Cohere-1024 (MS MARCO V2.1) | yes | **9.51M = authors' source files 00–04 of 10** (52%; full needs ~78 GB of index, server has 62 GB) — state as subset | **build** |
+| LAION-I2I | yes | **20 of 31 shards (~20M)** (full needs ~67 GB of index) — state as subset | **build** |
+| MS MARCO-384 (MiniLM) | no | full (8.8M) | **rebuild** (old one had efC 200) |
+| SIFT-128, dbpedia-openai-1536 | no | full | reuse |
+| Yambda audio | no | full minus held-out queries | **build** (new held-out split) |
+
+Sources are the authors' own (`experiments_driver/data_prep.ipynb`): Cohere from
+`huggingface.co/datasets/Cohere/msmarco-v2.1-embed-english-v3` (`passages_npy/…_00..04.npy`,
+`queries_jsonl/queries.jsonl.gz`), LAION from `deploy.laion.ai/…/img_emb_{i}.npy`. If a machine
+with ≥128 GB RAM becomes available, rerun Cohere with all 10 files and LAION with all 31 shards
+(`--cohere-files 10`, `--laion-shards 31`) to drop the "subset" caveat.
+
+Query splits (identical for settings P and R): ann-benchmarks files split their 10,000 test
+queries into 2,000 R-calibration + 8,000 test; MS MARCO-384 tests on the dev queries and
+R-calibrates on 2,000 train queries; Cohere has only 1,677 queries, so 503 R-calibrate and 1,174
+test; LAION and Yambda hold 2,000 + 10,000 rows out of the corpus.
 
 Optional if time allows: **Laion-T2I** (text queries on image embeddings) — the paper's hardest
 case and a natural test of C4.
+
+**Implementation notes** (`benchmark_unified.py`): the corpus is never loaded whole; statistics,
+KS, ground truth and cluster bins are computed in streaming passes, and the index is built chunk
+by chunk. Ada-ef's estimator is loaded from streamed statistics through its own
+`load_estimator_from_file` (`AdaEfPaperScorer.from_stats_file`, glue only); on datasets that fit
+in RAM the script also builds it the original way and checks the scores agree. Two small
+deviations, both stated: our K > 1 centroids are fit on a 200K uniform sample, and Ada-ef's
+covariance is accumulated in float64 rather than float32.
 
 ## Deliverables (what the paper shows)
 
@@ -72,11 +93,11 @@ case and a natural test of C4.
 
 ## Order of work
 
-1. Write `benchmark_unified.py`: one dataset registry, the frozen protocol, both calibration
-   settings, all metrics above, one JSON output per dataset.
-2. Rebuild what the protocol changes: MS MARCO-384 index at efC = 500; ground truth at K = 1000
-   for MS MARCO-384, Cohere and LAION.
-3. Run setting P on all 8 datasets, then setting R.
+1. ✅ `benchmark_unified.py` (one registry, frozen protocol, both settings, per-query outputs) and
+   `download_unified_data.py` (Cohere files 00–04 + queries, LAION shards 0–19).
+2. Rebuild the C++ extension (new binding), smoke-test on SIFT, then run the datasets; indexes
+   and ground truth are built on first use and cached in `unified_cache/`.
+3. Run every dataset with both settings (P and R).
 4. Produce the tables and figures from the JSON outputs only (no hand-copied numbers).
 5. Write.
 
