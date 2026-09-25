@@ -74,6 +74,19 @@ HARD_SIGMAS = {f"A_sift_hard50_s{s:.1f}": s for s in A_SIGMA_SWEEP}   # everythi
 CONFIGS.update({f"B_synth_a{a:.1f}": ("synth", a, 0.0, "B") for a in SYNTH_ALPHAS})
 CONFIGS[f"C_synth_a{max(SYNTH_ALPHAS):.1f}_hard50"] = ("synth", max(SYNTH_ALPHAS), 0.5, "C")
 
+# Experiment D -- KS knob WITHOUT anisotropy. Experiment B raised KS by concentrating variance
+# in a few directions, which also collapsed the effective dimension: at alpha>=2, 99% of queries
+# met the target at the ef floor, so spread vanished and C never got wide spread (1.05x). Here
+# alpha stays 0 (isotropic, the one setting with wide spread and 0% at the floor) and KS is raised
+# by separating the clusters instead: the score becomes a lumpier mixture while the top-1
+# variance share stays at 1-3%. --check (100 clusters): KS 0.016 / 0.041 / 0.070 / 0.102 at
+# separation 0.5 / 1.0 / 1.5 / 3.0. No hard queries: Experiment A showed noise-perturbed
+# queries are easy for Ada-ef to detect. sep0.5 is the same corpus as B_synth_a0.0 (index reused).
+D_CLUSTERS    = 100
+D_SEPARATIONS = [0.5, 1.0, 1.5, 3.0]
+CONFIGS.update({f"D_synth_sep{s:.1f}": ("synth", 0.0, 0.0, "D") for s in D_SEPARATIONS})
+SYNTH_SETTINGS = {f"D_synth_sep{s:.1f}": (D_CLUSTERS, s) for s in D_SEPARATIONS}   # others use the SYNTH_* defaults
+
 # ═══════════════════════════════════════════════════════════════════════
 #  Helpers
 # ═══════════════════════════════════════════════════════════════════════
@@ -82,20 +95,29 @@ def normalize(x):
     norms[norms == 0] = 1.0
     return (x / norms).astype(np.float32)
 
-def corpus_key(base, alpha):
-    return "sift128" if base == "sift128" else f"synth_{SYNTH_TAG}_a{alpha:.1f}"
+def synth_settings(name):
+    """(clusters, centre scale) for a synthetic config."""
+    return SYNTH_SETTINGS.get(name, (SYNTH_CLUSTERS, SYNTH_CENTER_SCALE))
+
+def synth_tag(name):
+    c, s = synth_settings(name)
+    return f"c{c}_s{s:g}"
+
+def corpus_key(name):
+    base, alpha = CONFIGS[name][:2]
+    return "sift128" if base == "sift128" else f"synth_{synth_tag(name)}_a{alpha:.1f}"
 
 def cache_tag(name):
     """Name for every per-config cache (queries, ground truth, min-ef, Ada-ef table).
-    Synthetic configs carry SYNTH_TAG so changing the generator settings can
+    Synthetic configs carry their generator settings so changing them can
     never silently reuse files built from the old ones."""
-    return name if CONFIGS[name][0] == "sift128" else f"{name}_{SYNTH_TAG}"
+    return name if CONFIGS[name][0] == "sift128" else f"{name}_{synth_tag(name)}"
 
-def synth_corpus_path(alpha):
-    return os.path.join(DATA_DIR, f"{corpus_key('synth', alpha)}_corpus.npy")
+def synth_corpus_path(key):
+    return os.path.join(DATA_DIR, f"{key}_corpus.npy")
 
-def synth_queries_path(alpha):
-    return os.path.join(DATA_DIR, f"{corpus_key('synth', alpha)}_base_queries.npy")
+def synth_queries_path(key):
+    return os.path.join(DATA_DIR, f"{key}_base_queries.npy")
 
 def config_path(name):
     return os.path.join(DATA_DIR, f"{cache_tag(name)}_queries.npz")
@@ -129,13 +151,13 @@ def load_sift_test_queries():
     with h5py.File("sift-128-euclidean.hdf5", "r") as f:
         return normalize(f["test"][:].astype(np.float32))
 
-def load_corpus(base, alpha):
+def load_corpus(name):
     """Unit-normalized corpus for a config's base (what the index is built on)."""
-    if base == "sift128":
+    if CONFIGS[name][0] == "sift128":
         import h5py
         with h5py.File("sift-128-euclidean.hdf5", "r") as f:
             return normalize(f["train"][:].astype(np.float32))
-    return np.load(synth_corpus_path(alpha))
+    return np.load(synth_corpus_path(corpus_key(name)))
 
 def hard_sigma(name):
     return HARD_SIGMAS.get(name, HARD_SIGMA)
@@ -160,11 +182,12 @@ def load_config(name):
     """Returns corpus, calib_q, test_q, is_hard_calib, is_hard_test, meta."""
     base, alpha, hard_frac, exp = CONFIGS[name]
     d = np.load(config_path(name))
-    corpus = load_corpus(base, alpha)
+    corpus = load_corpus(name)
     meta = dict(name=name, base=base, alpha=alpha, hard_frac=hard_frac, experiment=exp,
-                corpus_key=corpus_key(base, alpha), cache_tag=cache_tag(name), hard_sigma=hard_sigma(name))
+                corpus_key=corpus_key(name), cache_tag=cache_tag(name), hard_sigma=hard_sigma(name))
     if base == "synth":
-        meta.update(synth_clusters=SYNTH_CLUSTERS, synth_center_scale=SYNTH_CENTER_SCALE)
+        c, s = synth_settings(name)
+        meta.update(synth_clusters=c, synth_center_scale=s)
     return corpus, d["calib_q"], d["test_q"], d["is_hard_calib"], d["is_hard_test"], meta
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -203,7 +226,7 @@ def main():
     ap.add_argument("--clusters", default="100,1000", help="--check grid: cluster counts")
     ap.add_argument("--center-scales", default="1.0,0.5", help="--check grid: centre scales")
     ap.add_argument("--alphas", default="0,1,2,3", help="--check grid: spectrum exponents")
-    ap.add_argument("--only", default="ABC", help="experiments to generate data for, e.g. --only A")
+    ap.add_argument("--only", default="ABCD", help="experiments to generate data for, e.g. --only D")
     args = ap.parse_args()
 
     if args.check:
@@ -215,15 +238,17 @@ def main():
     os.makedirs(DATA_DIR, exist_ok=True)
     wanted = {n: c for n, c in CONFIGS.items() if c[3] in args.only.upper()}
 
-    alphas = sorted({a for (b, a, _, _) in wanted.values() if b == "synth"})
-    for alpha in alphas:
-        if os.path.exists(synth_corpus_path(alpha)) and os.path.exists(synth_queries_path(alpha)):
-            print(f"  [CACHE] {corpus_key('synth', alpha)} already generated")
+    # One corpus per distinct (clusters, scale, alpha); configs that share it share the index too.
+    corpora = {corpus_key(n): n for n, c in wanted.items() if c[0] == "synth"}
+    for key, name in corpora.items():
+        if os.path.exists(synth_corpus_path(key)) and os.path.exists(synth_queries_path(key)):
+            print(f"  [CACHE] {key} already generated")
             continue
-        print(f"  Generating {corpus_key('synth', alpha)} ({SYNTH_N} x {SYNTH_DIM})...")
-        gen = SynthGenerator(alpha)
-        np.save(synth_corpus_path(alpha), gen.sample(SYNTH_N, seed=1))
-        np.save(synth_queries_path(alpha), gen.sample(N_CALIB + N_TEST, seed=2))  # never in the corpus
+        print(f"  Generating {key} ({SYNTH_N} x {SYNTH_DIM})...")
+        c, s = synth_settings(name)
+        gen = SynthGenerator(CONFIGS[name][1], n_clusters=c, center_scale=s)
+        np.save(synth_corpus_path(key), gen.sample(SYNTH_N, seed=1))
+        np.save(synth_queries_path(key), gen.sample(N_CALIB + N_TEST, seed=2))  # never in the corpus
 
     sift_q = None
     for name, (base, alpha, hard_frac, _) in wanted.items():
@@ -235,7 +260,7 @@ def main():
                 sift_q = load_sift_test_queries()
             base_q = sift_q
         else:
-            base_q = np.load(synth_queries_path(alpha))
+            base_q = np.load(synth_queries_path(corpus_key(name)))
         if len(base_q) < N_CALIB + N_TEST:
             sys.exit(f"{name}: need {N_CALIB + N_TEST} base queries, have {len(base_q)}")
         # Fixed split of real/held-out queries into calib and test, shared by every config on this base.

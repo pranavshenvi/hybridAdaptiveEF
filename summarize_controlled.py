@@ -35,7 +35,12 @@ REAL_DATASETS = {
     "LAION-I2I":     (0.029,  0.10,  1.51,   1.1, True),
     "GloVe-100":     (0.016,  0.02,  1.86,  -6.9, True),
 }
-EXP_COLOR = {"A": "#2a6f6f", "B": "#a3762a", "C": "#b5502e"}
+EXP_COLOR = {"A": "#2a6f6f", "B": "#a3762a", "C": "#b5502e", "D": "#5b4a9e"}
+
+def synth_label(s):
+    if s["experiment"] == "D":
+        return f"sep={s['synth_center_scale']}"
+    return f"α={s['alpha']}"
 
 def latest_summaries():
     by_config = {}
@@ -75,9 +80,9 @@ def main():
         ax.scatter(ks, adv, color="#b8b3a6", s=36, zorder=1)
         ax.annotate(name, (ks, adv), fontsize=7, color="#8a8578", xytext=(4, 3), textcoords="offset points")
     for s in runs:
-        if s["experiment"] in ("B", "C"):
+        if s["experiment"] in ("B", "C", "D"):
             ax.scatter(s["ks_mean"], s["rho_advantage"], color=EXP_COLOR[s["experiment"]], s=60, zorder=3)
-            ax.annotate(f"α={s['alpha']}" + (" +hard" if s["hard_frac"] else ""), (s["ks_mean"], s["rho_advantage"]),
+            ax.annotate(synth_label(s) + (" +hard" if s["hard_frac"] else ""), (s["ks_mean"], s["rho_advantage"]),
                         fontsize=8, xytext=(5, -10), textcoords="offset points")
     ax.axhline(0, color="#999", lw=0.8)
     ax.set_xlabel("Mean KS statistic (higher = less Gaussian)")
@@ -90,11 +95,11 @@ def main():
         ax.annotate(name, (spread, ddc), fontsize=7, color="#8a8578", xytext=(4, 3), textcoords="offset points")
     for s in runs:
         r = s.get("equal_recall")
-        if s["experiment"] in ("A", "C") and r is not None:
+        if s["experiment"] in ("A", "C", "D") and r is not None:
             c = EXP_COLOR[s["experiment"]]
             ax.scatter(s["spread_proxy_k1"], r["delta_pct"], s=60, zorder=3,
                        facecolors="none" if r["bound"] else c, edgecolors=c, linewidths=1.5)
-            label = f"{int(s['hard_frac']*100)}% hard" + (f" σ={s['hard_sigma']}" if s["hard_frac"] else "") + (f", α={s['alpha']}" if s["base"] == "synth" else "")
+            label = (synth_label(s) if s["experiment"] == "D" else f"{int(s['hard_frac']*100)}% hard" + (f" σ={s['hard_sigma']}" if s["hard_frac"] else "") + (f", α={s['alpha']}" if s["base"] == "synth" else ""))
             ax.annotate(label, (s["spread_proxy_k1"], r["delta_pct"]), fontsize=8, xytext=(5, -10), textcoords="offset points")
     ax.axhline(0, color="#999", lw=0.8)
     ax.set_xlabel("Difficulty spread (P90 / Mean calibrated ef, K=1)")
