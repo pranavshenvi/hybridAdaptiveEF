@@ -54,6 +54,7 @@ class Logger(object):
         self.log = open(filename, "a", encoding="utf-8")
     def write(self, message):
         self.terminal.write(message)
+        self.terminal.flush()          # stdout is a pipe under tee/nohup, which Python block-buffers
         self.log.write(message)
         self.log.flush()
     def flush(self):

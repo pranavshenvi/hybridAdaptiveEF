@@ -13,7 +13,7 @@ python3 controlled_datasets.py --only "$EXPS" || exit 1
 CONFIGS=$(python3 -c "from controlled_datasets import CONFIGS; print(' '.join(n for n, c in CONFIGS.items() if c[3] in '$EXPS'))")
 for cfg in $CONFIGS; do
   echo "=== $(date '+%F %T') starting $cfg"
-  python3 benchmark_controlled.py --config "$cfg" || echo "!!! $cfg failed, continuing"
+  python3 -u benchmark_controlled.py --config "$cfg" || echo "!!! $cfg failed, continuing"
 done
 
 python3 summarize_controlled.py
