@@ -206,6 +206,7 @@ print(f"  Controlled experiment: {args.config}")
 print("═" * 80)
 corpus, calib_q, test_q, is_hard_calib, is_hard_test, meta = load_config(args.config)
 ckey = meta['corpus_key']
+CACHE_TAG = meta['cache_tag']   # config name, plus generator settings for synthetic configs
 dim = corpus.shape[1]
 n_corpus = corpus.shape[0]
 N_CALIB = len(calib_q)
@@ -217,7 +218,7 @@ print(f"  Corpus: {corpus.shape} | Calib Q: {calib_q.shape} ({is_hard_calib.mean
 _norms = np.linalg.norm(corpus[:1000], axis=1)
 print(f"  Corpus vector norm check (first 1000): mean={_norms.mean():.4f}, std={_norms.std():.4f}")
 
-gt_path = f"ground_truth_ctrl_{args.config}_k{K_SEARCH}.npz"
+gt_path = f"ground_truth_ctrl_{CACHE_TAG}_k{K_SEARCH}.npz"
 if os.path.exists(gt_path):
     print(f"\nLoading ground truth from cache {gt_path}...")
     gt_data = np.load(gt_path)
@@ -269,7 +270,7 @@ else:
 print(f"\n{'═' * 80}")
 print(f"  Shared Calibration (Individual Query Min-EF)")
 print(f"{'═' * 80}")
-minef_cache_path = f"ctrl_{args.config}_calib_min_ef_{N_CALIB}q_k{K_SEARCH}.npz"
+minef_cache_path = f"ctrl_{CACHE_TAG}_calib_min_ef_{N_CALIB}q_k{K_SEARCH}.npz"
 if os.path.exists(minef_cache_path):
     print(f"  Loading calib_min_ef from cache {minef_cache_path}...")
     _c = np.load(minef_cache_path)
@@ -328,7 +329,7 @@ rho_ada, p_ada = spearmanr(ada_calib_scores, calib_min_ef)
 print(f"  Ada-ef score vs true min-EF: Spearman rho = {rho_ada:.4f} (p={p_ada:.2e})")
 
 ada_table_exact, WAE = load_or_build_target_recall_table(
-    f"cache_target_recall_ada_paper_ctrl_{args.config}.json", ada_scores_int, calib_q, calib_gt)
+    f"cache_target_recall_ada_paper_ctrl_{CACHE_TAG}.json", ada_scores_int, calib_q, calib_gt)
 print(f"  Calculated WAE for Ada-ef: {WAE} ({time.time() - t0:.1f}s)")
 with open(os.path.join(RESULTS_DIR, "ef_table_ada_exact.json"), "w") as f_json:
     json.dump(ada_table_exact, f_json, indent=4)

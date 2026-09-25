@@ -28,11 +28,11 @@ a cross-dataset correlation.
     grows a few directions dominate the sum (the Lindeberg condition fails,
     the mechanism identified in updateAsOf150926.md / SIFT's 32% top-1
     eigenvector share), so the skewed shape survives into s (high KS).
-    alpha in {0, 0.5, 1, 2}. Queries are fresh draws from the same
+    alpha in SYNTH_ALPHAS. Queries are fresh draws from the same
     generator (never in the corpus), with no hard queries.
 
   Experiment C -- the untested corner.
-    Least-Gaussian synthetic corpus (alpha=2) + 50% hard queries: high KS AND
+    Least-Gaussian synthetic corpus (largest alpha) + 50% hard queries: high KS AND
     wide spread at once, which none of the 8 real datasets has.
 
 Knob settings are only the intent. KS and spread are MEASURED for every
@@ -41,11 +41,11 @@ plotted -- the knobs are not assumed to be perfectly independent.
 
 Usage (generates the synthetic corpora + every config's query files; the
 SIFT corpus is read from sift-128-euclidean.hdf5 at benchmark time):
-  python controlled_datasets.py --check    # ~1 min: confirm alpha moves KS first
-  python controlled_datasets.py
+  python controlled_datasets.py --check      # few min: pick generator settings so alpha moves KS
+  python controlled_datasets.py [--only A]
 """
 
-import os, sys
+import os, sys, argparse
 import numpy as np
 
 DATA_DIR = "controlled_data"
@@ -56,21 +56,17 @@ HARD_SIGMA = 0.6          # perturbation norm on unit vectors (~31 degrees off t
 
 SYNTH_N         = 1_000_000
 SYNTH_DIM       = 128
-SYNTH_CLUSTERS  = 100
-SYNTH_CENTER_SCALE = 1.0  # centre norm^2 ~ dim * scale^2; noise norm^2 ~ dim, so clusters overlap moderately
+# Pick these from `--check`: the first check (100 clusters, scale 1.0) gave a flat KS~0.040
+# floor for alpha 0..1 from cluster-mixture lumpiness, and only 0.071 at alpha=2.
+SYNTH_CLUSTERS     = 100
+SYNTH_CENTER_SCALE = 1.0  # centre norm^2 ~ dim * scale^2; noise norm^2 ~ dim
+SYNTH_ALPHAS       = [0.0, 1.0, 2.0, 3.0]   # Experiment B levels; C uses the largest
+SYNTH_TAG = f"c{SYNTH_CLUSTERS}_s{SYNTH_CENTER_SCALE:g}"   # in every synthetic file/cache name
 
 # name -> (base corpus, alpha for synthetic or None, hard-query fraction, experiment)
-CONFIGS = {
-    "A_sift_hard00": ("sift128",  None, 0.0, "A"),
-    "A_sift_hard10": ("sift128",  None, 0.1, "A"),
-    "A_sift_hard30": ("sift128",  None, 0.3, "A"),
-    "A_sift_hard50": ("sift128",  None, 0.5, "A"),
-    "B_synth_a0.0":  ("synth",    0.0,  0.0, "B"),
-    "B_synth_a0.5":  ("synth",    0.5,  0.0, "B"),
-    "B_synth_a1.0":  ("synth",    1.0,  0.0, "B"),
-    "B_synth_a2.0":  ("synth",    2.0,  0.0, "B"),
-    "C_synth_a2.0_hard50": ("synth", 2.0, 0.5, "C"),
-}
+CONFIGS = {f"A_sift_hard{int(p*100):02d}": ("sift128", None, p, "A") for p in (0.0, 0.1, 0.3, 0.5)}
+CONFIGS.update({f"B_synth_a{a:.1f}": ("synth", a, 0.0, "B") for a in SYNTH_ALPHAS})
+CONFIGS[f"C_synth_a{max(SYNTH_ALPHAS):.1f}_hard50"] = ("synth", max(SYNTH_ALPHAS), 0.5, "C")
 
 # ═══════════════════════════════════════════════════════════════════════
 #  Helpers
@@ -81,16 +77,22 @@ def normalize(x):
     return (x / norms).astype(np.float32)
 
 def corpus_key(base, alpha):
-    return "sift128" if base == "sift128" else f"synth_a{alpha:.1f}"
+    return "sift128" if base == "sift128" else f"synth_{SYNTH_TAG}_a{alpha:.1f}"
+
+def cache_tag(name):
+    """Name for every per-config cache (queries, ground truth, min-ef, Ada-ef table).
+    Synthetic configs carry SYNTH_TAG so changing the generator settings can
+    never silently reuse files built from the old ones."""
+    return name if CONFIGS[name][0] == "sift128" else f"{name}_{SYNTH_TAG}"
 
 def synth_corpus_path(alpha):
-    return os.path.join(DATA_DIR, f"synth_a{alpha:.1f}_corpus.npy")
+    return os.path.join(DATA_DIR, f"{corpus_key('synth', alpha)}_corpus.npy")
 
 def synth_queries_path(alpha):
-    return os.path.join(DATA_DIR, f"synth_a{alpha:.1f}_base_queries.npy")
+    return os.path.join(DATA_DIR, f"{corpus_key('synth', alpha)}_base_queries.npy")
 
 def config_path(name):
-    return os.path.join(DATA_DIR, f"{name}_queries.npz")
+    return os.path.join(DATA_DIR, f"{cache_tag(name)}_queries.npz")
 
 class SynthGenerator:
     """Cluster centre + skewed noise on a rotated power-law spectrum.
@@ -127,7 +129,7 @@ def load_corpus(base, alpha):
         import h5py
         with h5py.File("sift-128-euclidean.hdf5", "r") as f:
             return normalize(f["train"][:].astype(np.float32))
-    return np.load(synth_corpus_path(alpha), mmap_mode=None)
+    return np.load(synth_corpus_path(alpha))
 
 def perturb_hard(queries, hard_frac, seed):
     """Push the first round(hard_frac*n) queries of a fixed permutation off the
@@ -150,47 +152,72 @@ def load_config(name):
     base, alpha, hard_frac, exp = CONFIGS[name]
     d = np.load(config_path(name))
     corpus = load_corpus(base, alpha)
-    meta = dict(name=name, base=base, alpha=alpha, hard_frac=hard_frac,
-                experiment=exp, corpus_key=corpus_key(base, alpha), hard_sigma=HARD_SIGMA)
+    meta = dict(name=name, base=base, alpha=alpha, hard_frac=hard_frac, experiment=exp,
+                corpus_key=corpus_key(base, alpha), cache_tag=cache_tag(name), hard_sigma=HARD_SIGMA)
+    if base == "synth":
+        meta.update(synth_clusters=SYNTH_CLUSTERS, synth_center_scale=SYNTH_CENTER_SCALE)
     return corpus, d["calib_q"], d["test_q"], d["is_hard_calib"], d["is_hard_test"], meta
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Pre-flight: does alpha move KS, and at which generator settings?
+# ═══════════════════════════════════════════════════════════════════════
+def check_ks_knob(clusters_list, scales, alphas, n=100_000):
+    """Minutes-scale grid, same normality check as diagnose_anisotropy.py on
+    100K-point samples, so the generator settings are chosen before any index
+    is built. Want: alpha=0 near GloVe (~0.016), largest alpha near SIFT (~0.125),
+    rising steadily in between."""
+    from diagnose_anisotropy import compute_mean_cov, anisotropy_metrics, normality_check
+    os.makedirs(DATA_DIR, exist_ok=True)
+    print(f"  {'clusters':>8} {'scale':>5} | " + " ".join(f"{'a=' + format(a, 'g'):>13}" for a in alphas))
+    print(f"  {'':>8} {'':>5} | " + " ".join(f"{'KS (top-1%)':>13}" for _ in alphas))
+    for c in clusters_list:
+        for s in scales:
+            cells = []
+            for a in alphas:
+                gen = SynthGenerator(a, n_clusters=c, center_scale=s)
+                corpus, queries = gen.sample(n, seed=1), gen.sample(30, seed=2)
+                mean, cov = compute_mean_cov(corpus)
+                per_q, _ = normality_check(corpus, mean, cov, queries, DATA_DIR, 30, 20000, n_qqplot=0)
+                ks = np.mean([r['ks_statistic'] for r in per_q])
+                top1 = anisotropy_metrics(cov)['top1_variance_frac'] * 100
+                cells.append(f"{ks:.4f} ({top1:4.1f}%)")
+            print(f"  {c:>8} {s:>5g} | " + " ".join(f"{x:>13}" for x in cells), flush=True)
+    print("\n  Real datasets for reference: GloVe 0.016, LAION 0.029, MS MARCO 0.047, DeepImage 0.067, SIFT 0.125.")
+    print("  Set SYNTH_CLUSTERS / SYNTH_CENTER_SCALE / SYNTH_ALPHAS at the top of this file to the best row.")
 
 # ═══════════════════════════════════════════════════════════════════════
 #  Generation
 # ═══════════════════════════════════════════════════════════════════════
-def check_ks_knob(n=100_000):
-    """Seconds-scale pre-flight: does alpha actually move KS? Uses the same
-    normality check as diagnose_anisotropy.py on small samples, so a knob that
-    doesn't work is caught before any index is built."""
-    from diagnose_anisotropy import compute_mean_cov, anisotropy_metrics, normality_check
-    alphas = sorted({a for (b, a, _, _) in CONFIGS.values() if b == "synth"})
-    print(f"  {'alpha':>5} {'mean KS':>8} {'top-1 var share':>16}")
-    for alpha in alphas:
-        gen = SynthGenerator(alpha)
-        corpus, queries = gen.sample(n, seed=1), gen.sample(30, seed=2)
-        mean, cov = compute_mean_cov(corpus)
-        per_q, _ = normality_check(corpus, mean, cov, queries, DATA_DIR, 30, 20000, n_qqplot=0)
-        ks = np.mean([r['ks_statistic'] for r in per_q])
-        print(f"  {alpha:>5} {ks:>8.4f} {anisotropy_metrics(cov)['top1_variance_frac']*100:>15.1f}%")
-    print("\n  KS should rise with alpha. Real datasets for reference: GloVe 0.016 ... SIFT 0.125.")
-
 def main():
-    os.makedirs(DATA_DIR, exist_ok=True)
-    if "--check" in sys.argv:
-        check_ks_knob()
+    ap = argparse.ArgumentParser(description="Generate controlled-factor datasets")
+    ap.add_argument("--check", action="store_true", help="only run the KS-knob grid, generate nothing")
+    ap.add_argument("--clusters", default="100,1000", help="--check grid: cluster counts")
+    ap.add_argument("--center-scales", default="1.0,0.5", help="--check grid: centre scales")
+    ap.add_argument("--alphas", default="0,1,2,3", help="--check grid: spectrum exponents")
+    ap.add_argument("--only", default="ABC", help="experiments to generate data for, e.g. --only A")
+    args = ap.parse_args()
+
+    if args.check:
+        check_ks_knob([int(x) for x in args.clusters.split(",")],
+                      [float(x) for x in args.center_scales.split(",")],
+                      [float(x) for x in args.alphas.split(",")])
         return
 
-    alphas = sorted({a for (b, a, _, _) in CONFIGS.values() if b == "synth"})
+    os.makedirs(DATA_DIR, exist_ok=True)
+    wanted = {n: c for n, c in CONFIGS.items() if c[3] in args.only.upper()}
+
+    alphas = sorted({a for (b, a, _, _) in wanted.values() if b == "synth"})
     for alpha in alphas:
         if os.path.exists(synth_corpus_path(alpha)) and os.path.exists(synth_queries_path(alpha)):
-            print(f"  [CACHE] synthetic alpha={alpha} already generated")
+            print(f"  [CACHE] {corpus_key('synth', alpha)} already generated")
             continue
-        print(f"  Generating synthetic corpus alpha={alpha} ({SYNTH_N} x {SYNTH_DIM})...")
+        print(f"  Generating {corpus_key('synth', alpha)} ({SYNTH_N} x {SYNTH_DIM})...")
         gen = SynthGenerator(alpha)
         np.save(synth_corpus_path(alpha), gen.sample(SYNTH_N, seed=1))
         np.save(synth_queries_path(alpha), gen.sample(N_CALIB + N_TEST, seed=2))  # never in the corpus
 
     sift_q = None
-    for name, (base, alpha, hard_frac, _) in CONFIGS.items():
+    for name, (base, alpha, hard_frac, _) in wanted.items():
         if os.path.exists(config_path(name)):
             print(f"  [CACHE] {name} queries already generated")
             continue
@@ -213,7 +240,7 @@ def main():
         print(f"  {name}: calib {calib_q.shape} ({is_hard_calib.mean()*100:.0f}% hard), "
               f"test {test_q.shape} ({is_hard_test.mean()*100:.0f}% hard)")
 
-    print("\nDone. Next: python benchmark_controlled.py --config <name>  (or run_controlled_experiments.sh)")
+    print("\nDone. Next: python benchmark_controlled.py --config <name>")
 
 if __name__ == "__main__":
     main()
