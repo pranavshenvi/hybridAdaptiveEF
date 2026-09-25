@@ -56,10 +56,11 @@ HARD_SIGMA = 0.6          # perturbation norm on unit vectors (~31 degrees off t
 
 SYNTH_N         = 1_000_000
 SYNTH_DIM       = 128
-# Pick these from `--check`: the first check (100 clusters, scale 1.0) gave a flat KS~0.040
-# floor for alpha 0..1 from cluster-mixture lumpiness, and only 0.071 at alpha=2.
+# Chosen from the `--check` grid. 100 clusters at scale 1.0 gave a flat KS~0.040 floor for
+# alpha 0..1 (cluster-mixture lumpiness). Scale 0.5 gives KS 0.016 / 0.041 / 0.093 / 0.131 at
+# alpha 0 / 1 / 2 / 3: GloVe-level to SIFT-level, the same range as the real datasets.
 SYNTH_CLUSTERS     = 100
-SYNTH_CENTER_SCALE = 1.0  # centre norm^2 ~ dim * scale^2; noise norm^2 ~ dim
+SYNTH_CENTER_SCALE = 0.5  # centre norm^2 ~ dim * scale^2; noise norm^2 ~ dim
 SYNTH_ALPHAS       = [0.0, 1.0, 2.0, 3.0]   # Experiment B levels; C uses the largest
 SYNTH_TAG = f"c{SYNTH_CLUSTERS}_s{SYNTH_CENTER_SCALE:g}"   # in every synthetic file/cache name
 
