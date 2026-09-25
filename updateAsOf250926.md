@@ -3,18 +3,20 @@
 Follow-up to `updateAsOf180926.md` and `summary.md` §7 (the 8-dataset predictive framework,
 last updated 2026-09-21 with dbpedia-openai-1536 and Yambda-5B audio). Covers: (1) re-reading
 all 8 real datasets at **equal quality** instead of per chosen config, which changes how several
-of them read, (2) a concrete mechanism for the narrow-spread ties (the ef floor), (3) four rounds
+of them read, (1.4–1.5) a check that found the spread numbers were wrong, (2) the ef floor, (3) four rounds
 of **controlled-factor experiments** (A, B, C, D) meant to vary KS and difficulty spread
 independently, what each actually showed, and where the design went wrong, (4) what is now
 established vs. still open, and (5) future directions.
 
-> **Added later the same day: every real-dataset "spread" number is UNVERIFIED.** The P90/Mean
-> spread values (MS MARCO 3.22×, SIFT 1.48×, …) are computed inside our score's buckets, so they
-> depend on the score, on K, and on per-dataset protocols that were never aligned (target recall,
-> ef grid, calibration-query source, index parameters). See **§1.4**. Every claim below that
-> ranks or bands datasets by spread is marked **[UNVERIFIED]** until `measure_direct_spread.py`
-> re-measures spread directly on equal terms. The equal-recall DC results (§1.2) come straight
-> from recall and DC and are **not** affected.
+> **Added later the same day: the spread numbers were wrong, and Factor C is not supported as
+> stated.** The P90/Mean spread values (MS MARCO 3.22×, SIFT 1.48×, …) are computed inside our
+> score's buckets, so they depend on the score, on K, and on per-dataset protocols that were never
+> aligned (§1.4). `measure_direct_spread.py` then re-measured spread directly on equal terms
+> (§1.5): **at target 0.95 MS MARCO is not wider than the others** (headroom 1.68×, mid-pack); it
+> is widest only at target 0.99 (4.77×). Spread depends on the target, not just the dataset, and
+> across six datasets it only weakly tracks our savings (Spearman ≈0.49, n=6). Claims below that
+> ranked or banded datasets by spread are marked **[NOT SUPPORTED, §1.5]**. The equal-recall DC
+> results (§1.2) come straight from recall and DC and are **not** affected.
 
 ---
 
@@ -36,7 +38,7 @@ true equal-quality saving is at least that large.
 
 ### 1.2 Results
 
-| Dataset | KS | ρ advantage | Spread (P90/Mean) **[UNVERIFIED, §1.4]** | Our DC at Ada-ef's recall |
+| Dataset | KS | ρ advantage | Spread (P90/Mean proxy) **[not a dataset property, §1.4; direct values in §1.5]** | Our DC at Ada-ef's recall |
 |---|---|---|---|---|
 | MS MARCO-384 | 0.047 | +0.17 | 3.22× | **−12.1%** (−43.9% at equal target-hit) |
 | dbpedia-openai-1536 | 0.039 | +0.056 | 1.82× | **≤ −11.1%** |
@@ -62,17 +64,16 @@ recall and at equal target-hit), plus one tab per dataset with every method's ra
 - **KS → ρ advantage (Factor A)** holds coarsely: SIFT (worst fit) has the biggest advantage,
   GloVe (best fit) the smallest. It does **not** predict DC savings: the three least-Gaussian
   datasets (SIFT, Yambda, DeepImage) are all ties or small wins.
-- **[UNVERIFIED, §1.4] Spread → savings (Factor C)** appeared to hold in bands, not as a
-  ranking: every dataset with spread ≥1.8× is cheaper at equal recall (4/4: −7% to −12%); every
-  dataset below 1.6× is a tie or a small win. Within the narrow band it does not order the
-  datasets (Yambda, the narrowest at 1.08×, still gets a clean −4.4%). The band boundaries rest
-  entirely on the proxy spread values, which are not comparable across datasets.
-- **[UNVERIFIED, §1.4] Text vs. image/audio spread:** all 4 text datasets have wider *proxy*
+- **[NOT SUPPORTED, §1.5] Spread → savings (Factor C)** appeared to hold in bands, not as a
+  ranking: every dataset with proxy spread ≥1.8× is cheaper at equal recall (4/4: −7% to −12%);
+  every dataset below 1.6× is a tie or a small win. Re-measured directly, spread only weakly
+  tracks savings (Spearman ≈0.49, n=6): DeepImage has the 3rd-highest headroom and ties, dbpedia
+  has low headroom and the 2nd-biggest saving.
+- **[NOT SUPPORTED, §1.5] Text vs. image/audio spread:** all 4 text datasets had wider *proxy*
   spread than all 4 image/audio datasets (MS MARCO 3.22, Cohere 2.18, GloVe 1.86, dbpedia 1.82 vs
-  LAION 1.51, SIFT 1.48, DeepImage 1.18, Yambda 1.08), with a Mann-Whitney p≈0.03. **That p-value
-  is void**: MS MARCO and Cohere were measured at target 0.99, most image datasets at 0.95, and a
-  stricter target stretches the hard end. Even before this, the pattern was confounded (MS MARCO
-  and Cohere have real user queries drawn from a different distribution than the passages).
+  LAION 1.51, SIFT 1.48, DeepImage 1.18, Yambda 1.08), Mann-Whitney p≈0.03. **That p-value is
+  void**, and on equal terms the groups overlap: at target 0.95, text is GloVe 2.75 / dbpedia 1.71
+  / MS MARCO 1.68 vs image DeepImage 2.09 / SIFT 1.70.
 
 ### 1.4 The spread numbers are not a dataset property (found later the same day)
 
@@ -118,13 +119,72 @@ share at the ef floor and the share capped. Index parameters still differ and ar
 fixed. `--cached` summarizes the existing cached min-ef arrays as they are. Cohere and LAION are
 not wired in yet.
 
-**Unaffected:** the equal-recall DC results in §1.2 (5 cheaper, 3 tied, 0 costlier), the KS and
-ρ values, and the ef-floor mechanism in §2 (although its per-dataset shares should also come
-from the equal-terms run).
+**Unaffected:** the equal-recall DC results in §1.2 (5 cheaper, 3 tied, 0 costlier) and the KS
+and ρ values. Resolved in §1.5.
+
+### 1.5 Direct spread on equal terms: MS MARCO is not wider at 0.95; spread only weakly predicts savings
+
+**Measure.** `measure_direct_spread.py`, 2,000 real held-out test queries per dataset, K=100,
+ef grid 50–3000 step 50, both targets from one sweep. Main measure is **headroom = P90 /
+floor-clipped mean**: one fixed ef that gets 90% of queries to target costs ef=P90; an oracle that
+gives each query exactly its min-ef pays the mean (queries below the floor still cost K). So
+headroom is the most an adaptive method could save at that target-hit rate. P90/median was
+dropped as the main measure after the first `--cached` run showed it is unstable when the median
+sits on the floor: SIFT gave 4.00× on corpus-point queries vs 1.67× on real queries, driven only
+by where the median lands; headroom gave 1.52× vs 1.69×. Results in
+`results_direct_spread_20260925_181040/`.
+
+| Dataset | Index | Headroom @0.95 | @floor @0.95 | Headroom @0.99 | @floor @0.99 | capped @0.99 |
+|---|---|---|---|---|---|---|
+| MS MARCO-384 | efC=200, M=16 | **1.68×** | 68.2% | **4.77×** | 41.5% | **9.4%** |
+| dbpedia-openai-1536 | efC=500, M=16 | 1.71× | 50.6% | 2.10× | 21.9% | 0.5% |
+| GloVe-100 | efC=500, **M=32** | **2.75×** | 30.2% | 2.75× | 16.4% | **11.8%** |
+| SIFT-128 | efC=500, M=16 | 1.70× | 48.7% | 1.69× | 20.8% | 0.0% |
+| DeepImage-96 | efC=500, M=16 | 2.09× | 31.4% | 2.23× | 13.5% | 0.9% |
+| Yambda audio | efC=500, M=16 | 1.33× | 88.3% | 1.25× | 58.8% | 0.7% |
+
+(Capped = never reached the target by ef=3000; recorded as 3000, a lower bound. Cohere and LAION
+are not wired in yet.)
+
+**Findings.**
+
+1. **At target 0.95, MS MARCO is not wider than the others.** Its headroom (1.68×) sits with
+   dbpedia and SIFT; two-thirds of its queries are already at the floor. The "MS MARCO has the
+   widest spread" claim came from the 0.99 target and from the score-dependent proxy.
+2. **Spread depends on the target recall, not just the dataset.** MS MARCO goes 1.68× → 4.77×
+   from 0.95 to 0.99 (a heavy hard tail that only appears at the stricter target); SIFT stays at
+   1.70× → 1.69×. Any spread number has to state its target.
+3. **At 0.99 MS MARCO is widest (4.77×), with two caveats:** 9.4% of its queries never reach 0.99
+   by ef=3000, so their true cost is unknown; and its index was built with `ef_construction=200`
+   (the others 500), and a weaker graph can make the hardest queries harder. GloVe at 0.99 has the
+   same capping problem (11.8%, its P90 sits on the cap).
+4. **Text vs. image does not separate** on equal terms (see §1.3).
+5. **Headroom only weakly tracks our savings.** Taking each dataset at the target its benchmark
+   actually used:
+
+   | Dataset (benchmark target) | Headroom | Our DC at Ada-ef's recall |
+   |---|---|---|
+   | MS MARCO (0.99) | 4.77× | −12.1% |
+   | GloVe (0.95) | 2.75× | ≤ −6.9% |
+   | DeepImage (0.95) | 2.09× | ≤ +0.7% (tie) |
+   | dbpedia (0.95) | 1.71× | ≤ −11.1% |
+   | SIFT (0.95) | 1.70× | +0.3% (tie) |
+   | Yambda (0.95) | 1.33× | ≤ −4.4% |
+
+   Spearman ≈0.49 over 6 datasets, far from significant. DeepImage (3rd-highest headroom) ties;
+   dbpedia (low headroom) has the 2nd-biggest saving. MS MARCO is the only clean supporting case.
+6. **Calibration-query source matters.** On SIFT, corpus-point queries are easier than real test
+   queries (63.9% vs 49.0% at the floor, headroom 1.52× vs 1.69×). SIFT, dbpedia and Yambda
+   calibrated on corpus points, so their calibration population was easier than their test
+   population.
+
+**Conclusion.** Factor C as written ("wider spread → bigger savings") is **not supported**.
+Headroom is what the data offers an adaptive method; savings *relative to Ada-ef* also depend on
+how much of that headroom each method captures, which headroom alone cannot tell (§6 item 2).
 
 ---
 
-## 2. A concrete mechanism for narrow-spread ties: the ef floor
+## 2. The ef floor (a limit on any adaptive method, not the reason for the ties)
 
 `ef < K` behaves exactly as `ef = K` in the search. Visible in every K=100 dataset's own
 results: `Vanilla(ef=50)` and `Vanilla(ef=100)` give identical DC and recall on SIFT (2,484),
@@ -138,10 +198,15 @@ On SIFT (target 0.95, K=100), the calibration queries' true minimum ef:
 | 50 (=floor) | 50 (=floor) | 150 | 150 | 250 | 400 | 600 |
 
 A quarter of queries sit at the floor, and even the 99th percentile needs only ef=400. There is
-almost no room between "easiest" and "hardest" to exploit, however good the score. This is a
-more concrete explanation for the SIFT/Yambda/DeepImage ties than "narrow spread" alone.
+almost no room between "easiest" and "hardest" to exploit, however good the score.
 `benchmark_controlled.py` now records the share of calibration queries at the floor
 (`frac_at_ef_floor`, the `@floor` column in the controlled summary).
+
+**Corrected after §1.5.** The floor is real and large at target 0.95 (on real test queries:
+Yambda 88%, MS MARCO 68%, dbpedia 51%, SIFT 49%, DeepImage 31%, GloVe 30%), and it is a useful fact
+to report. But it does **not** explain the ties as originally claimed: DeepImage ties with only
+31% at the floor and 2.09× headroom, while Yambda wins (−4.4%) with 88% at the floor. It limits
+what any adaptive method can save; it does not decide who wins between two of them.
 
 Also noted: the EF_SWEEP step of 50 is coarse relative to SIFT's whole 100–400 range.
 
@@ -151,9 +216,10 @@ Also noted: the EF_SWEEP step of 50 is coarse relative to SIFT's whole 100–400
 
 ### 3.1 Why
 
-Across the real datasets KS and spread never vary independently — every strongly
-non-Gaussian dataset (SIFT, Yambda, DeepImage) is narrow-spread, and the widest-spread dataset
-**[UNVERIFIED, §1.4: by the proxy measure]**
+Across the real datasets KS and spread appeared never to vary independently — every strongly
+non-Gaussian dataset (SIFT, Yambda, DeepImage) looked narrow-spread, and the widest-spread dataset
+by the proxy measure **[the proxy was wrong, §1.4–1.5: on equal terms DeepImage has the 2nd-highest
+headroom at 0.95, and MS MARCO is widest only at target 0.99]**
 (MS MARCO) is only moderately non-Gaussian. So the framework's two main claims ("KS drives score
 quality", "spread drives savings") rest on cross-dataset correlation, and the case the framework
 predicts to be best — **high KS and wide spread together** — has never been observed. The goal
@@ -335,19 +401,29 @@ Spread widened to 3.8×, the score advantage vanished at the same time, every re
 ### 4.3 Still untested: high KS + wide spread together
 
 Two synthetic attempts (C, D) raised KS and lost spread, by different routes (collapsed
-dimension in B/C; uniform per-cluster difficulty in D). In the real data MS MARCO appeared to come closest
-(moderate KS 0.047, spread 3.22×) and is also the biggest win — **[UNVERIFIED, §1.4]**: its 3.22×
-is a proxy value measured at target 0.99, so whether MS MARCO really has wider difficulty spread
-than the other datasets is not yet known.
+dimension in B/C; uniform per-cluster difficulty in D).
+
+**Revised after §1.5.** On equal terms the real data already has a dataset close to this corner:
+**DeepImage** (KS 0.067, ρ advantage +0.26, headroom 2.09× at 0.95, 2nd-highest of six) — and it
+**ties**. Meanwhile GloVe (KS 0.016, ρ advantage +0.02, headroom 2.75×) wins (≤ −6.9%). So the one
+real dataset nearest the predicted best case does not show the predicted win. Caveat: GloVe and
+DeepImage ran through the older two-step code path (separate `get_dynamic_probe_score`, then a
+separate `search_knn_adaptive`; `updateAsOf170926.md` §2), not the fused search the other datasets
+used, which may affect their DC. MS MARCO, previously cited as "closest", is widest only at target
+0.99 (§1.5).
 
 ### 4.4 Corrections to earlier statements
 
 - "SIFT loses to Ada-ef" / "SIFT is split" → **tie at equal recall** (+0.3%).
-- "Difficulty spread predicts win size" → **[UNVERIFIED, §1.4]** appeared to hold in bands (≥1.8× → saving; <1.6× → tie/small
-  win), not as a ranking; the P90/Mean proxy understates spread the score can separate
-  (§3.5), and it is not comparable across datasets at all (§1.4).
-- "MS MARCO has the widest spread" / "text datasets have wider spread" → **unverified** pending
-  `measure_direct_spread.py`; the p≈0.03 in §1.3 is void.
+- "Difficulty spread predicts win size" (Factor C) → **not supported** (§1.5). The P90/Mean proxy
+  depends on the score, K and protocol (§1.4); measured directly, headroom only weakly tracks our
+  savings (Spearman ≈0.49, n=6).
+- "MS MARCO has the widest spread" → **only at target 0.99** (4.77×); at 0.95 it is mid-pack
+  (1.68×).
+- "Text datasets have wider spread" → **not supported**; the groups overlap on equal terms, and
+  the p≈0.03 in §1.3 is void.
+- "The ef floor explains the SIFT/Yambda/DeepImage ties" → **not supported** (§2 correction).
+- New: **spread depends on the target recall**, so any spread number must state its target.
 - Mid-session claim "high KS + wide spread is structurally rare" → **withdrawn** (§3.6).
 - KS as a predictor → refined: it measures how wrong the Gaussian assumption is, possibly not
   how much that error varies between queries (§3.8, hypothesis).
@@ -358,10 +434,19 @@ than the other datasets is not yet known.
 
 - 8 real datasets benchmarked and re-read at equal quality: 5 cheaper, 3 tied, 0 costlier.
 - Predictive framework (`summary.md` §7): Factors A and B stand with the refinements in §4.4.
-  **Factor C (spread) is unverified** — every per-dataset spread value is a score-dependent proxy
-  measured under mismatched protocols (§1.4). `measure_direct_spread.py` is written but not yet run.
-- Controlled experiments: one solid result (§4.1), one supporting negative (§4.2), the
-  headline corner untested (§4.3).
+  **Factor C (spread) is not supported as stated** (§1.5). What decides *how much* we save
+  relative to Ada-ef is currently unexplained: neither KS/ρ advantage nor direct headroom
+  predicts it well (DeepImage ties with both a large ρ advantage and wide headroom; dbpedia wins
+  big with neither).
+- Direct, score-independent spread is now measured on equal terms for six datasets
+  (`results_direct_spread_20260925_181040/`); Cohere and LAION still missing.
+- Controlled experiments: one solid result (§4.1), one supporting negative (§4.2); the high-KS,
+  wide-spread case was not reached synthetically, and its nearest real example (DeepImage) tied
+  (§4.3).
+- The per-dataset benchmarks were run under unaligned protocols (§1.4 table: target recall,
+  calibration-query source, index parameters, and for GloVe/DeepImage an older code path). The
+  equal-recall comparison within each dataset is fair; comparisons *across* datasets are not
+  fully controlled.
 - `summary.md` §1–§4 still carry pre-2026-09-17 numbers (before the C++ probe-phase fix) and the
   superseded "Cohere is more isotropic" explanation; §7 is current. Not yet cleaned up.
 - MS MARCO V1 1536-dim (the paper's own dataset) still blocked on the query file
@@ -378,65 +463,78 @@ than the other datasets is not yet known.
 
 In rough priority order.
 
-1. **Run `measure_direct_spread.py` first (gates everything that uses spread).** On the server:
-   `python3 measure_direct_spread.py --cached` (seconds), then `python3 measure_direct_spread.py`
-   (six datasets, 2,000 real test queries each, both targets in one sweep; no index builds). Only if
-   MS MARCO still shows clearly wider direct spread than the others on equal terms does item 3 make
-   sense, and only then can Factor C be stated at all. If it does not, "spread drives savings"
-   needs rethinking before any new experiment. Afterwards, wire in Cohere and LAION.
+1. **Done: direct spread on equal terms** (`measure_direct_spread.py`, §1.5). Remaining: wire in
+   Cohere and LAION (different data layouts; LAION is K=1000).
 
-2. **Stop tuning synthetic generators.** Each new generator introduced its own side effect
+2. **Next: captured-headroom analysis (explains savings, not just headroom).** Headroom says how
+   much an adaptive method *could* save; savings relative to Ada-ef depend on how much of it each
+   method *captures*. For each dataset, place three costs on one axis at the same target-hit rate:
+   an oracle that gives every query exactly its min-ef (floor-clipped mean), one fixed ef (P90),
+   and where Ada-ef and our method actually land. Our lead over Ada-ef is then the difference in
+   the share of headroom each captures, which can be compared across datasets. This should say why
+   DeepImage tied while dbpedia won. Uses the saved per-query min-ef arrays and existing results;
+   no new server runs for the six covered datasets.
+
+3. **Stop tuning synthetic generators.** Each new generator introduced its own side effect
    (collapsed dimension in B, uniform difficulty in D), and a reviewer can question any of
    them. Report §4.1 as the controlled experiment (two independent generators), §4.2 as
-   supporting evidence, and state §4.3 openly as a limitation.
+   supporting evidence, and state the untested corner openly as a limitation.
 
-3. **[Blocked on item 1] One more controlled experiment, if wanted: MS MARCO with query sets chosen by true
-   difficulty.** Real data where our method already has a score advantage (ρ +0.17). Compute
-   every query's true minimum ef, then mix the easiest and hardest in set proportions to change
-   spread while keeping queries natural — unlike A's noisy queries, naturally hard queries are
-   ones Ada-ef cannot single out. Both methods calibrate on the same mix and neither sees true
-   difficulty at query time, so it stays fair. Index and ground truth already exist on the
-   server; each run on 8.8M vectors will take much longer than SIFT. This is the most direct
-   test of "spread drives savings with the score advantage held". (A SIFT version is cheaper but
-   capped by SIFT's narrow natural range, P99 ef=400.)
+4. **Align the benchmark protocols before comparing datasets.** The per-dataset runs differ in
+   target recall (0.99 vs 0.95), calibration-query source (real queries vs corpus points already
+   in the index), index parameters (MS MARCO efC=200, GloVe M=32) and code path (GloVe and
+   DeepImage use the older two-step search). Spread depends on the target (§1.5), so a common
+   target matters most. Re-running the K=100 datasets at one target with real calibration queries
+   and the fused path would make cross-dataset statements defensible. Indexes and ground truth
+   are cached for most of them.
 
-4. **Test the §3.8 hypothesis cheaply.** Measure, per dataset, how much the KS statistic varies
+5. **Not pursued for now: MS MARCO with difficulty-stratified query sets.** It was meant to test
+   "wider spread → bigger savings with the score advantage held". §1.5 removed its premise: MS
+   MARCO is wide only at 0.99, and headroom only weakly predicts savings across datasets. Revisit
+   only if item 2 shows headroom capture, not headroom, is what matters, and even then at 0.99
+   with a larger ef cap (9.4% of MS MARCO queries hit ef=3000).
+
+6. **Test the §3.8 hypothesis cheaply.** Measure, per dataset, how much the KS statistic varies
    *across queries* (the spread of per-query KS values, already in each
    `anisotropy_results.json`), not just its mean. If the variation predicts ρ advantage better
    than the mean does — including the dbpedia exception — that is a better Factor A.
 
-5. **Use the equal-quality metric everywhere.** Replace "best config" comparisons in
+7. **Use the equal-quality metric everywhere.** Replace "best config" comparisons in
    `summary.md` and any paper tables with DC at Ada-ef's recall / target-hit.
 
-6. **Report the ef floor.** Add `frac_at_ef_floor` for the 8 real datasets (item 1 now produces it on
-   equal terms for six of them) as a concrete measure of headroom alongside spread.
+8. **Report the ef floor and headroom, always with the target.** Both are now measured on equal
+   terms for six datasets (§1.5). The floor is large at 0.95 (30–88% of queries) and worth stating
+   in the paper as a limit on any adaptive method.
 
-7. **Consider target recall 0.99 on the K=100 datasets** (SIFT, GloVe, DeepImage, dbpedia,
-   Yambda). The 0.95 target puts many queries at the floor; MS MARCO/Cohere/LAION already use
-   0.99. This would show whether the narrow-spread ties persist at a stricter target. Should be
-   cheap where indexes and ground truth are cached.
+9. **Update the published results page and `summary.md` §7.** The page's spread column still
+   shows the proxy values; `summary.md` §7 Factor C still states the band rule (it carries an
+   "unverified" pointer to this file). Both should show the direct headroom with its target, and
+   Factor C should be restated as "not supported".
 
-8. **Clean up `summary.md` §1–§4** (pre-fix numbers, superseded Cohere explanation) so the
-   document matches the current state.
+10. **Clean up `summary.md` §1–§4** (pre-fix numbers, superseded Cohere explanation) so the
+    document matches the current state.
 
-9. **Carried over:** SHEAF-style two-probe estimate of difficulty spread (`summary.md` §7);
-   MS MARCO V1 1536-dim once the query file is obtainable; a continuous-distance score for
-   SIFT-type data (`updateAsOf180926.md` §6.4).
+11. **Carried over:** SHEAF-style two-probe estimate of difficulty spread (`summary.md` §7; its
+    motivation — a cheap predictor of spread — matters less now that spread itself does not
+    predict savings well); MS MARCO V1 1536-dim once the query file is obtainable; a
+    continuous-distance score for SIFT-type data (`updateAsOf180926.md` §6.4).
 
 ---
 
 ## 7. Bottom line
 
 - At equal recall, our method is **never worse than Ada-ef on any of the 8 real datasets**
-  (5 cheaper by 4–12%, 3 tied). That is the fair headline, and it replaces the per-config
-  comparison that made SIFT look like a loss.
+  (5 cheaper by 4–12%, 3 tied). That is the fair headline, it replaces the per-config comparison
+  that made SIFT look like a loss, and nothing found later in this update changes it.
 - The controlled experiments produced **one clean result**: on Gaussian data Ada-ef wins, and the
   crossover sits at KS ≈ 0.02–0.04, confirmed with two independent generators. That gives the
   paper an honest boundary for when to use which method.
-- The case the framework predicts to be best — high KS with wide spread — **is still untested**.
-  Both synthetic attempts lost spread while raising KS.
-- **The per-dataset spread numbers themselves are unverified** (§1.4): they depend on our score,
-  on K and on mismatched protocols. `measure_direct_spread.py` re-measures them directly on equal
-  terms, and must run before any spread-based claim or experiment. If MS MARCO still has clearly
-  wider spread after that, the most credible next step is real
-  data (MS MARCO) with difficulty-stratified query sets, not another generator.
+- **The spread story did not survive checking.** The spread numbers used so far were a
+  score-dependent proxy under mismatched protocols. Measured directly on equal terms, MS MARCO
+  is not wider than the others at 0.95 (it is widest only at 0.99), text vs. image does not
+  separate, spread depends on the target recall, and headroom only weakly tracks our savings
+  (Spearman ≈0.49, n=6). Factor C is not supported as stated.
+- **What decides how much we save relative to Ada-ef is currently open.** The nearest real
+  example of the predicted best case (DeepImage: sizeable KS, large ρ advantage, wide headroom)
+  ties. The next step is to measure how much of the available headroom each method captures
+  (§6 item 2), not another spread experiment.
