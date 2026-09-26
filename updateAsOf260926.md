@@ -210,8 +210,9 @@ the current vector-search benchmark built around modern embeddings: 11 in-distri
 datasets (text-to-image, QA, multi-vector, LLM attention keys). `survey_ks_vibe.py` computes the
 same KS as the unified runs, at 200 queries with a 95% interval, both with the real test queries
 and with corpus points as queries ("self"); for VIBE's inner-product sets also on raw inner
-products. KS only — no index, no end-to-end run. 18 of 19 done (DPR, 64 GB, still downloading).
-Results: `results_ks_survey_20260926_150320/ks_survey.json`.
+products. KS only — no index, no end-to-end run. All 19 done (DPR surveyed separately after its
+64 GB download).
+Results: `results_ks_survey_20260926_150320/ks_survey.json` (18 datasets) and a separate DPR run.
 
 | Dataset | Split | Model | KS (real queries) | KS self | Predicted better score |
 |---|---|---|---|---|---|
@@ -231,18 +232,23 @@ Results: `results_ks_survey_20260926_150320/ks_survey.json`.
 | yi-128-ip | OOD | Yi-6B attention keys | 0.0516 ± 0.0032 | 0.0727 | band |
 | yahoo-minilm-384-normalized | ID | MiniLM | 0.0535 ± 0.0022 | 0.0560 | band |
 | imagenet-align-640-normalized | OOD | ALIGN, text-to-image | 0.0576 ± 0.0033 | 0.0370 | band |
+| dpr-jina-768-normalized | ID | Jina | 0.0585 ± 0.0022 | 0.0555 | band |
 | landmark-dino-768-cosine | ID | DINO (self-supervised) | **0.0758 ± 0.0044** | 0.0756 | **ours** |
 | inaturalist-resnet-2048-cosine | ID | ResNet | **0.1145 ± 0.0066** | 0.1239 | **ours** |
 
 Raw inner-product KS for the IP sets: MUVERA 0.0164, LEMUR 0.0462, Llama 0.0301, Yi 0.0435.
-**Tally: Ada-ef 11, band 5, ours 2**; no label is uncertain (no interval crosses a band edge).
+**Tally (all 19): Ada-ef 11, band 6, ours 2**; no label is uncertain (no interval crosses a band edge).
 
 **Findings.**
 
-1. **Modern contrastive text and multimodal embeddings are mostly near-Gaussian.** Qwen, Nomic,
-   Harrier, CLIP: KS 0.022–0.039, like every such model measured in the unified runs (CLIP 0.029,
-   ada-002 0.038, Cohere 0.043, MiniLM 0.044). For mainstream RAG and text/image retrieval,
-   Ada-ef's model fits and is the better choice.
+1. **No modern contrastive text or multimodal model reaches our side of the band.** Text models
+   span KS 0.03–0.06: Qwen, Harrier and Nomic are clearly on Ada-ef's side (0.033–0.039), as are
+   CLIP (0.022–0.038) and the models in the unified runs (ada-002 0.038, Cohere 0.043, MiniLM on
+   MS MARCO 0.044); MXBAI (0.048), DistilRoBERTa (0.051), MiniLM on Yahoo (0.054) and Jina on DPR
+   (0.059) sit inside the band. For mainstream RAG and text/image retrieval Ada-ef's model fits
+   at least as well as ours; where it is in the band, the unified run on Yahoo-MiniLM (§8) will
+   show which way it goes. (DPR itself, 21M × 768, needs ~67 GB of index and cannot be run end to
+   end on the 62 GB server.)
 2. **OOD queries do not push KS up — in 5 of 6 OOD sets they push it down.** Real-query KS vs
    self: LAION-CLIP 0.022 vs 0.034, Yandex 0.031 vs 0.061, Llama 0.032 vs 0.078, Yi 0.052 vs
    0.073, HotpotQA 0.033 vs 0.042; only ALIGN goes the other way (0.058 vs 0.037). The hypothesis
@@ -291,8 +297,7 @@ setting R calibrates on 2,000 of VIBE's `learn` queries from the real text-query
 2. **Run the four VIBE datasets** (§8), each ~1 hour: `for d in vibe_landmark_dino
    vibe_inaturalist_resnet vibe_yahoo_minilm vibe_imagenet_align; do python3 benchmark_unified.py
    --dataset $d 2>&1 | tee run_unified_$d.log; done`.
-3. **Survey DPR** when its download finishes: `python3 survey_ks_vibe.py --datasets
-   dpr-jina-768-normalized`.
+3. ✅ DPR surveyed: KS 0.0585 ± 0.0022, inside the band (§7).
 4. **Tables and figures from the JSON outputs only** (`PAPER_PLAN.md` deliverables), including the
    P-vs-R comparison, the tail-recall table and the KS survey.
 5. **Update the published results page** from the unified runs (it still shows the old
