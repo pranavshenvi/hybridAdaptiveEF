@@ -1,5 +1,10 @@
 # Update — 2026-09-25
 
+> **Superseded in part by `updateAsOf260926.md`:** the per-dataset DC comparisons in §1.2 and
+> §1.6 came from runs under mixed protocols. Under the frozen paper protocol
+> (`benchmark_unified.py`) the end-to-end differences are small, Ada-ef ranks difficulty better on
+> the three datasets with KS ≤ 0.047, and ours on the three with KS ≥ 0.072.
+
 Follow-up to `updateAsOf180926.md` and `summary.md` §7 (the 8-dataset predictive framework,
 last updated 2026-09-21 with dbpedia-openai-1536 and Yambda-5B audio). Covers: (1) re-reading
 all 8 real datasets at **equal quality** instead of per chosen config, which changes how several

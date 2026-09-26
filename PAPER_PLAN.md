@@ -6,27 +6,33 @@ One fixed target. Anything not listed here is out of scope until the paper is wr
 Assumption Holds, and When It Doesn't*
 
 **Thesis:** Ada-ef (SIGMOD 2026) scores query difficulty with a Gaussian (CLT) model of the
-query-to-data similarity distribution. Replacing it with empirical percentiles gives a better
-difficulty ranking whenever that distribution is measurably non-Gaussian, which is most real
-embedding spaces; on near-Gaussian data Ada-ef's parametric score is the better choice. We show
-where the crossover lies, what it buys end to end, and which evaluation choices can mislead.
+query-to-data similarity distribution. Empirical percentiles give a better difficulty ranking
+when that distribution is clearly non-Gaussian; on near-Gaussian data Ada-ef's parametric score
+is the better choice (three of six real datasets each way so far). The choice is predictable
+offline from the KS statistic. We show where the crossover lies, what it buys end to end (little,
+except where the parametric model is clearly right), and which evaluation choices can mislead.
 
 **Target venue:** VLDB Experiments, Analysis & Benchmarks track or SIGMOD Experiments & Analysis;
 arXiv first. Fallback: a SIGMOD/VLDB workshop.
 
 ## Claims
 
-| # | Claim | Evidence we have | Still needed |
-|---|---|---|---|
-| C1 | Empirical-percentile scoring ranks difficulty better than Ada-ef's Gaussian score when KS ≳ 0.03 | ρ better on 7 of 8 datasets; KS measured on all 8 | Recompute ρ under the frozen protocol (cheap) |
-| C2 | End to end, at equal mean recall, our cost is ≤ Ada-ef's on most datasets, without worse tail recall | 5 cheaper / 2 tied / 1 costlier (mixed protocols) | **The three-way table below, under the frozen protocol** |
-| C3 | On near-Gaussian data Ada-ef wins; the crossover is at KS ≈ 0.02–0.04 | Controlled, two independent generators (`updateAsOf250926.md` §4.1) | Nothing |
-| C4 | Ada-ef's self-sampled calibration can fail to transfer to real queries; ours degrades more gracefully | Cohere only (n = 1) | Protocol P vs R on all datasets (below) |
-| C5 | Evaluation lessons for adaptive-ef methods | Proxy spread depends on the score; spread depends on the target; 30–88% of queries at the ef floor at 0.95; probe cost must be counted; a hindsight-tuned fixed ef is a reference, not a baseline | Nothing |
+Status after the first six unified runs (`updateAsOf260926.md`):
+
+| # | Claim | Status under the frozen protocol |
+|---|---|---|
+| C1 + C3 | **Which difficulty score to use is predictable from KS:** Ada-ef's Gaussian score on near-Gaussian data, empirical percentiles on clearly non-Gaussian data | **Supported, 6 of 6** (Ada-ef better at KS ≤ 0.047, ours at KS ≥ 0.072; dbpedia mixed in setting R), plus the controlled synthetic experiment. Crossover band 0.047–0.072 under this protocol (was stated as ≳ 0.03). Cohere and LAION are an out-of-sample test, prediction written down in advance (`updateAsOf260926.md` §5) |
+| C2 | End to end, at equal mean recall, our cost is ≤ Ada-ef's on most datasets | **Does not hold.** Mostly within ±4%; ours −10.7% on DeepImage (P); Ada-ef with its WAE floor ~50% cheaper on GloVe. Reported as it came out |
+| C4 | Ada-ef's self-sampled calibration can fail to transfer to real queries | Not tested by the six (all symmetric); Cohere is the test |
+| C5 | Evaluation lessons for adaptive-ef methods | Unchanged, plus a sharp new example: MS MARCO-384 went from a large win for ours (old protocol) to Ada-ef ranking better (paper protocol) |
 
 **Decision rule, fixed in advance:** if C2 holds under the frozen protocol, the paper leads with
 the method. If it does not, the paper leads with C1, C3 and C5 as an analysis paper, and C2 is
-reported as it came out. Either way the headline is written *after* step 3, from the numbers.
+reported as it came out. **Applied 2026-09-26: C2 does not hold, so this is an analysis paper.**
+Working thesis: *the choice between a parametric (Gaussian) and an empirical difficulty score for
+adaptive HNSW search is predictable offline from the KS statistic of the similarity
+distribution; end-to-end differences between the two are small except where the parametric model
+is clearly right.*
 
 ## Frozen protocol (matches the Ada-ef paper, §7.1)
 
@@ -97,7 +103,8 @@ covariance is accumulated in float64 rather than float32.
    `download_unified_data.py` (Cohere files 00–04 + queries, LAION shards 0–19).
 2. Rebuild the C++ extension (new binding), smoke-test on SIFT, then run the datasets; indexes
    and ground truth are built on first use and cached in `unified_cache/`.
-3. Run every dataset with both settings (P and R).
+3. Run every dataset with both settings (P and R). ✅ six of eight (GloVe, dbpedia, MS MARCO-384,
+   DeepImage, Yambda, SIFT); Cohere and LAION pending their downloads.
 4. Produce the tables and figures from the JSON outputs only (no hand-copied numbers).
 5. Write.
 
