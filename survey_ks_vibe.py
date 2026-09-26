@@ -29,7 +29,7 @@ Also reported per dataset:
              (and how far Ada-ef's corpus-point calibration is from real queries).
   top1_var, pr_frac : top-1 eigenvalue share and participation ratio (descriptive only).
   predicted: which difficulty score the six unified runs say should rank queries better
-             (Ada-ef if ks <= 0.047, ours if ks >= 0.072, "band" in between). Provisional until
+             (Ada-ef if ks <= 0.044, ours if ks >= 0.066, "band" in between). Provisional until
              Cohere and LAION have been checked against it.
 
 --local recomputes KS on six of our own datasets (GloVe-100, dbpedia-1536, MS MARCO-384,
@@ -97,7 +97,10 @@ def local_sources():
         "sift128":     ("sift-128-euclidean.hdf5", h5_loader("sift-128-euclidean.hdf5"), 0.114),
     }
 
-BAND_LO, BAND_HI = 0.047, 0.072
+# Crossover from the unified runs, edges re-measured at 200 queries (--local, 2026-09-26):
+# Ada-ef's score ranked better up to MS MARCO-384 (0.0442 +/- 0.0019), ours from DeepImage-96
+# (0.0656 +/- 0.0044). The 30-query values had put the band at 0.047-0.072.
+BAND_LO, BAND_HI = 0.044, 0.066
 SEED = 42
 N_QUERIES, N_SAMPLE = 200, 20000   # 30 queries (as in the unified runs) left KS noisy by ~0.005-0.008,
                                    # as large as the band itself; --n-queries overrides
