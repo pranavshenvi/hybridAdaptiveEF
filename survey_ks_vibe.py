@@ -32,9 +32,10 @@ Also reported per dataset:
              (Ada-ef if ks <= 0.047, ours if ks >= 0.072, "band" in between). Provisional until
              Cohere and LAION have been checked against it.
 
---local recomputes KS on four of our own datasets (GloVe-100, dbpedia-1536, DeepImage-96,
-SIFT-128) so the survey can be checked against the unified runs' values (0.016, 0.036, 0.072,
-0.114) before its numbers are compared with the band.
+--local recomputes KS on six of our own datasets (GloVe-100, dbpedia-1536, MS MARCO-384,
+DeepImage-96, Yambda, SIFT-128) so the survey can be checked against the unified runs and the
+band edges re-measured with the same precision (unified values 0.016, 0.036, 0.047, 0.072,
+0.095, 0.114, from 30 queries).
 
 Usage (on the server):
   python3 survey_ks_vibe.py --local                    # validate against the unified runs first
@@ -84,12 +85,17 @@ DEPRECATED = {
     "codesearchnet-jina-768-cosine":     ("ID",  "code, Jina",           4.23),
     "simplewiki-openai-3072-normalized": ("ID",  "text, OpenAI-3072",    3.21),
 }
-LOCAL = {   # our own files; unified-run KS for comparison
-    "glove100":    ("glove-100-angular.hdf5", 0.016),
-    "dbpedia1536": ("dbpedia-openai-1000k-angular.hdf5", 0.036),
-    "deepimage96": ("deep-image-96-angular.hdf5", 0.072),
-    "sift128":     ("sift-128-euclidean.hdf5", 0.114),
-}
+def local_sources():
+    """Our own datasets: name -> (file that must exist, loader, unified-run KS with 30 queries)."""
+    return {
+        "glove100":    ("glove-100-angular.hdf5", h5_loader("glove-100-angular.hdf5"), 0.016),
+        "dbpedia1536": ("dbpedia-openai-1000k-angular.hdf5", h5_loader("dbpedia-openai-1000k-angular.hdf5"), 0.036),
+        "msmarco384":  ("msmarco-8.8M-minilm-384d.hdf5",
+                        h5_loader("msmarco-8.8M-minilm-384d.hdf5", "embeddings", "msmarco_qemb_validation.npz"), 0.047),
+        "deepimage96": ("deep-image-96-angular.hdf5", h5_loader("deep-image-96-angular.hdf5"), 0.072),
+        "yambda":      ("yambda_audio_corpus.npy", yambda_loader, 0.095),
+        "sift128":     ("sift-128-euclidean.hdf5", h5_loader("sift-128-euclidean.hdf5"), 0.114),
+    }
 
 BAND_LO, BAND_HI = 0.047, 0.072
 SEED = 42
@@ -162,19 +168,41 @@ def predicted(ks, ci=0.0):
     return label + (" (uncertain)" if crosses else "")
 
 
+def h5_loader(path, train_key="train", test_npz=None):
+    """Corpus from an HDF5 file; queries from its `test` set, or from an .npz ('emb')."""
+    def load():
+        import h5py
+        f = h5py.File(path, "r")
+        test = np.load(test_npz)["emb"] if test_npz else f["test"][:]
+        attrs = {k: (v.decode() if isinstance(v, bytes) else (v.item() if hasattr(v, "item") else v))
+                 for k, v in f.attrs.items()}
+        return f[train_key], test, attrs, f.close
+    return load
+
+
+def yambda_loader():
+    """Yambda has no query file: queries are corpus tracks, as in the unified run."""
+    mm = np.load("yambda_audio_corpus.npy", mmap_mode="r")
+    q = np.sort(np.random.default_rng(7).choice(mm.shape[0], 1000, replace=False))
+    return mm, np.asarray(mm[q]), {}, (lambda: None)
+
+
 def survey_file(path, raw_ip, rng):
-    import h5py
+    return survey_source(h5_loader(path), raw_ip, rng)
+
+
+def survey_source(loader, raw_ip, rng):
     t0 = time.time()
-    with h5py.File(path, "r") as f:
-        train = f["train"]
+    train, test_raw, attrs, close = loader()
+    try:
         n, dim = train.shape
-        if f["test"].dtype.kind not in "f" or train.dtype.kind not in "f":
+        if test_raw.dtype.kind != "f" or train.dtype.kind != "f":
             return dict(skipped=f"non-float vectors ({train.dtype})")
         rows = int(min(STATS_ROWS, STATS_BYTES // (dim * 4)))
         corpus = sample_rows(train, rows, rng)
-        test = np.asarray(f["test"][:], dtype=np.float32)
-        attrs = {k: (v.decode() if isinstance(v, bytes) else (v.item() if hasattr(v, "item") else v))
-                 for k, v in f.attrs.items()}
+        test = np.asarray(test_raw, dtype=np.float32)
+    finally:
+        close()
     out = dict(n_corpus=int(n), dim=int(dim), n_test=len(test), stats_rows=len(corpus), attrs=attrs)
     cn, tn = normalize(corpus), normalize(test)
     out.update(ks_stats(cn, tn, rng))
@@ -205,11 +233,11 @@ def main():
     results = {}
 
     if args.local:
-        for name, (path, ref) in LOCAL.items():
+        for name, (path, loader, ref) in local_sources().items():
             if not os.path.exists(path):
                 print(f"  {name}: {path} not found, skipped"); continue
             print(f"  {name} ...", flush=True)
-            r = survey_file(path, False, np.random.default_rng(SEED))
+            r = survey_source(loader, False, np.random.default_rng(SEED))
             r.update(split="ours", model="", unified_ks=ref)
             results[name] = r
             print(f"    KS {r['ks']:.4f} ± {r['ks_ci95']:.4f} (unified run: {ref:.3f})  self {r['ks_self']:.4f}  [{r['seconds']}s]", flush=True)
@@ -245,7 +273,7 @@ def main():
     with open(os.path.join(out_dir, "ks_survey.json"), "w") as f:
         json.dump(results, f, indent=1)
     done = {k: v for k, v in results.items() if "ks" in v}
-    print(f"\n{'dataset':<38} {'split':<5} {'model':<26} {'KS':>7} {'self':>7} {'rawIP':>7} {'top1%':>6}  predicted")
+    print(f"\n{'dataset':<38} {'split':<5} {'model':<26} {'KS':>7} {'±95%':>7} {'self':>7} {'rawIP':>7} {'top1%':>6}  predicted")
     for k, v in sorted(done.items(), key=lambda kv: kv[1]["ks"]):
         raw = f"{v['ks_raw_ip']:.4f}" if "ks_raw_ip" in v else ""
         print(f"{k:<38} {v['split']:<5} {v['model']:<26} {v['ks']:>7.4f} {v['ks_ci95']:>7.4f} {v['ks_self']:>7.4f} {raw:>7} "
