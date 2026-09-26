@@ -35,6 +35,7 @@ Usage:
   python3 benchmark_unified.py --dataset sift128              # both settings, P then R
   python3 benchmark_unified.py --dataset cohere1024 --settings P
 Datasets: glove100 deepimage96 sift128 dbpedia1536 yambda msmarco384 cohere1024 laion_i2i
+          vibe_landmark_dino vibe_inaturalist_resnet vibe_yahoo_minilm vibe_imagenet_align
 """
 
 import os, sys, json, time, gzip, glob, pickle, struct, argparse, subprocess
@@ -43,7 +44,19 @@ from datetime import datetime
 import numpy as np
 
 DATASETS = ["glove100", "deepimage96", "sift128", "dbpedia1536", "yambda", "msmarco384",
-            "cohere1024", "laion_i2i"]
+            "cohere1024", "laion_i2i",
+            "vibe_landmark_dino", "vibe_inaturalist_resnet", "vibe_yahoo_minilm", "vibe_imagenet_align"]
+
+# VIBE datasets (huggingface.co/datasets/vector-index-bench/vibe, fetched by survey_ks_vibe.py into
+# vibe_data/), chosen from the KS survey to test the crossover rule out of sample
+# (updateAsOf260926.md section 7): two predicted to favour our score (KS >= 0.066) and two inside
+# the band. name -> (VIBE file, has a `learn` set of real OOD queries)
+VIBE_SETS = {
+    "vibe_landmark_dino":      ("landmark-dino-768-cosine", False),         # KS 0.076, predicted ours
+    "vibe_inaturalist_resnet": ("inaturalist-resnet-2048-cosine", False),   # KS 0.115, predicted ours
+    "vibe_yahoo_minilm":       ("yahoo-minilm-384-normalized", False),      # KS 0.054, band
+    "vibe_imagenet_align":     ("imagenet-align-640-normalized", True),     # KS 0.058, band (OOD, text-to-image)
+}
 
 ap = argparse.ArgumentParser(description="Unified ours / Ada-ef / fixed-ef benchmark")
 ap.add_argument("--dataset", required=True, choices=DATASETS)
@@ -191,6 +204,27 @@ def load_dataset(name):
                     index_path=reuse.get(name, os.path.join("unified_cache", name, "index_m16_efc500.index")),
                     reuse=name in reuse,
                     notes="ann-benchmarks file; its test queries split into R-calibration and test")
+    if name in VIBE_SETS:
+        vname, has_learn = VIBE_SETS[name]
+        path = os.path.join("vibe_data", vname + ".hdf5")
+        if not os.path.exists(path):
+            sys.exit(f"{path} not found; run survey_ks_vibe.py --download-only --datasets {vname}")
+        f = h5py.File(path, "r")
+        q = normalize(f["test"][:])
+        if has_learn:
+            # OOD: all 1,000 test queries are tested; R-calibration draws from `learn`, a larger
+            # sample of the same (text) query distribution.
+            learn = f["learn"]
+            pick = np.sort(rng.choice(learn.shape[0], n_r, replace=False))
+            test, calib, how = q, normalize(learn[pick.tolist()]), f"all {len(q)} test queries; R-calibration: {n_r} `learn` queries"
+        else:
+            # In-distribution: VIBE ships only 1,000 test queries, so 30% calibrate R (as for Cohere).
+            n_rc = len(q) * 3 // 10
+            test, calib = split_queries(q, n_rc, rng)
+            how = f"{len(q)} test queries, {n_rc} held out for R-calibration"
+        return dict(corpus=Corpus([f["train"]]), k=100, test_q=test, calib_r=calib, tag=name,
+                    index_path=os.path.join("unified_cache", name, "index_m16_efc500.index"), reuse=False,
+                    notes=f"VIBE {vname}; {how}")
     if name == "msmarco384":
         f = h5py.File("msmarco-8.8M-minilm-384d.hdf5", "r")
         test = normalize(np.load("msmarco_qemb_validation.npz")["emb"])

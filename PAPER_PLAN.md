@@ -21,9 +21,10 @@ Status after the first six unified runs (`updateAsOf260926.md`):
 
 | # | Claim | Status under the frozen protocol |
 |---|---|---|
-| C1 + C3 | **Which difficulty score to use is predictable from KS:** Ada-ef's Gaussian score on near-Gaussian data, empirical percentiles on clearly non-Gaussian data | **Supported, 6 of 6** (Ada-ef better at KS ≤ 0.047, ours at KS ≥ 0.072; dbpedia mixed in setting R), plus the controlled synthetic experiment. Crossover band 0.047–0.072 under this protocol (was stated as ≳ 0.03). Cohere and LAION are an out-of-sample test, prediction written down in advance (`updateAsOf260926.md` §5) |
+| C1 + C3 | **Which difficulty score to use is predictable from KS:** Ada-ef's Gaussian score on near-Gaussian data, empirical percentiles on clearly non-Gaussian data | **Supported, 6 of 6** (Ada-ef better up to KS 0.044, ours from 0.066; dbpedia mixed in setting R), plus the controlled synthetic experiment. **Crossover band 0.044–0.066** at 200 queries (`updateAsOf260926.md` §6; was 0.047–0.072 at 30 queries, stated as ≳ 0.03 before that). Out-of-sample tests, predictions written in advance: Cohere and LAION (Ada-ef side, §5); VIBE Landmark-DINO and iNaturalist-ResNet (our side), Yahoo-MiniLM and ImageNet-ALIGN (inside the band) (§8) |
+| C6 | **How often each side applies:** most modern contrastive text and multimodal embeddings, including OOD workloads, are near-Gaussian (Ada-ef's side); CNN, self-supervised vision, audio and descriptor features are not | KS survey of VIBE, 18 of 19 datasets: Ada-ef 11, band 5, ours 2 (DINO, ResNet) (`updateAsOf260926.md` §7). DPR pending |
 | C2 | End to end, at equal mean recall, our cost is ≤ Ada-ef's on most datasets | **Does not hold.** Mostly within ±4%; ours −10.7% on DeepImage (P); Ada-ef with its WAE floor ~50% cheaper on GloVe. Reported as it came out |
-| C4 | Ada-ef's self-sampled calibration can fail to transfer to real queries | Not tested by the six (all symmetric); Cohere is the test |
+| C4 | Ada-ef's self-sampled calibration can fail to transfer to real queries | Not tested end to end by the six (all symmetric); Cohere and VIBE ImageNet-ALIGN are the tests. The KS survey shows the mechanism directly: on 5 of 6 OOD VIBE sets, corpus points and real queries see differently shaped similarity distributions (e.g. Llama 0.078 vs 0.032) |
 | C5 | Evaluation lessons for adaptive-ef methods | Unchanged, plus a sharp new example: MS MARCO-384 went from a large win for ours (old protocol) to Ada-ef ranking better (paper protocol) |
 
 **Decision rule, fixed in advance:** if C2 holds under the frozen protocol, the paper leads with
@@ -60,6 +61,7 @@ is clearly right.*
 | Cohere-1024 (MS MARCO V2.1) | yes | **9.51M = authors' source files 00–04 of 10** (52%; full needs ~78 GB of index, server has 62 GB) — state as subset | **build** |
 | LAION-I2I | yes | **20 of 31 shards (~20M)** (full needs ~67 GB of index) — state as subset | **build** |
 | MS MARCO-384 (MiniLM) | no | full (8.8M) | **rebuild** (old one had efC 200) |
+| VIBE Landmark-DINO, iNaturalist-ResNet, Yahoo-MiniLM, ImageNet-ALIGN | no (VIBE benchmark) | full (0.5–1.3M) | **build**; out-of-sample tests of the KS rule, chosen from the survey before running |
 | SIFT-128, dbpedia-openai-1536 | no | full | reuse |
 | Yambda audio | no | full minus held-out queries | **build** (new held-out split) |
 
@@ -96,6 +98,8 @@ covariance is accumulated in float64 rather than float32.
 5. **Figure 3** — controlled experiment: ρ advantage vs KS, generators B and D (C3).
 6. **Table 3** — setting P vs R for both methods (C4).
 7. **Section "Pitfalls in evaluating adaptive ef"** — C5, with the numbers already measured.
+8. **Table 4 / Figure 4** — the KS survey (C6): KS with 95% interval for every dataset (ours +
+   VIBE), coloured by the side of the band, with same-data/different-model pairs highlighted.
 
 ## Order of work
 

@@ -3,8 +3,9 @@
 Follow-up to `updateAsOf250926.md` and `PAPER_PLAN.md`. Covers the first runs of
 `benchmark_unified.py` — six datasets under one frozen protocol that matches the Ada-ef paper —
 what they show, how that changes the paper's framing (by the decision rule fixed in advance in
-`PAPER_PLAN.md`), and a prediction for the two remaining datasets written down **before** they
-run.
+`PAPER_PLAN.md`), a prediction for the two remaining datasets written down **before** they
+run, the crossover band re-measured at 200 queries (§6), a KS survey of the 19-dataset VIBE
+benchmark (§7) and four VIBE datasets added as out-of-sample tests (§8).
 
 Results: `server_results/results_unified_<dataset>_<timestamp>/` (one folder per dataset: log,
 `summary_{P,R}.json`, `rows_{P,R}.json`, `per_query_{P,R}.npz`, `meta.json`, ef tables). All six
@@ -172,15 +173,130 @@ dataset (`summary.md` §4b), which would show up as a large P-vs-R gap for Ada-e
 If both datasets follow the prediction, the rule is confirmed on data it was not fitted to. If
 either does not, the rule is revised and the paper says so.
 
-## 6. Next steps
+*Added later the same day:* after the band was re-measured (§6: 0.044–0.066), both datasets still
+sit at or below the lower edge, so the prediction is unchanged. It will be judged on the KS each
+unified run measures on its exact corpus.
 
-1. **Run Cohere and LAION** once `download_unified_data.py` finishes, one at a time
-   (`for d in cohere1024 laion_i2i; do python3 benchmark_unified.py --dataset $d 2>&1 | tee
-   run_unified_$d.log; done`), then check them against §5.
-2. **Tables and figures from the JSON outputs only** (`PAPER_PLAN.md` deliverables), including
-   the P-vs-R comparison and the tail-recall table.
-3. **Update the published results page** from these runs (it still shows the old mixed-protocol
-   numbers).
-4. Superseded by this update: the "5 cheaper / 2 tied / 1 costlier" tally and the MS MARCO
+## 6. The crossover band, re-measured at 200 queries
+
+The KS values in §1–§4 (and every earlier KS in this project) came from **30 queries**. Checking
+the new survey script (`survey_ks_vibe.py --local`) against the unified runs showed that a
+30-query estimate moves by about ±0.005–0.008 between runs — DeepImage read 0.067 in September,
+0.072 in its unified run and 0.064 in the first check — as wide as the band itself. At 200 queries
+(95% interval shown):
+
+| Dataset | KS, 30 queries (unified run) | KS, 200 queries | Better score (§2.1) |
+|---|---|---|---|
+| GloVe-100 | 0.016 | 0.0176 ± 0.0012 | Ada-ef |
+| dbpedia-1536 | 0.036 | 0.0383 ± 0.0017 | Ada-ef (P), mixed (R) |
+| MS MARCO-384 | 0.047 | **0.0442 ± 0.0019** | Ada-ef |
+| DeepImage-96 | 0.072 | **0.0656 ± 0.0044** | ours |
+| Yambda audio | 0.095 | 0.0903 ± 0.0036 | ours |
+| SIFT-128 | 0.114 | 0.1259 ± 0.0044 | ours |
+
+**The crossover lies between KS 0.044 and 0.066**, and the two edge datasets' intervals do not
+overlap (MS MARCO's reaches 0.046, DeepImage's starts at 0.061), so the split is not noise. This
+replaces the 0.047–0.072 in §3–§4. KS for the paper should always be quoted at 200+ queries with
+its interval.
+
+## 7. KS survey of the VIBE benchmark: most modern embeddings are on Ada-ef's side
+
+**Question** (raised after §3): the method only helps where KS is high — how common is that in
+modern vector workloads, and do out-of-distribution (OOD) queries, which modern benchmarks
+emphasise, push KS up?
+
+**Data and method.** VIBE (arXiv 2505.17810; `huggingface.co/datasets/vector-index-bench/vibe`),
+the current vector-search benchmark built around modern embeddings: 11 in-distribution and 8 OOD
+datasets (text-to-image, QA, multi-vector, LLM attention keys). `survey_ks_vibe.py` computes the
+same KS as the unified runs, at 200 queries with a 95% interval, both with the real test queries
+and with corpus points as queries ("self"); for VIBE's inner-product sets also on raw inner
+products. KS only — no index, no end-to-end run. 18 of 19 done (DPR, 64 GB, still downloading).
+Results: `results_ks_survey_20260926_150320/ks_survey.json`.
+
+| Dataset | Split | Model | KS (real queries) | KS self | Predicted better score |
+|---|---|---|---|---|---|
+| glove-200-cosine | ID | GloVe | 0.0138 ± 0.0013 | 0.0135 | Ada-ef |
+| cqadupstack-muvera-5120-ip | OOD | MUVERA (multi-vector) | 0.0150 ± 0.0010 | 0.0183 | Ada-ef |
+| laion-clip-512-normalized | OOD | CLIP, text-to-image | 0.0217 ± 0.0013 | 0.0337 | Ada-ef |
+| yandex-200-cosine | OOD | SE-ResNeXt, text-to-image | 0.0309 ± 0.0029 | 0.0608 | Ada-ef |
+| llama-128-ip | OOD | Llama-3-8B attention keys | 0.0323 ± 0.0025 | 0.0781 | Ada-ef |
+| hotpotqa-harrier-640-normalized | OOD | Harrier, QA | 0.0326 ± 0.0016 | 0.0422 | Ada-ef |
+| msmarco-qwen-1024-normalized | ID | Qwen | 0.0327 ± 0.0017 | 0.0300 | Ada-ef |
+| cqadupstack-lemur-2048-ip | OOD | LEMUR (multi-vector) | 0.0336 ± 0.0024 | 0.0236 | Ada-ef |
+| landmark-nomic-768-normalized | ID | Nomic Vision | 0.0353 ± 0.0020 | 0.0333 | Ada-ef |
+| imagenet-clip-512-normalized | ID | CLIP | 0.0383 ± 0.0030 | 0.0405 | Ada-ef |
+| arxiv-nomic-768-normalized | ID | Nomic Text | 0.0390 ± 0.0029 | 0.0413 | Ada-ef |
+| agnews-mxbai-1024-euclidean | ID | MXBAI | 0.0475 ± 0.0030 | 0.0484 | band |
+| gooaq-distilroberta-768-normalized | ID | DistilRoBERTa | 0.0505 ± 0.0020 | 0.0499 | band |
+| yi-128-ip | OOD | Yi-6B attention keys | 0.0516 ± 0.0032 | 0.0727 | band |
+| yahoo-minilm-384-normalized | ID | MiniLM | 0.0535 ± 0.0022 | 0.0560 | band |
+| imagenet-align-640-normalized | OOD | ALIGN, text-to-image | 0.0576 ± 0.0033 | 0.0370 | band |
+| landmark-dino-768-cosine | ID | DINO (self-supervised) | **0.0758 ± 0.0044** | 0.0756 | **ours** |
+| inaturalist-resnet-2048-cosine | ID | ResNet | **0.1145 ± 0.0066** | 0.1239 | **ours** |
+
+Raw inner-product KS for the IP sets: MUVERA 0.0164, LEMUR 0.0462, Llama 0.0301, Yi 0.0435.
+**Tally: Ada-ef 11, band 5, ours 2**; no label is uncertain (no interval crosses a band edge).
+
+**Findings.**
+
+1. **Modern contrastive text and multimodal embeddings are mostly near-Gaussian.** Qwen, Nomic,
+   Harrier, CLIP: KS 0.022–0.039, like every such model measured in the unified runs (CLIP 0.029,
+   ada-002 0.038, Cohere 0.043, MiniLM 0.044). For mainstream RAG and text/image retrieval,
+   Ada-ef's model fits and is the better choice.
+2. **OOD queries do not push KS up — in 5 of 6 OOD sets they push it down.** Real-query KS vs
+   self: LAION-CLIP 0.022 vs 0.034, Yandex 0.031 vs 0.061, Llama 0.032 vs 0.078, Yi 0.052 vs
+   0.073, HotpotQA 0.033 vs 0.042; only ALIGN goes the other way (0.058 vs 0.037). The hypothesis
+   that OOD workloads would favour empirical scoring (raised in discussion before the survey) is
+   **not supported**. A plausible, untested reason: a query far from the data aligns with no
+   particular cluster, so q·v is a sum of many small contributions — where the CLT works best.
+3. **The real-query vs self gap is itself a C4 result.** On OOD data, corpus points (what Ada-ef's
+   paper protocol calibrates on) and real queries see differently shaped similarity distributions
+   — up to 0.078 vs 0.032 (Llama). That is the mechanism by which corpus-point calibration can
+   mis-transfer, seen directly on five datasets rather than inferred from Cohere alone.
+4. **High KS belongs to vision features without text alignment:** ResNet (0.115) and
+   self-supervised DINO (0.076), joining SIFT (hand-crafted), DeepImage (CNN) and Yambda (CNN audio)
+   from the unified runs. The pattern across 24 datasets: contrastive text/multimodal models are
+   near-Gaussian; CNN/ReLU, self-supervised vision and hand-crafted descriptors are not.
+5. **The embedding model sets KS, not just the data.** Same Landmark images: DINO 0.076 vs Nomic
+   Vision 0.035. Same MS MARCO V1 passages: Qwen 0.033 vs MiniLM 0.044. Same model, different
+   corpus also moves it (MiniLM: MS MARCO 0.044, Yahoo 0.054).
+6. **Anisotropy again does not predict KS.** Llama keys hold 18% of variance in one direction yet
+   have KS 0.032; MUVERA, built from random projections, is the most Gaussian of all (0.015).
+
+**What this means for the paper.** It limits the practical reach of our scorer and says so
+precisely: empirical scoring is the better choice for CNN, self-supervised-vision, audio and
+descriptor features; Ada-ef for contrastive text and multimodal embeddings, including OOD
+workloads. Combined with the offline KS test, that is concrete, falsifiable guidance — the kind of
+result the analysis framing (§4) needs.
+
+## 8. Out-of-sample tests on VIBE (added to `benchmark_unified.py`)
+
+Cohere and LAION test the Ada-ef side of the rule. Four VIBE datasets, chosen from §7 **before**
+running them, test the other side and the band:
+
+| Registry name | VIBE file | KS | Prediction |
+|---|---|---|---|
+| `vibe_landmark_dino` | landmark-dino-768-cosine | 0.076 | ours ranks better; no Ada-ef advantage end to end |
+| `vibe_inaturalist_resnet` | inaturalist-resnet-2048-cosine | 0.115 | ours ranks better; no Ada-ef advantage end to end |
+| `vibe_yahoo_minilm` | yahoo-minilm-384-normalized | 0.054 | inside the band: no prediction; locates the crossover |
+| `vibe_imagenet_align` | imagenet-align-640-normalized | 0.058 | inside the band (OOD): no prediction; locates the crossover |
+
+Same frozen protocol (K = 100). VIBE ships 1,000 test queries: for the in-distribution sets 300
+calibrate setting R and 700 are tested (as for Cohere); for ALIGN (OOD) all 1,000 are tested and
+setting R calibrates on 2,000 of VIBE's `learn` queries from the real text-query distribution.
+
+## 9. Next steps
+
+1. **Finish Cohere, then LAION** (alone — LAION needs ~50 GB), and check both against §5.
+2. **Run the four VIBE datasets** (§8), each ~1 hour: `for d in vibe_landmark_dino
+   vibe_inaturalist_resnet vibe_yahoo_minilm vibe_imagenet_align; do python3 benchmark_unified.py
+   --dataset $d 2>&1 | tee run_unified_$d.log; done`.
+3. **Survey DPR** when its download finishes: `python3 survey_ks_vibe.py --datasets
+   dpr-jina-768-normalized`.
+4. **Tables and figures from the JSON outputs only** (`PAPER_PLAN.md` deliverables), including the
+   P-vs-R comparison, the tail-recall table and the KS survey.
+5. **Update the published results page** from the unified runs (it still shows the old
+   mixed-protocol numbers).
+6. Superseded by this update: the "5 cheaper / 2 tied / 1 costlier" tally and the MS MARCO
    savings in `updateAsOf250926.md` §1.2 and §1.6 (mixed protocols); `summary.md` §3 and §7's
-   per-dataset numbers.
+   per-dataset numbers; every 30-query KS value where precision matters (use §6).
