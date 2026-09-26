@@ -5,7 +5,9 @@ Follow-up to `updateAsOf250926.md` and `PAPER_PLAN.md`. Covers the first runs of
 what they show, how that changes the paper's framing (by the decision rule fixed in advance in
 `PAPER_PLAN.md`), a prediction for the two remaining datasets written down **before** they
 run, the crossover band re-measured at 200 queries (§6), a KS survey of the 19-dataset VIBE
-benchmark (§7) and four VIBE datasets added as out-of-sample tests (§8).
+benchmark (§7), four VIBE datasets added as out-of-sample tests (§8), the Cohere result against
+its prediction (§9), and a scorecard on the Ada-ef paper's own terms — savings and tail recall
+against a fixed ef (§10).
 
 Results: `server_results/results_unified_<dataset>_<timestamp>/` (one folder per dataset: log,
 `summary_{P,R}.json`, `rows_{P,R}.json`, `per_query_{P,R}.npz`, `meta.json`, ef tables). All six
@@ -291,14 +293,106 @@ Same frozen protocol (K = 100). VIBE ships 1,000 test queries: for the in-distri
 calibrate setting R and 700 are tested (as for Cohere); for ALIGN (OOD) all 1,000 are tested and
 setting R calibrates on 2,000 of VIBE's `learn` queries from the real text-query distribution.
 
-## 9. Next steps
+## 9. Cohere-1024 against its prediction
 
-1. **Finish Cohere, then LAION** (alone — LAION needs ~50 GB), and check both against §5.
+Result: `server_results/results_unified_cohere1024_20260926_093918/` (9,511,868 passages from the
+authors' files 00–04, 1024-d, K = 1000, 1,174 test queries, 503 R-calibration; 5.9 h, of which
+5.2 h index build; no errors).
+
+**KS on the exact corpus: 0.049** (30 queries, the unified script's setting; per-query SD 0.018,
+so roughly 0.042–0.056). The prediction in §5 used the earlier 0.043; on the new value Cohere sits
+just inside the band's lower edge, where the rule makes no prediction. It is reported as
+**borderline**, not as a clean out-of-sample confirmation.
+
+| Predicted (Ada-ef side) | Setting P | Setting R | Holds? |
+|---|---|---|---|
+| Ada-ef's ρ at least ours (K = 1) | **−0.59** vs −0.40 | **−0.79** vs −0.52 | yes, clearly |
+| No saving for ours at Ada-ef's mean recall (vs as shipped) | −3.1% | +4.5% | yes in R; P a small saving within the ±4% seen elsewhere |
+| Same, vs Ada-ef with WAE floor | +0.5% | **+29.3%** | yes |
+| Ada-ef's p1 at least ours at equal mean recall | **0.843** vs 0.750 | **0.844** vs 0.770 | yes, clearly |
+
+Cohere — the paper's own MS MARCO V2.1 dataset — behaves as an Ada-ef-side dataset, and Ada-ef
+reproduces its paper's claims on it: at equal mean recall it is cheaper than a fixed ef (fixed
++2.6% to +4.2%) and has a much better tail (p1 0.843 vs 0.741). If the band's lower edge moves
+anywhere, this suggests nearer 0.05.
+
+**C4 reverses under the paper protocol.** The earlier Cohere finding — Ada-ef's corpus-point
+calibration collapsing (0.951 mean recall against a 0.99 target, `summary.md` §4b) — does not
+reproduce: in setting P Ada-ef reaches 0.9647 against the 0.95 target, and its P-vs-R gap is
+small. The old collapse came from target 0.99, K = 100, a 1.76M subset and an ef_construction =
+200 index. "Ours degrades more gracefully" does not hold either: in setting P our recall is the
+lower one (0.9520). C4 is now unsupported end to end; what remains is the survey evidence (§7)
+that corpus points and real queries see different similarity distributions. ImageNet-ALIGN, with
+real `learn` queries, is the last end-to-end test.
+
+## 10. On the paper's own terms: savings and tail recall against a fixed ef
+
+The Ada-ef paper claims, against a fixed ef: lower cost at the same average recall (less
+over-searching) and better recall on the hardest queries (1st/5th percentile). This scores both
+methods on exactly those terms: each method's operating point against a fixed ef interpolated to
+the **same mean recall** (hindsight-tuned on the test set; its cost is linearly interpolated
+between coarse ef values, which slightly overstates it for both adaptive methods alike).
+*Saving* = distance computations saved relative to that fixed ef; *p1 / p5 gain* = tail-recall
+improvement over it. Ours is the pre-registered default, K = 1 Isotonic.
+
+**High-KS side (Gaussian assumption fails):**
+
+| Dataset (KS) | Setting | Ada-ef as shipped: saving / p1 / p5 | Ada-ef WAE floor: saving / p1 / p5 | Ours: saving / p1 / p5 |
+|---|---|---|---|---|
+| DeepImage (0.066) | P | −5.2% / +0.034 / +0.010 | −4.0% / +0.026 / +0.007 | **+1.3% / +0.077 / +0.033** |
+| | R | +2.9% / +0.047 / +0.010 | +5.5% / +0.034 / +0.011 | **+2.8% / +0.085 / +0.033** |
+| Yambda (0.090) | P | −5.3% / −0.001 / −0.001 | same | **+5.3%** / −0.003 / −0.009 |
+| | R | −5.0% / −0.002 / −0.001 | same | **+7.7% / +0.015 / +0.004** |
+| SIFT (0.126) | P | −0.1% / 0.000 / 0.000 | same | **+4.8% / +0.025 / +0.005** |
+| | R | −0.2% / 0.000 / 0.000 | −0.1% / +0.010 / 0.000 | **+3.2% / +0.027 / +0.008** |
+
+**Gaussian side, for contrast:**
+
+| Dataset (KS) | Setting | Ada-ef as shipped | Ada-ef WAE floor | Ours |
+|---|---|---|---|---|
+| GloVe (0.018) | P | −6.6% / +0.039 / +0.055 | **+27.3%** / +0.050 / +0.030 | +6.5% / +0.032 / +0.025 |
+| | R | +13.1% / **+0.071** / +0.058 | **+27.2%** / +0.047 / +0.028 | +6.7% / +0.027 / +0.026 |
+| dbpedia (0.038) | P | −9.5% / +0.029 / +0.019 | −1.3% / +0.025 / +0.004 | +6.4% / +0.024 / +0.010 |
+| | R | +1.8% / +0.028 / +0.013 | +5.5% / +0.019 / +0.004 | +6.7% / +0.031 / +0.009 |
+| MS MARCO-384 (0.044) | P | +5.9% / **+0.057** / +0.026 | +7.5% / +0.047 / +0.019 | +6.3% / +0.024 / +0.012 |
+| | R | +6.0% / **+0.067** / +0.030 | +7.2% / +0.056 / +0.022 | +6.0% / +0.026 / +0.012 |
+| Cohere (0.049) | P | +2.6% / **+0.102** / +0.052 | +5.9% / +0.088 / +0.046 | +3.8% / +0.008 / +0.007 |
+| | R | +4.0% / **+0.092** / +0.054 | +11.6% / +0.054 / +0.027 | +7.3% / +0.016 / +0.014 |
+
+**Findings.**
+
+1. **Where the Gaussian assumption fails, Ada-ef loses its advantages over a fixed ef; empirical
+   scoring keeps them.** On SIFT and Yambda Ada-ef assigns every query the same ef — it *is* a
+   fixed ef, saving nothing and gaining nothing in the tail (on Yambda it costs 5% more). On
+   DeepImage it improves the tail somewhat but is sometimes costlier than the fixed ef. Ours is
+   cheaper than the fixed ef on all six runs (+1.3% to +7.7%) and improves the tail on five
+   (up to +0.085 p1 on DeepImage, twice Ada-ef's gain there); Yambda P is level on the tail.
+2. **Where the assumption holds, Ada-ef delivers what its paper claims,** above all in the tail
+   (p1 +0.057 to +0.102 on MS MARCO and Cohere), and with its WAE floor a 27% saving on GloVe.
+   Ours still beats the fixed ef on cost there (+3.8% to +7.3%) but gains little in the tail.
+3. **Ours beats a tuned fixed ef on cost on all 14 runs** (seven datasets × two settings,
+   +1.3% to +7.7%); Ada-ef as shipped does on 7 of 14 and is up to 9.5% costlier on the other
+   seven (SIFT's two runs are level, −0.1% and −0.2%).
+4. **Target matching is not a differentiator.** All three methods overshoot the 0.95 mean-recall
+   target somewhat (|mean recall − 0.95| from 0.002 to 0.037); neither method is consistently
+   closer.
+5. **Magnitudes are modest:** 1–8% on cost, up to +0.085 in p1. The claim is about *where each
+   method's advantage survives*, not a large speedup.
+
+This is the method result the paper can state: *Ada-ef's advantages over a fixed ef depend on its
+Gaussian assumption; where the KS test shows the assumption fails, Ada-ef degenerates towards a
+fixed ef, while empirical scoring retains the adaptive advantage.* Landmark-DINO and
+iNaturalist-ResNet (§8, both predicted high-KS) are the out-of-sample test of this claim.
+
+## 11. Next steps
+
+1. **LAION** (alone — ~50 GB; running), then check it against §5.
 2. **Run the four VIBE datasets** (§8), each ~1 hour: `for d in vibe_landmark_dino
    vibe_inaturalist_resnet vibe_yahoo_minilm vibe_imagenet_align; do python3 benchmark_unified.py
    --dataset $d 2>&1 | tee run_unified_$d.log; done`.
 3. ✅ DPR surveyed: KS 0.0585 ± 0.0022, inside the band (§7).
-4. **Tables and figures from the JSON outputs only** (`PAPER_PLAN.md` deliverables), including the
+4. **Tables and figures from the JSON outputs only, by a script in the repo** (`PAPER_PLAN.md`
+   deliverables; the §10 scorecard was computed ad hoc and must be regenerated that way), including the
    P-vs-R comparison, the tail-recall table and the KS survey.
 5. **Update the published results page** from the unified runs (it still shows the old
    mixed-protocol numbers).
