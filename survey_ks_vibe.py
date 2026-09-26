@@ -12,8 +12,10 @@ Datasets: the VIBE benchmark (arXiv 2505.17810; huggingface.co/datasets/vector-i
 versions only (uint8/binary/ColBERT multi-vector variants do not apply). Each HDF5 file has
 `train` (corpus), `test` (1,000 queries) and, for OOD sets, `learn` (a larger sample of queries).
 
-KS is computed exactly as in diagnose_anisotropy.py / benchmark_unified.py: for 30 random test
-queries, s = q.v over 20,000 random corpus points, KS statistic against Ada-ef's CLT-predicted
+KS is computed as in diagnose_anisotropy.py / benchmark_unified.py, but over 200 random test
+queries (those used 30, which left the estimate noisy by ~0.005-0.008; a 95% interval is now
+reported and labels near a band edge are marked uncertain): s = q.v over 20,000 random corpus
+points, KS statistic against Ada-ef's CLT-predicted
 Normal(q.mean, q'Cov q) with the corpus mean and covariance; the dataset's KS is the mean over
 queries. Vectors are unit-normalized (cosine), as in all our benchmarks. For VIBE's
 inner-product datasets the KS on raw (unnormalized) inner products is also reported, since
@@ -91,7 +93,8 @@ LOCAL = {   # our own files; unified-run KS for comparison
 
 BAND_LO, BAND_HI = 0.047, 0.072
 SEED = 42
-N_QUERIES, N_SAMPLE = 30, 20000
+N_QUERIES, N_SAMPLE = 200, 20000   # 30 queries (as in the unified runs) left KS noisy by ~0.005-0.008,
+                                   # as large as the band itself; --n-queries overrides
 STATS_ROWS, STATS_BYTES = 1_000_000, 1e9     # sample cap for mean/covariance: peak RAM stays ~5 GB,
                                              # so the survey can run next to a 40-50 GB benchmark
 BLOCK = 5000                                  # contiguous rows per random read
@@ -147,12 +150,16 @@ def ks_stats(corpus_sample, queries, rng):
         pts = corpus_sample[rng.choice(len(corpus_sample), min(N_SAMPLE, len(corpus_sample)), replace=False)]
         s = pts.astype(np.float64) @ q
         vals.append(kstest(s, "norm", args=(mu, np.sqrt(max(var, 1e-18)))).statistic)
-    return dict(ks=float(np.mean(vals)), ks_median=float(np.median(vals)), ks_std=float(np.std(vals)),
+    return dict(ks=float(np.mean(vals)), ks_ci95=float(1.96 * np.std(vals, ddof=1) / np.sqrt(len(vals))),
+                ks_median=float(np.median(vals)), ks_std=float(np.std(vals)), n_ks_queries=len(vals),
                 top1_var=float(eig[0] / eig.sum()), pr_frac=float(eig.sum() ** 2 / (eig ** 2).sum() / len(eig)))
 
 
-def predicted(ks):
-    return "Ada-ef" if ks <= BAND_LO else ("ours" if ks >= BAND_HI else "band")
+def predicted(ks, ci=0.0):
+    """Label from the point estimate; "(uncertain)" when the 95% interval crosses a band edge."""
+    label = "Ada-ef" if ks <= BAND_LO else ("ours" if ks >= BAND_HI else "band")
+    crosses = any(ks - ci < edge < ks + ci for edge in (BAND_LO, BAND_HI))
+    return label + (" (uncertain)" if crosses else "")
 
 
 def survey_file(path, raw_ip, rng):
@@ -175,12 +182,13 @@ def survey_file(path, raw_ip, rng):
     out["ks_self"] = ks_stats(cn, self_q, rng)["ks"]
     if raw_ip:
         out["ks_raw_ip"] = ks_stats(corpus, test, rng)["ks"]
-    out["predicted"] = predicted(out["ks"])
+    out["predicted"] = predicted(out["ks"], out["ks_ci95"])
     out["seconds"] = round(time.time() - t0, 1)
     return out
 
 
 def main():
+    global N_QUERIES
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--datasets", default="", help="comma list of VIBE names (default: all current)")
     ap.add_argument("--include-deprecated", action="store_true")
@@ -188,7 +196,9 @@ def main():
     ap.add_argument("--data-dir", default="vibe_data")
     ap.add_argument("--local", action="store_true", help="validate on our own datasets instead of VIBE")
     ap.add_argument("--download-only", action="store_true")
+    ap.add_argument("--n-queries", type=int, default=N_QUERIES, help="queries per KS estimate")
     args = ap.parse_args()
+    N_QUERIES = args.n_queries
 
     out_dir = f"results_ks_survey_{'local_' if args.local else ''}{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     os.makedirs(out_dir, exist_ok=True)
@@ -202,7 +212,7 @@ def main():
             r = survey_file(path, False, np.random.default_rng(SEED))
             r.update(split="ours", model="", unified_ks=ref)
             results[name] = r
-            print(f"    KS {r['ks']:.4f} (unified run: {ref:.3f})  self {r['ks_self']:.4f}  [{r['seconds']}s]", flush=True)
+            print(f"    KS {r['ks']:.4f} ± {r['ks_ci95']:.4f} (unified run: {ref:.3f})  self {r['ks_self']:.4f}  [{r['seconds']}s]", flush=True)
     else:
         catalog = dict(VIBE, **(DEPRECATED if args.include_deprecated else {}))
         names = [s.strip() for s in args.datasets.split(",") if s.strip()] or list(catalog)
@@ -224,7 +234,7 @@ def main():
             results[name] = r
             if "ks" in r:
                 extra = f"  raw-IP {r['ks_raw_ip']:.4f}" if "ks_raw_ip" in r else ""
-                print(f"    KS {r['ks']:.4f} (self {r['ks_self']:.4f}){extra} -> {r['predicted']}  [{r['seconds']}s]", flush=True)
+                print(f"    KS {r['ks']:.4f} ± {r['ks_ci95']:.4f} (self {r['ks_self']:.4f}){extra} -> {r['predicted']}  [{r['seconds']}s]", flush=True)
             else:
                 print(f"    {r}", flush=True)
             with open(os.path.join(out_dir, "ks_survey.json"), "w") as f:
@@ -238,12 +248,13 @@ def main():
     print(f"\n{'dataset':<38} {'split':<5} {'model':<26} {'KS':>7} {'self':>7} {'rawIP':>7} {'top1%':>6}  predicted")
     for k, v in sorted(done.items(), key=lambda kv: kv[1]["ks"]):
         raw = f"{v['ks_raw_ip']:.4f}" if "ks_raw_ip" in v else ""
-        print(f"{k:<38} {v['split']:<5} {v['model']:<26} {v['ks']:>7.4f} {v['ks_self']:>7.4f} {raw:>7} "
+        print(f"{k:<38} {v['split']:<5} {v['model']:<26} {v['ks']:>7.4f} {v['ks_ci95']:>7.4f} {v['ks_self']:>7.4f} {raw:>7} "
               f"{v['top1_var'] * 100:>5.1f}  {v['predicted']}")
     if not args.local and done:
-        counts = {p: sum(v["predicted"] == p for v in done.values()) for p in ("Ada-ef", "band", "ours")}
+        counts = {p: sum(v["predicted"].split(" ")[0] == p for v in done.values()) for p in ("Ada-ef", "band", "ours")}
+        n_unc = sum("uncertain" in v["predicted"] for v in done.values())
         print(f"\n  predicted better score: Ada-ef {counts['Ada-ef']}, in band {counts['band']}, ours {counts['ours']} "
-              f"(of {len(done)}; band {BAND_LO}-{BAND_HI}, provisional)")
+              f"(of {len(done)}; {n_unc} uncertain; band {BAND_LO}-{BAND_HI}, provisional)")
     print(f"\n  wrote {out_dir}/ks_survey.json")
 
 
