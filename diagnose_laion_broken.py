@@ -21,7 +21,8 @@ For each failing query and an equal-size control group of normal queries it repo
   tie_recall  fraction of the ef=5000 result whose similarity is >= the K-th true neighbour's
               (tie-aware recall: counts equally close neighbours as correct)
   gap         K-th true similarity minus the worst similarity returned by the search
-and classifies it: TIES if tie_width > K or tie_recall >= 0.95; REACHABILITY if tie_recall < 0.5
+and classifies it: TIES if tie_width >= 2K (ties alone can then push recall below 0.5) or
+tie_recall >= 0.95; REACHABILITY if tie_recall < 0.5
 and gap > 0.01; otherwise MIXED.
 
 It reproduces the unified run's held-out split exactly (seed 42, 2,000 calibration + 10,000 test
@@ -141,11 +142,14 @@ if not args.no_search:
 
 
 def classify(j):
-    if tie_width[j] > K or (not np.isnan(tie_recall[j]) and tie_recall[j] >= 0.95):
+    # A tie width of just over K moves recall by a fraction of a percent; only >= 2K tied points
+    # can by themselves push recall below 0.5 (the first --no-search run flagged tie_width > K,
+    # which the control group matched at the same rate).
+    if tie_width[j] >= 2 * K or (not np.isnan(tie_recall[j]) and tie_recall[j] >= 0.95):
         return "TIES"
     if not np.isnan(tie_recall[j]) and tie_recall[j] < 0.5 and gap[j] > 0.01:
         return "REACHABILITY"
-    return "MIXED" if not np.isnan(tie_recall[j]) else ("TIES?" if tie_width[j] > K else "unclear (no search)")
+    return "MIXED" if not np.isnan(tie_recall[j]) else "not ties (needs search)"
 
 
 labels = [classify(j) for j in range(len(sel))]
@@ -161,6 +165,8 @@ def summary(mask):
     d = dict(n=int(m.sum()),
              median_dups=float(np.median(dups[m])), frac_with_dup=float(np.mean(dups[m] > 0)),
              median_tie_width=float(np.median(tie_width[m])), frac_tie_width_gt_K=float(np.mean(tie_width[m] > K)),
+             p90_tie_width=float(np.percentile(tie_width[m], 90)), max_tie_width=float(tie_width[m].max()),
+             frac_tie_width_ge_2K=float(np.mean(tie_width[m] >= 2 * K)),
              median_sim_top1=float(np.median(s_top1[m])), median_sim_k=float(np.median(s_k[m])))
     if not args.no_search:
         d.update(median_tie_recall=float(np.nanmedian(tie_recall[m])), median_gap=float(np.nanmedian(gap[m])))
@@ -173,7 +179,8 @@ with open(os.path.join(out_dir, "diagnosis.json"), "w") as f:
     json.dump(dict(results_dir=res_dir, K=K, ef=EF, eps=EPS, summary=summ, per_query=per_query), f, indent=1)
 
 print(f"\n{'':<34} {'failing':>12} {'control':>12}")
-keys = ["n", "frac_with_dup", "median_dups", "median_tie_width", "frac_tie_width_gt_K",
+keys = ["n", "frac_with_dup", "median_dups", "median_tie_width", "p90_tie_width", "max_tie_width",
+        "frac_tie_width_gt_K", "frac_tie_width_ge_2K",
         "median_sim_top1", "median_sim_k"] + ([] if args.no_search else ["median_tie_recall", "median_gap"])
 for k in keys:
     fmt = lambda v: f"{v:>12.4f}" if isinstance(v, float) else f"{v:>12}"
