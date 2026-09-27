@@ -367,6 +367,12 @@ def ks_fit(pool, mean, cov, queries, rng):
 # ═══════════════════════════════════════════════════════════════════════
 #  Calibration helpers (unchanged logic from the earlier benchmark scripts)
 # ═══════════════════════════════════════════════════════════════════════
+def finite_or_none(x):
+    """rho is undefined (NaN) when every calibration score is identical; JSON gets null, not NaN."""
+    x = float(x)
+    return x if np.isfinite(x) else None
+
+
 def recall_of(labs, gt_row, k):
     return len(set(labs.tolist()) & set(gt_row[:k].tolist())) / k
 
@@ -653,7 +659,7 @@ def main():
 
         # Ada-ef
         ada_scores = np.array([idx.adaptive_search_knn_paper(q, K, STATICS_LENGTH, scorer, None)[2] for q in calib_q])
-        rho_ada = float(spearmanr(ada_scores, calib_min_ef)[0])
+        rho_ada = finite_or_none(spearmanr(ada_scores, calib_min_ef)[0])
         tab_path = os.path.join(cache, f"ada_table_{setting}.json")
         if os.path.exists(tab_path):
             with open(tab_path) as f:
@@ -680,7 +686,7 @@ def main():
             near = np.argmin(cdist(calib_q, centroids[kc], metric="sqeuclidean"), axis=1)
             sc = np.array([idx.get_dynamic_probe_score_weighted(calib_q[i], bins[kc][near[i]].tolist(), BIN_WEIGHTS,
                                                                 PROBE_COUNT) for i in range(len(calib_q))], dtype=np.float32)
-            rho_ours[kc] = float(spearmanr(sc, calib_min_ef)[0])
+            rho_ours[kc] = finite_or_none(spearmanr(sc, calib_min_ef)[0])
             si = np.round(sc).astype(int)
             tables = {"Isotonic": build_isotonic(si, calib_min_ef, K)}
             for how in ("Mean", "P90", "P70"):
@@ -730,7 +736,8 @@ def main():
             print(f"  {r['name']:<24} {r['mean_r']:>7.4f} {r['p1']:>6.3f} {r['p5']:>6.3f} {r['pct_target']:>6.1f} "
                   f"{r['total_dc']:>9.0f} {r['avg_ef']:>7.0f}")
         f1 = lambda v: "n/a" if v is None else f"{v:+.1f}%"
-        print(f"  rho: Ada-ef {rho_ada:+.3f} | ours " + ", ".join(f"K={k} {v:+.3f}" for k, v in rho_ours.items()))
+        fr = lambda v: "undefined (constant scores)" if v is None else f"{v:+.3f}"
+        print(f"  rho: Ada-ef {fr(rho_ada)} | ours " + ", ".join(f"K={k} {fr(v)}" for k, v in rho_ours.items()))
         print(f"  at Ada-ef's mean recall {ada['mean_r']:.4f}: ours frontier {f1(pct(eq_r))}"
               f"{' (bound)' if eq_r and eq_r['bound'] else ''} | fixed ef {f1(pct(fx_r))}"
               f"{' (bound)' if fx_r and fx_r['bound'] else ''}")
