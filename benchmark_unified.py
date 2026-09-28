@@ -36,6 +36,7 @@ Usage:
   python3 benchmark_unified.py --dataset cohere1024 --settings P
 Datasets: glove100 deepimage96 sift128 dbpedia1536 yambda msmarco384 cohere1024 laion_i2i
           vibe_landmark_dino vibe_inaturalist_resnet vibe_yahoo_minilm vibe_imagenet_align
+          gist960 fashionmnist784
 """
 
 import os, sys, json, time, gzip, glob, pickle, struct, argparse, subprocess
@@ -45,7 +46,8 @@ import numpy as np
 
 DATASETS = ["glove100", "deepimage96", "sift128", "dbpedia1536", "yambda", "msmarco384",
             "cohere1024", "laion_i2i",
-            "vibe_landmark_dino", "vibe_inaturalist_resnet", "vibe_yahoo_minilm", "vibe_imagenet_align"]
+            "vibe_landmark_dino", "vibe_inaturalist_resnet", "vibe_yahoo_minilm", "vibe_imagenet_align",
+            "gist960", "fashionmnist784"]
 
 # VIBE datasets (huggingface.co/datasets/vector-index-bench/vibe, fetched by survey_ks_vibe.py into
 # vibe_data/), chosen from the KS survey to test the crossover rule out of sample
@@ -193,17 +195,25 @@ def load_dataset(name):
     import h5py
     rng = np.random.default_rng(SEED)
     n_r = N_CALIB_R_FULL
-    if name in ("glove100", "deepimage96", "sift128", "dbpedia1536"):
+    if name in ("glove100", "deepimage96", "sift128", "dbpedia1536", "gist960", "fashionmnist784"):
+        # gist960 / fashionmnist784: standard ann-benchmarks sets the KS survey put on our side of the
+        # band (0.091, 0.073; updateAsOf280926.md), fetched by survey_ks_standard.py into standard_data/.
         files = {"glove100": "glove-100-angular.hdf5", "deepimage96": "deep-image-96-angular.hdf5",
-                 "sift128": "sift-128-euclidean.hdf5", "dbpedia1536": "dbpedia-openai-1000k-angular.hdf5"}
+                 "sift128": "sift-128-euclidean.hdf5", "dbpedia1536": "dbpedia-openai-1000k-angular.hdf5",
+                 "gist960": os.path.join("standard_data", "gist-960-euclidean.hdf5"),
+                 "fashionmnist784": os.path.join("standard_data", "fashion-mnist-784-euclidean.hdf5")}
         reuse = {"deepimage96": "custom_full_deep_image_efc500.index", "sift128": "sift128_efc500_m16.index",
                  "dbpedia1536": "dbpedia_openai1536_efc500_m16.index"}
+        if not os.path.exists(files[name]):
+            sys.exit(f"{files[name]} not found (gist960/fashionmnist784: run survey_ks_standard.py --suite ann --download-only)")
         f = h5py.File(files[name], "r")
-        test, calib = split_queries(normalize(f["test"][:]), n_r, rng)
+        q = normalize(f["test"][:])
+        n_rc = min(n_r, len(q) * 3 // 10)    # GIST ships only 1,000 test queries; the 10,000-query sets keep 2,000
+        test, calib = split_queries(q, n_rc, rng)
         return dict(corpus=Corpus([f["train"]]), k=100, test_q=test, calib_r=calib, tag=name,
                     index_path=reuse.get(name, os.path.join("unified_cache", name, "index_m16_efc500.index")),
                     reuse=name in reuse,
-                    notes="ann-benchmarks file; its test queries split into R-calibration and test")
+                    notes=f"ann-benchmarks file; {len(q)} test queries, {n_rc} held out for R-calibration")
     if name in VIBE_SETS:
         vname, has_learn = VIBE_SETS[name]
         path = os.path.join("vibe_data", vname + ".hdf5")
