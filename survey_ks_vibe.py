@@ -194,12 +194,12 @@ def survey_file(path, raw_ip, rng):
     return survey_source(h5_loader(path), raw_ip, rng)
 
 
-def survey_source(loader, raw_ip, rng):
+def survey_source(loader, raw_ip, rng, allow_int=False):
     t0 = time.time()
     train, test_raw, attrs, close = loader()
     try:
         n, dim = train.shape
-        if test_raw.dtype.kind != "f" or train.dtype.kind != "f":
+        if not allow_int and (test_raw.dtype.kind != "f" or train.dtype.kind != "f"):
             return dict(skipped=f"non-float vectors ({train.dtype})")
         rows = int(min(STATS_ROWS, STATS_BYTES // (dim * 4)))
         corpus = sample_rows(train, rows, rng)
