@@ -27,7 +27,7 @@ Status after twelve unified runs, the VIBE and standard-suite KS surveys and the
 | # | Claim | Status under the frozen protocol |
 |---|---|---|
 | C1 + C3 | **Which difficulty score ranks queries better is predictable from KS:** Ada-ef's Gaussian score on near-Gaussian data, empirical percentiles on clearly non-Gaussian data | **Supported, 6 of 6** (Ada-ef better up to KS 0.044, ours from 0.066; dbpedia mixed in setting R), plus the controlled synthetic experiment. **Crossover band 0.044–0.066** at 200 queries (§6). Cohere (KS 0.049, borderline) behaves as the Ada-ef side (§9). **Out-of-sample predictions, all written before running: none failed** — DINO ✅ and ResNet ✅ (our side), LAION ✅ weakly (Ada-ef side), Yahoo-MiniLM split (band), ImageNet-ALIGN untestable (both scores constant) (280926 §1.5). Next: GIST-960 and Fashion-MNIST (our side, standard ann-benchmarks) |
-| **C7 (main method claim)** | **On the paper's own terms — saving and tail recall against a fixed ef at the same mean recall — Ada-ef's advantage holds where KS is low and disappears where it is high; empirical scoring keeps it where KS is high** | **Supported on 5 of 5 high-KS datasets, two out of sample** (DINO, ResNet; 280926 §2): over their 10 runs ours is cheaper than a tuned fixed ef in 10 (+1.3% to +8.5%) and improves p1 in 9 (up to +0.085); Ada-ef as shipped is cheaper in 1 of 10 (costlier by up to 13%) and gains ≤ +0.047 p1 (nothing on SIFT/Yambda, where it assigns one ef to every query). On low-KS data Ada-ef's tail gain is the larger one (MS MARCO, Cohere, Yahoo). Across all 22 valid runs ours beats the fixed ef on cost in 22, Ada-ef in 8. Magnitudes are modest and must be stated so |
+| **C7 (main method claim)** | **On every high-KS dataset our score ranks difficulty better and our method stays cheaper than a tuned fixed ef (same mean recall), while Ada-ef loses its advantage over the fixed ef; how much of the better ranking becomes an end-to-end gain varies** | **Supported on 7 of 7 high-KS datasets, four out of sample** (DINO, ResNet, GIST, Fashion-MNIST; 280926 §2, §6). Over their 14 runs: our ranking better in 14; ours cheaper than the fixed ef in 14 (+0.5% to +16.3%) and better p1 in 10 (up to +0.085); Ada-ef as shipped cheaper in 1 (costlier by up to 17.3%, partly its fixed 1,025-distance probe at small budgets). The gain varies: large tail gains on DeepImage, DINO, ResNet; cost only on SIFT, Yambda; almost nothing on GIST. On low-KS data Ada-ef's tail gain is the larger one. All 26 valid runs: ours cheaper than the fixed ef in 26, Ada-ef in 9. Magnitudes are modest and must be stated so |
 | C6 | **How often each side applies, and that it must be measured:** no modern contrastive text or multimodal model, including OOD workloads, reaches our side; KS varies within every other data type (SIFT-1M 0.126 vs SIFT-1B 0.029; MNIST 0.037 vs Fashion-MNIST 0.073; SSNPP image descriptors 0.007), so it cannot be guessed from the kind of data | 43 datasets measured (8 unified, 19 VIBE, 16 ann-benchmarks/Big-ANN): **9 on our side** — SIFT-1M, DeepImage, Deep1B, Yambda, DINO, ResNet, Fashion-MNIST, GIST, Last.fm (recommendation embeddings, KS 0.216, the least Gaussian measured) (§7; 280926 §4). No published paper was found reporting such normality tests |
 | C2 | End to end, at equal mean recall, our cost is ≤ Ada-ef's on most datasets | **Does not hold.** Mostly within ±4%; ours −10.7% on DeepImage (P); Ada-ef with its WAE floor ~50% cheaper on GloVe. Reported as it came out; C7 replaces it as the method claim |
 | C4 | Ada-ef's self-sampled calibration can fail to transfer to real queries | **Not supported end to end.** The earlier Cohere collapse does not reproduce under the paper protocol (setting P: 0.9647 against the 0.95 target, small P-vs-R gap; §9). What remains: on 5 of 6 OOD VIBE sets corpus points and real queries see differently shaped similarity distributions (§7). ImageNet-ALIGN (real `learn` queries) is the last end-to-end test |
@@ -70,7 +70,7 @@ Ada-ef's assumption fails, and the KS test tells you in advance where that is".
 | SIFT-128, dbpedia-openai-1536 | no | full | ✅ run (indexes reused) |
 | Yambda audio | no | full minus held-out queries | ✅ run |
 | VIBE Landmark-DINO, iNaturalist-ResNet, Yahoo-MiniLM, ImageNet-ALIGN | no (VIBE benchmark) | full (0.5–1.3M) | ✅ run; out-of-sample tests chosen from the KS survey before running (ALIGN untestable: both scores constant on its text queries) |
-| GIST-960, Fashion-MNIST-784 | no (standard ann-benchmarks) | full (1M, 60K) | queued; our side of the band in the standard-suite survey, prediction written before running (280926 §5) |
+| GIST-960, Fashion-MNIST-784 | no (standard ann-benchmarks) | full (1M, 60K) | ✅ run: ranking predictions hold; end-to-end gain marginal on GIST, and Fashion-MNIST has almost no headroom (280926 §6) |
 
 Sources are the authors' own (`experiments_driver/data_prep.ipynb`): Cohere from
 `huggingface.co/datasets/Cohere/msmarco-v2.1-embed-english-v3` (`passages_npy/…_00..04.npy`,
@@ -115,9 +115,9 @@ uniform sample, and Ada-ef's covariance is accumulated in float64 rather than fl
 1. ✅ `benchmark_unified.py` (one registry, frozen protocol, both settings, per-query outputs) and
    `download_unified_data.py` (Cohere files 00–04 + queries, LAION shards 0–19).
 2. ✅ Rebuilt the C++ extension, smoke-tested on SIFT.
-3. Run every dataset with both settings (P and R). ✅ twelve (GloVe, dbpedia, MS MARCO-384,
-   DeepImage, Yambda, SIFT, Cohere, LAION, VIBE DINO, ResNet, Yahoo-MiniLM, ALIGN); next GIST-960 and
-   Fashion-MNIST.
+3. Run every dataset with both settings (P and R). ✅ fourteen (GloVe, dbpedia, MS MARCO-384,
+   DeepImage, Yambda, SIFT, Cohere, LAION, VIBE DINO, ResNet, Yahoo-MiniLM, ALIGN, GIST-960,
+   Fashion-MNIST).
 4. ✅ KS surveys at 200 queries: six local, 19 VIBE, 16 ann-benchmarks/Big-ANN.
 5. Produce the tables and figures from the JSON outputs only, with a script in the repo (the §10
    scorecard was computed ad hoc and must be regenerated that way).

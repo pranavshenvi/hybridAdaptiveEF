@@ -5,7 +5,7 @@ VIBE KS survey before running them — Landmark-DINO, iNaturalist-ResNet, Yahoo-
 ImageNet-ALIGN — and LAION-I2I, checked against their written predictions; (2) the extended
 fixed-ef scorecard (claim C7); (3) the diagnosis of LAION's 227 queries that fail for every
 method; (4) a KS survey of the two standard ANN suites (ann-benchmarks, Big-ANN); (5) two standard
-datasets added to the benchmark as a result; (6) what this means for the paper.
+datasets added to the benchmark as a result, and their results; (6) what this means for the paper.
 
 All runs: `benchmark_unified.py` under the frozen protocol (`PAPER_PLAN.md`), results in
 `server_results/results_unified_<dataset>_<timestamp>/`.
@@ -89,22 +89,33 @@ used for C7.
 | Cohere-1024 | Ada-ef | 0.049 (borderline, `updateAsOf260926.md` §9) | ✅ |
 | Yahoo-MiniLM | band — no prediction | 0.054 | split |
 | ImageNet-ALIGN | band — no prediction | 0.058 | not testable (both scores constant) |
+| GIST-960 (added later, §6) | ours | 0.093 | ranking ✅; end-to-end advantage marginal (cost +0.5–1.9% vs fixed ef, no tail gain) |
+| Fashion-MNIST-784 (added later, §6) | ours | 0.084 | ✅, but the dataset has almost no headroom and Ada-ef's loss is mostly its fixed probe cost |
 
-No prediction failed.
+No ranking prediction failed. The end-to-end side of the prediction ("our advantage over a fixed ef
+holds") held clearly on DINO and ResNet and only marginally on GIST (§6).
 
 ## 2. The fixed-ef scorecard (C7), extended
 
-On all five high-KS datasets (SIFT, Yambda, DeepImage, DINO, ResNet; 10 runs):
+On all seven high-KS datasets (SIFT, Yambda, DeepImage, DINO, ResNet, and — after §6 — GIST and
+Fashion-MNIST; 14 runs):
 
-- **Ours is cheaper than a tuned fixed ef in 10 of 10 runs** (+1.3% to +8.5%) and improves p1 in
-  9 of 10 (up to +0.085; Yambda P level).
-- **Ada-ef as shipped is cheaper than the fixed ef in 1 of 10** (DeepImage R, +2.9%) and costlier in
-  the other nine (up to −13.0%); its p1 gain is ≤ +0.047, and zero where it assigns one ef to every
-  query (SIFT, Yambda).
+- **Our score ranks difficulty better than Ada-ef's in 14 of 14 runs.**
+- **Ours is cheaper than a tuned fixed ef in 14 of 14 runs** (+0.5% to +16.3%; GIST only +0.5% to
+  +1.9%) and improves p1 by more than 0.005 in 10 of 14 (up to +0.085; not on GIST, level on Yambda
+  P and Fashion-MNIST R).
+- **Ada-ef as shipped is cheaper than the fixed ef in 1 of 14** (DeepImage R, +2.9%; GIST P is level
+  at +0.1%) and costlier in the rest (up to −17.3%); its p1 gain is ≤ +0.047, and zero where it
+  assigns one ef to every query (SIFT, Yambda).
 
 Across every valid run so far (all datasets except ALIGN, LAION counted despite its plateau):
-ours beats the tuned fixed ef on cost in **22 of 22**, Ada-ef as shipped in **8 of 22**. On
-low-KS data Ada-ef's tail gain remains the larger one (MS MARCO, Cohere, Yahoo P/R).
+ours beats the tuned fixed ef on cost in **26 of 26**, Ada-ef as shipped in **9 of 26** (one of them
+GIST P at +0.1%). On low-KS data Ada-ef's tail gain remains the larger one (MS MARCO, Cohere, Yahoo).
+
+**How much of the better ranking becomes an end-to-end gain varies:** large tail gains on
+DeepImage, DINO and ResNet; cost-only gains on SIFT and Yambda; almost nothing on GIST (§6). A
+better score is necessary but not sufficient — the same pattern already seen on SIFT and Yambda
+in the mixed-protocol runs.
 
 ## 3. LAION: the 227 failing queries are a reachability problem, not ties
 
@@ -197,22 +208,68 @@ does not. GIST ships 1,000 test queries, so 300 R-calibrate and 700 are tested; 
 These make the non-Gaussian side rest on four classic ann-benchmarks datasets (SIFT, DeepImage,
 GIST, Fashion-MNIST) plus VIBE's DINO and ResNet.
 
-## 6. What this means for the paper
+## 6. GIST-960 and Fashion-MNIST results
 
-- **C7 holds on 5 of 5 high-KS datasets, two of them out of sample** (DINO, ResNet). GIST and
-  Fashion-MNIST are the next out-of-sample tests, on standard data.
-- **The KS rule has not failed a prediction** (four confirmed, two band datasets as expected, one
-  untestable).
+Results: `server_results/results_unified_gist960_20260928_115317/` (49 min) and
+`results_unified_fashionmnist784_20260928_124209/` (6 min); Ada-ef score check 50/50 identical on
+both, no errors. Scorecard terms as in §1.1.
+
+### 6.1 GIST-960 (KS 0.093; survey 0.091) — ranking clearly ours, end-to-end gain marginal
+
+1M × 960, 700 test queries, 300 R-calibration. Calibration min-ef median 350 (P) / 500 (R), P90
+950 / 1,200 — real headroom.
+
+| Setting | ρ Ada-ef / ours (K = 1) | Ada-ef as shipped: saving / p1 / p5 | Ada-ef WAE floor | Ours |
+|---|---|---|---|---|
+| P | −0.10 / **−0.46** | +0.1% / −0.007 / −0.006 | −0.4% / −0.002 / −0.002 | **+1.9%** / −0.001 / −0.006 |
+| R | +0.08 / **−0.23** | −4.6% / −0.045 / −0.005 | +1.3% / 0.000 / −0.006 | **+0.5%** / −0.014 / −0.003 |
+
+Head to head: ours −4.5% vs Ada-ef as shipped and +1.4% vs its WAE floor in setting R (a tie);
+setting P gives only bounds (our cheapest run already exceeds Ada-ef's recall).
+
+- **Ranking: as predicted.** Ada-ef's score carries no signal on GIST (ρ ≈ 0); ours clearly does.
+- **End to end: marginal.** Ours is only 0.5–1.9% cheaper than a tuned fixed ef and no better in the
+  tail; the paper-faithful Ada-ef ties it. Despite real headroom, a much better ranking does not
+  become a meaningful end-to-end advantage here. This weakens C7 on GIST and is reported as such.
+
+### 6.2 Fashion-MNIST (KS 0.084; survey 0.073) — ours ahead, for a less interesting reason
+
+60,000 × 784, 8,000 test queries. Almost trivially easy: over 90% of calibration queries need only
+the ef floor (median = P90 = 100), and a fixed ef of 100 already reaches 0.990 mean recall.
+
+| Setting | ρ Ada-ef / ours | Ada-ef as shipped: saving / p1 | Ada-ef WAE floor | Ours: saving / p1 | Ours vs Ada-ef (as shipped) |
+|---|---|---|---|---|---|
+| P | −0.20 / **−0.23** | −15.9% / −0.016 | −15.5% / −0.006 | **+16.3% / +0.014** | **−27.8%** |
+| R | −0.17 / **−0.30** | −17.3% / −0.014 | −17.3% / −0.014 | **+11.4%** / +0.001 | not comparable (ours below Ada-ef's recall) |
+
+- **Ada-ef's cost penalty is most likely its fixed probe, not its score.** It always collects 1,025
+  raw distances before deciding. At this tiny search budget that is a large overhead: Ada-ef uses
+  2,853 distance computations at ef ≈ 100–106, against 1,842 for a plain ef = 100 search — a
+  difference of about 1,000, matching the probe size. On datasets with larger budgets the probe is
+  absorbed by the search (e.g. SIFT: Ada-ef at ef 150 costs 3,651 vs 3,644 for a fixed ef of 150).
+- **The ranking advantage is weak on both sides** (ρ −0.2 to −0.3), as expected with so little
+  variation in difficulty.
+- It supports "ours stays cheaper than a fixed ef" but says little about score quality.
+
+## 7. What this means for the paper
+
+- **C7, reworded:** *on every high-KS dataset our score ranks difficulty better and our method stays
+  cheaper than a tuned fixed ef, while Ada-ef loses its advantage; how much of the better ranking
+  becomes an end-to-end gain varies — large tail gains on DeepImage, DINO and ResNet, almost none on
+  GIST.* Seven high-KS datasets, four of them out of sample (DINO, ResNet, GIST, Fashion-MNIST).
+- **The KS rule has not failed a ranking prediction** (six confirmed, two band datasets as expected,
+  one untestable).
+- **Ada-ef's fixed probe cost** (1,025 distances) is a real disadvantage at small search budgets
+  (Fashion-MNIST) and should be stated as a separate effect from score quality.
 - **C6 changes wording:** not "vision/audio features are non-Gaussian" but "KS varies within every
   data type and must be measured; 9 of 43 datasets surveyed are on the non-Gaussian side, including
   classic ann-benchmarks sets and recommendation embeddings".
 - **LAION** is reported with its tail at p5 and the reachability note (§3).
 - **ALIGN** is reported as a case where neither score adapts (cross-modal).
 
-## 7. Next steps
+## 8. Next steps
 
-1. **Run GIST-960 and Fashion-MNIST** on the server:
-   `for d in gist960 fashionmnist784; do python3 benchmark_unified.py --dataset $d 2>&1 | tee run_unified_$d.log; done`.
+1. ✅ GIST-960 and Fashion-MNIST run (§6).
 2. **Decide on Last.fm** (inner-product task): run it normalised with the caveat stated, or leave it
    as a KS-only data point.
 3. **Tables and figures from the JSON outputs, by a script in the repo** (scorecard, KS survey).
