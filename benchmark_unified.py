@@ -47,7 +47,10 @@ Since validation round 2 (PAPER_PLAN.md) it also records, per method and setting
   - calibration diagnostics: share of queries at the ef floor / capped, headroom, distinct scores;
   - the calibration-time choice between the two scores (keep ours if |rho_ours(K=1)| >= |rho_Ada|),
     as rows "Choice (with Ada-ef as shipped)" and "Choice (with Ada-ef WAE floor)".
-Latency is only comparable within one run: run one benchmark at a time on an otherwise idle machine.
+Latency comes from a separate timing pass (--lat-rounds rounds over the fixed-ef grid and the headline
+methods, method order rotated every round, per-query median), so a slowdown of the machine at one
+moment does not land on one method. It is still only comparable within one run: run one benchmark
+at a time on an otherwise idle machine.
 """
 
 import os, sys, json, time, gzip, glob, pickle, struct, argparse, subprocess
@@ -99,6 +102,8 @@ ap.add_argument("--settings", default="P,R", help="comma list of P (paper calibr
 ap.add_argument("--cohere-files", type=int, default=5, help="Cohere passage files 00..N-1 to use (paper: 10)")
 ap.add_argument("--laion-shards", type=int, default=20, help="LAION image shards 0..N-1 to use (paper: 31)")
 ap.add_argument("--smoke", action="store_true", help="tiny query sets and K=1 only, to check the pipeline")
+ap.add_argument("--lat-rounds", type=int, default=3,
+                help="rounds of the latency pass (fixed ef + headline methods; per-query median)")
 args = ap.parse_args()
 SETTINGS = [s.strip().upper() for s in args.settings.split(",") if s.strip()]
 assert all(s in ("P", "R") for s in SETTINGS), "--settings takes P and/or R"
@@ -550,6 +555,34 @@ def run_queries(idx, test_q, test_gt, k, search):
     return rec, efs, dcs, lat
 
 
+def timing_pass(searchers, test_q, rounds):
+    """Latency only. Each round runs every method over all queries, one method after another, with
+    the method order rotated every round so drift in machine speed hits all methods alike (blocks
+    rather than per-query interleaving, so no method runs on a cache warmed by another's search of
+    the same query). Returns each method's per-query median latency in microseconds."""
+    names = list(searchers)
+    lat = {n: np.zeros((rounds, len(test_q))) for n in names}
+    for r in range(rounds):
+        shift = (r * len(names)) // rounds
+        for n in names[shift:] + names[:shift]:
+            search = searchers[n]
+            for i in range(len(test_q)):
+                q = test_q[i]
+                t0 = time.perf_counter()
+                search(i, q)
+                lat[n][r, i] = (time.perf_counter() - t0) * 1e6
+        print(f"    latency round {r + 1}/{rounds} done", flush=True)
+    return {n: np.median(v, axis=0) for n, v in lat.items()}
+
+
+def set_latency(row, pq, lat):
+    """Copies of row and per-query dict with latency fields taken from the timing pass."""
+    lat = np.asarray(lat, dtype=np.float64)
+    row = dict(row, mean_lat_us=float(lat.mean()), p50_lat_us=float(np.percentile(lat, 50)),
+               p99_lat_us=float(np.percentile(lat, 99)), qps=float(1e6 / lat.mean()))
+    return row, dict(pq, lat_us=lat.astype(np.float32))
+
+
 def fixed_interp(fixed, goal_r, key):
     """A tuned fixed ef at mean recall goal_r: key linearly interpolated between the two fixed-ef
     rows around it. None if goal_r is below the smallest fixed ef's recall or above the largest."""
@@ -753,11 +786,12 @@ def main():
     print(f"\n[6] fixed ef on {len(test_q)} test queries ...", flush=True)
     for q in test_q[:500]:                     # warm-up, so the first timed method is not penalised
         idx.search_knn_adaptive(q, K, idx.entry_point, idx.max_level, fixed_efs(K)[2])
-    fixed_rows, per_query = [], {}
+    fixed_rows, per_query, fixed_searchers = [], {}, {}
     for ef in fixed_efs(K):
-        rec, efs, dcs, lat = run_queries(idx, test_q, test_gt, K,
-                                         lambda i, q, ef=ef: (idx.search_knn_adaptive(q, K, idx.entry_point, idx.max_level, ef)[0], ef))
+        fsearch = lambda i, q, ef=ef: (idx.search_knn_adaptive(q, K, idx.entry_point, idx.max_level, ef)[0], ef)
+        rec, efs, dcs, lat = run_queries(idx, test_q, test_gt, K, fsearch)
         row, pq = summarize(f"Fixed(ef={ef})", rec, efs, dcs, 0, lat)
+        fixed_searchers[row["name"]] = fsearch
         fixed_rows.append(row); per_query[row["name"]] = pq
         print(f"  {row['name']:<16} R={row['mean_r']:.4f} p1={row['p1']:.3f} DC={row['total_dc']:.0f} "
               f"lat={row['mean_lat_us']:.0f}us", flush=True)
@@ -770,7 +804,7 @@ def main():
                 n_calib_R=len(calib_r), n_calib_P=N_CALIB_P, target_recall=TARGET_RECALL, ef_cap=EF_CAP,
                 M=M, ef_construction=EF_CONSTRUCTION, probe_count=PROBE_COUNT, num_bins=NUM_BINS,
                 quantile_step=QUANTILE_STEP, statics_length=STATICS_LENGTH, k_sweep=K_SWEEP,
-                default_config=DEFAULT_CONFIG, ks_mean=ks_mean, ks_per_query=ks_vals,
+                default_config=DEFAULT_CONFIG, lat_rounds=args.lat_rounds, ks_mean=ks_mean, ks_per_query=ks_vals,
                 ada_stats_verify=verify, index_path=spec["index_path"], reused_index=spec["reuse"])
     try:
         meta["git_commit"] = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
@@ -784,6 +818,7 @@ def main():
         print(f"\n{'═' * 90}\n  Setting {setting}: calibration on {len(calib_q)} "
               f"{'corpus points (paper protocol)' if setting == 'P' else 'held-out real queries'}\n{'═' * 90}")
         rows, pq_setting = list(fixed_rows), dict(per_query)
+        searchers = dict(fixed_searchers)          # what the latency pass times
 
         mef_path = os.path.join(cache, f"calib_min_ef_{setting}.npz")
         if os.path.exists(mef_path):
@@ -820,6 +855,7 @@ def main():
                 return labs, ef_used
             rec, efs, dcs, lat = run_queries(idx, test_q, test_gt, K, ada_search)
             row, pq = summarize(f"Ada-ef ({variant})", rec, efs, dcs, 0, lat, dict(wae=wae))
+            searchers[row["name"]] = ada_search
             rows.append(row); pq_setting[row["name"]] = pq
             print(f"  {row['name']:<24} R={row['mean_r']:.4f} p1={row['p1']:.3f} hit={row['pct_target']:.1f}% "
                   f"DC={row['total_dc']:.0f} lat={row['mean_lat_us']:.0f}us", flush=True)
@@ -851,11 +887,23 @@ def main():
                     return labs, ef_used
                 rec, efs, dcs, lat = run_queries(idx, test_q, test_gt, K, ours_search)
                 row, pq = summarize(f"Ours (K={kc}, {how})", rec, efs, dcs, kc, lat)
+                if row["name"] == DEFAULT_CONFIG:
+                    searchers[row["name"]] = ours_search
                 rows.append(row); pq_setting[row["name"]] = pq
                 print(f"  {row['name']:<24} R={row['mean_r']:.4f} p1={row['p1']:.3f} hit={row['pct_target']:.1f}% "
                       f"DC={row['total_dc']:.0f} lat={row['mean_lat_us']:.0f}us", flush=True)
                 with open(os.path.join(RESULTS_DIR, f"ef_table_{setting}_k{kc}_{how.lower()}.json"), "w") as f:
                     json.dump(ef_list, f)
+
+        # Latency pass: fixed-ef grid and headline methods; replaces their single-pass latency
+        print(f"  latency pass: {len(searchers)} methods x {len(test_q)} queries x {args.lat_rounds} rounds ...", flush=True)
+        med = timing_pass(searchers, test_q, args.lat_rounds)
+        for j, r in enumerate(rows):
+            if r["name"] in med:
+                rows[j], pq_setting[r["name"]] = set_latency(r, pq_setting[r["name"]], med[r["name"]])
+        for r in rows:
+            if r["name"] in med and not r["name"].startswith("Fixed"):
+                print(f"  {r['name']:<24} lat={r['mean_lat_us']:.0f}us (median of {args.lat_rounds} rounds)", flush=True)
 
         # Calibration-time choice between the two scores (discussion only, PAPER_PLAN.md): keep ours
         # (K=1, Isotonic) if its calibration |rho| is at least Ada-ef's; an undefined rho counts as 0.
