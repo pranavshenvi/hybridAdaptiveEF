@@ -37,6 +37,17 @@ Usage:
 Datasets: glove100 deepimage96 sift128 dbpedia1536 yambda msmarco384 cohere1024 laion_i2i
           vibe_landmark_dino vibe_inaturalist_resnet vibe_yahoo_minilm vibe_imagenet_align
           gist960 fashionmnist784
+          lastfm64 coco_i2i coco_t2i                               (validation round 2, ann-benchmarks)
+          deep1b bigann msturing text2image msspacev ssnpp         (validation round 2, Big-ANN 2M prefixes)
+
+Since validation round 2 (PAPER_PLAN.md) it also records, per method and setting:
+  - wall-clock latency per query (single-threaded search call, microseconds), and the cost saving
+    against a tuned fixed ef at the same mean recall in both latency and DC;
+  - offline cost: calibration time and the memory of what each method keeps;
+  - calibration diagnostics: share of queries at the ef floor / capped, headroom, distinct scores;
+  - the calibration-time choice between the two scores (keep ours if |rho_ours(K=1)| >= |rho_Ada|),
+    as rows "Choice (with Ada-ef as shipped)" and "Choice (with Ada-ef WAE floor)".
+Latency is only comparable within one run: run one benchmark at a time on an otherwise idle machine.
 """
 
 import os, sys, json, time, gzip, glob, pickle, struct, argparse, subprocess
@@ -47,7 +58,29 @@ import numpy as np
 DATASETS = ["glove100", "deepimage96", "sift128", "dbpedia1536", "yambda", "msmarco384",
             "cohere1024", "laion_i2i",
             "vibe_landmark_dino", "vibe_inaturalist_resnet", "vibe_yahoo_minilm", "vibe_imagenet_align",
-            "gist960", "fashionmnist784"]
+            "gist960", "fashionmnist784",
+            "lastfm64", "coco_i2i", "coco_t2i",
+            "deep1b", "bigann", "msturing", "text2image", "msspacev", "ssnpp"]
+
+# Validation round 2 (PAPER_PLAN.md), downloaded by survey_ks_standard.py into standard_data/.
+# ann-benchmarks files: name -> (file, note). KS from the 200-query survey (updateAsOf280926.md §4).
+ROUND2_ANN = {
+    "lastfm64": ("lastfm-64-dot.hdf5", "KS 0.216, predicted ours; inner-product task run on normalised "
+                                       "vectors (cosine), a stated deviation"),
+    "coco_i2i": ("coco-i2i-512-angular.hdf5", "KS 0.046, band"),
+    "coco_t2i": ("coco-t2i-512-angular.hdf5", "KS 0.056, band (OOD: text queries, image corpus)"),
+}
+# Big-ANN NeurIPS'21 first-2M-row prefixes: name -> (dtype, dim, note)
+ROUND2_BIGANN = {
+    "deep1b":     ("float32", 96, "KS 0.067, predicted ours (uncertain)"),
+    "bigann":     ("uint8", 128, "KS 0.029, predicted Ada-ef"),
+    "msturing":   ("float32", 100, "KS 0.010, predicted Ada-ef"),
+    "text2image": ("float32", 200, "KS 0.032, predicted Ada-ef; OOD, inner-product task run normalised"),
+    "msspacev":   ("int8", 100, "KS 0.024, predicted Ada-ef"),
+    "ssnpp":      ("uint8", 256, "KS 0.007, predicted Ada-ef"),
+}
+BIGANN_ROWS = 2_000_000
+N_TEST_MAX = 10000                # large query sets (Last.fm 50K, Big-ANN 10K-100K) test on 10,000
 
 # VIBE datasets (huggingface.co/datasets/vector-index-bench/vibe, fetched by survey_ks_vibe.py into
 # vibe_data/), chosen from the KS survey to test the crossover rule out of sample
@@ -283,6 +316,39 @@ def load_dataset(name):
         return dict(corpus=Corpus([part], keep), k=100, test_q=test, calib_r=calib, tag="yambda",
                     index_path=os.path.join("unified_cache", "yambda", "index_m16_efc500.index"), reuse=False,
                     notes=f"no query file: {n_test} test + {n_r} R-calibration tracks held out of the corpus")
+    if name in ROUND2_ANN:
+        fn, note = ROUND2_ANN[name]
+        path = os.path.join("standard_data", fn)
+        if not os.path.exists(path):
+            sys.exit(f"{path} not found; run survey_ks_standard.py --suite ann --download-only")
+        f = h5py.File(path, "r")
+        q = normalize(f["test"][:])
+        n_rc = min(n_r, len(q) * 3 // 10)
+        test, calib = split_queries(q, n_rc, rng)
+        test = test[:N_TEST_MAX]
+        return dict(corpus=Corpus([f["train"]]), k=100, test_q=test, calib_r=calib, tag=name,
+                    index_path=os.path.join("unified_cache", name, "index_m16_efc500.index"), reuse=False,
+                    notes=f"ann-benchmarks {fn}; {len(q)} test queries, {n_rc} R-calibration, {len(test)} tested; {note}")
+    if name in ROUND2_BIGANN:
+        dtype, dim, note = ROUND2_BIGANN[name]
+        bpath = os.path.join("standard_data", f"{name}_base_{BIGANN_ROWS}.bin")
+        qpath = os.path.join("standard_data", f"{name}_query.bin")
+        if not (os.path.exists(bpath) and os.path.exists(qpath)):
+            sys.exit(f"{bpath} / {qpath} not found; run survey_ks_standard.py --suite bigann --download-only")
+        item = np.dtype(dtype).itemsize
+        rows = (os.path.getsize(bpath) - 8) // (dim * item)     # the header says 1B; the file is a prefix
+        assert rows == BIGANN_ROWS, f"{bpath} has {rows} rows, expected {BIGANN_ROWS}"
+        n_q, d_q = np.fromfile(qpath, dtype=np.int32, count=2)
+        assert d_q == dim, f"query dim {d_q} != {dim}"
+        base = np.memmap(bpath, dtype=dtype, mode="r", offset=8, shape=(rows, dim))
+        q = normalize(np.memmap(qpath, dtype=dtype, mode="r", offset=8, shape=(int(n_q), dim)))
+        test, calib = split_queries(q, n_r, rng)
+        test = test[:N_TEST_MAX]
+        return dict(corpus=Corpus([base]), k=100, test_q=test, calib_r=calib, tag=f"{name}_{rows // 1_000_000}M",
+                    index_path=os.path.join("unified_cache", f"{name}_{rows // 1_000_000}M", "index_m16_efc500.index"),
+                    reuse=False,
+                    notes=f"Big-ANN {name}, first {rows} rows of the 1B file (subset); {int(n_q)} public queries, "
+                          f"{n_r} R-calibration, {len(test)} tested; {note}")
     raise ValueError(name)
 
 
@@ -343,25 +409,31 @@ def ground_truth_pass(corpus, queries, k, qbatch=1024):
 
 
 def cluster_pass(corpus, centroids_by_k):
-    """Squared distance of every corpus point to its nearest centroid, for every K at once."""
+    """Squared distance of every corpus point to its nearest centroid, for every K at once.
+    Also returns the seconds spent per K (the shared corpus read is not included)."""
     dists = {k: [] for k in centroids_by_k}
     labels = {k: [] for k in centroids_by_k}
+    secs = {k: 0.0 for k in centroids_by_k}
     for _, x in corpus.chunks():
         for k, c in centroids_by_k.items():
+            t0 = time.time()
             d2 = cdist(x, c, metric="sqeuclidean")
             lab = np.argmin(d2, axis=1)
             labels[k].append(lab.astype(np.int32))
             dists[k].append(d2[np.arange(len(x)), lab].astype(np.float32))
+            secs[k] += time.time() - t0
     pcts = [QUANTILE_STEP * (i + 1) * 100 for i in range(NUM_BINS)]
     bins = {}
     for k in centroids_by_k:
+        t0 = time.time()
         dk, lk = np.concatenate(dists[k]), np.concatenate(labels[k])
         b = np.zeros((k, NUM_BINS), dtype=np.float32)
         for c in range(k):
             sel = dk[lk == c]
             b[c] = np.percentile(sel, pcts) if len(sel) else np.array([0.05, 0.1, 0.15, 0.2, 0.25])
         bins[k] = b
-    return bins
+        secs[k] += time.time() - t0
+    return bins, secs
 
 
 def ks_fit(pool, mean, cov, queries, rng):
@@ -448,27 +520,73 @@ def table_to_list(table, k):
 # ═══════════════════════════════════════════════════════════════════════
 #  Online evaluation: per-query recall, ef and distance computations
 # ═══════════════════════════════════════════════════════════════════════
-def summarize(name, rec, efs, dcs, probe, extra=None):
-    r = np.asarray(rec)
+def summarize(name, rec, efs, dcs, probe, lat, extra=None):
+    r, lat = np.asarray(rec), np.asarray(lat, dtype=np.float64)
     row = dict(name=name, mean_r=float(r.mean()), p1=float(np.percentile(r, 1)), p5=float(np.percentile(r, 5)),
                pct_target=float(np.mean(r >= TARGET_RECALL) * 100), hnsw_dc=float(np.mean(dcs)),
-               probe_dc=int(probe), total_dc=float(np.mean(dcs) + probe), avg_ef=float(np.mean(efs)))
+               probe_dc=int(probe), total_dc=float(np.mean(dcs) + probe), avg_ef=float(np.mean(efs)),
+               mean_lat_us=float(lat.mean()), p50_lat_us=float(np.percentile(lat, 50)),
+               p99_lat_us=float(np.percentile(lat, 99)), qps=float(1e6 / lat.mean()),
+               distinct_ef=int(len(np.unique(efs))))
     if extra:
         row.update(extra)
     return row, dict(recall=r.astype(np.float32), ef=np.asarray(efs, dtype=np.float32),
-                     dc=(np.asarray(dcs, dtype=np.float64) + probe).astype(np.float32))
+                     dc=(np.asarray(dcs, dtype=np.float64) + probe).astype(np.float32), lat_us=lat.astype(np.float32))
 
 
 def run_queries(idx, test_q, test_gt, k, search):
-    """search(i, q) -> (labels, ef used) for test query i."""
-    rec, efs, dcs = [], [], []
+    """search(i, q) -> (labels, ef used) for test query i. Latency is the wall-clock time of the
+    search call alone (one thread; everything a method does per query must happen inside it)."""
+    rec, efs, dcs, lat = [], [], [], []
     for i in range(len(test_q)):
+        q = test_q[i]
         idx.reset_dist_count()
-        labs, ef = search(i, test_q[i])
+        t0 = time.perf_counter()
+        labs, ef = search(i, q)
+        lat.append((time.perf_counter() - t0) * 1e6)
         dcs.append(idx.get_dist_count())
         efs.append(ef)
         rec.append(recall_of(labs, test_gt[i], k))
-    return rec, efs, dcs
+    return rec, efs, dcs, lat
+
+
+def fixed_interp(fixed, goal_r, key):
+    """A tuned fixed ef at mean recall goal_r: key linearly interpolated between the two fixed-ef
+    rows around it. None if goal_r is below the smallest fixed ef's recall or above the largest."""
+    pts = sorted(fixed, key=lambda r: r["avg_ef"])
+    for a, b in zip(pts, pts[1:]):
+        if a["mean_r"] < goal_r <= b["mean_r"]:
+            t = (goal_r - a["mean_r"]) / (b["mean_r"] - a["mean_r"])
+            return a[key] + t * (b[key] - a[key])
+    return None
+
+
+def vs_fixed(row, fixed):
+    """The scorecard entry: saving in DC and latency, and p1/p5 gain, against a fixed ef at row's recall."""
+    out = {}
+    for key, name in (("total_dc", "saving_dc_pct"), ("mean_lat_us", "saving_lat_pct")):
+        f = fixed_interp(fixed, row["mean_r"], key)
+        out[name] = None if f is None else (f - row[key]) / f * 100
+    for key in ("p1", "p5"):
+        f = fixed_interp(fixed, row["mean_r"], key)
+        out[f"{key}_gain"] = None if f is None else row[key] - f
+    return out
+
+
+def load_offline_times(cache):
+    path = os.path.join(cache, "offline_times.json")
+    if os.path.exists(path):
+        with open(path) as f:
+            return json.load(f)
+    return {}
+
+
+def save_offline_time(cache, key, secs):
+    """Offline steps are cached across runs; their first-run time is kept next to the cache."""
+    t = load_offline_times(cache)
+    t[key] = secs
+    with open(os.path.join(cache, "offline_times.json"), "w") as f:
+        json.dump(t, f, indent=1)
 
 
 def interp_at(rows, key_x, goal, key_y):
@@ -535,6 +653,8 @@ def main():
         print("\n[1] streaming pass: mean, covariance, KS pool, P-calibration rows ...", flush=True)
         mean, cov, n_seen, pool, calib_p = stats_pass(corpus, pool_ids, p_ids)
         np.savez(stats_npz, mean=mean, cov=cov, n=n_seen, pool=pool, calib_p=calib_p, p_ids=p_ids)
+        # Ada-ef's offline statistics (mean + covariance); the same pass samples the KS pool, a small extra
+        save_offline_time(cache, "ada_statistics_s", time.time() - t0)
     assert n_seen == corpus.n, f"stats saw {n_seen} rows, corpus has {corpus.n}"
     write_ada_stats(stats_bin, mean, cov)
     timings["stats"] = time.time() - t0
@@ -563,16 +683,21 @@ def main():
             centroids, bins = pickle.load(f)
     else:
         print(f"\n[3] cluster bins for K_clusters={K_SWEEP} ...", flush=True)
-        centroids = {}
+        centroids, km_secs = {}, {}
         for kc in K_SWEEP:
+            tk = time.time()
             if kc == 1:
-                centroids[kc] = mean.astype(np.float32).reshape(1, -1)
+                centroids[kc] = mean.astype(np.float32).reshape(1, -1)   # the corpus mean, from step 1
             else:
                 km = MiniBatchKMeans(n_clusters=kc, random_state=SEED, n_init=3, batch_size=4096).fit(pool)
                 centroids[kc] = km.cluster_centers_.astype(np.float32)
-        bins = cluster_pass(corpus, centroids)
+            km_secs[kc] = time.time() - tk
+        bins, bin_secs = cluster_pass(corpus, centroids)
         with open(bins_path, "wb") as f:
             pickle.dump((centroids, bins), f)
+        for kc in K_SWEEP:
+            # excludes the shared corpus read; K=1 also needs the corpus mean (Ada-ef's statistics pass)
+            save_offline_time(cache, f"ours_bins_K{kc}_s", km_secs[kc] + bin_secs[kc])
     timings["cluster_bins"] = time.time() - t0
 
     # 4. Ada-ef estimator from streamed statistics; cross-check against the original construction
@@ -626,13 +751,16 @@ def main():
 
     # 6. fixed ef (shared by both settings)
     print(f"\n[6] fixed ef on {len(test_q)} test queries ...", flush=True)
+    for q in test_q[:500]:                     # warm-up, so the first timed method is not penalised
+        idx.search_knn_adaptive(q, K, idx.entry_point, idx.max_level, fixed_efs(K)[2])
     fixed_rows, per_query = [], {}
     for ef in fixed_efs(K):
-        rec, efs, dcs = run_queries(idx, test_q, test_gt, K,
-                                    lambda i, q, ef=ef: (idx.search_knn_adaptive(q, K, idx.entry_point, idx.max_level, ef)[0], ef))
-        row, pq = summarize(f"Fixed(ef={ef})", rec, efs, dcs, 0)
+        rec, efs, dcs, lat = run_queries(idx, test_q, test_gt, K,
+                                         lambda i, q, ef=ef: (idx.search_knn_adaptive(q, K, idx.entry_point, idx.max_level, ef)[0], ef))
+        row, pq = summarize(f"Fixed(ef={ef})", rec, efs, dcs, 0, lat)
         fixed_rows.append(row); per_query[row["name"]] = pq
-        print(f"  {row['name']:<16} R={row['mean_r']:.4f} p1={row['p1']:.3f} DC={row['total_dc']:.0f}", flush=True)
+        print(f"  {row['name']:<16} R={row['mean_r']:.4f} p1={row['p1']:.3f} DC={row['total_dc']:.0f} "
+              f"lat={row['mean_lat_us']:.0f}us", flush=True)
     if fixed_rows[-1]["mean_r"] < 0.5:
         sys.exit(f"Fixed(ef={fixed_efs(K)[-1]}) reaches only {fixed_rows[-1]['mean_r']:.3f} recall: index labels do not "
                  f"match the ground truth's row ids (wrong index file, or it was built from a different row order).")
@@ -662,13 +790,17 @@ def main():
             z = np.load(mef_path); calib_min_ef, capped = z["min_ef"], z["capped"]
         else:
             print("  true min-ef per calibration query ...", flush=True)
+            tm = time.time()
             calib_min_ef, capped = min_ef_sweep(idx, calib_q, calib_gt, K, grid)
             np.savez(mef_path, min_ef=calib_min_ef, capped=capped)
+            save_offline_time(cache, f"ours_min_ef_{setting}_s", time.time() - tm)
         print(f"  calib min-ef: median {np.median(calib_min_ef):.0f}, P90 {np.percentile(calib_min_ef, 90):.0f}, "
               f"capped {capped.mean() * 100:.1f}%")
 
         # Ada-ef
+        ta = time.time()
         ada_scores = np.array([idx.adaptive_search_knn_paper(q, K, STATICS_LENGTH, scorer, None)[2] for q in calib_q])
+        ada_score_s = time.time() - ta
         rho_ada = finite_or_none(spearmanr(ada_scores, calib_min_ef)[0])
         tab_path = os.path.join(cache, f"ada_table_{setting}.json")
         if os.path.exists(tab_path):
@@ -676,7 +808,9 @@ def main():
                 z = json.load(f); ada_table, wae = {int(k): v for k, v in z["table"].items()}, z["wae"]
         else:
             print("  Ada-ef ef-estimation table (group-average probing) ...", flush=True)
+            ta = time.time()
             ada_table, wae = ada_target_recall_table(idx, np.round(ada_scores).astype(int), calib_q, calib_gt, K, grid)
+            save_offline_time(cache, f"ada_table_{setting}_s", time.time() - ta)
             with open(tab_path, "w") as f:
                 json.dump(dict(table=ada_table, wae=wae), f, indent=1)
         for variant, table in (("as shipped", ada_table), ("WAE floor", {s: max(e, wae) for s, e in ada_table.items()})):
@@ -684,37 +818,55 @@ def main():
             def ada_search(i, q, sketch=sketch):
                 labs, _, _, ef_used = idx.adaptive_search_knn_paper(q, K, STATICS_LENGTH, scorer, sketch)
                 return labs, ef_used
-            rec, efs, dcs = run_queries(idx, test_q, test_gt, K, ada_search)
-            row, pq = summarize(f"Ada-ef ({variant})", rec, efs, dcs, 0, dict(wae=wae))
+            rec, efs, dcs, lat = run_queries(idx, test_q, test_gt, K, ada_search)
+            row, pq = summarize(f"Ada-ef ({variant})", rec, efs, dcs, 0, lat, dict(wae=wae))
             rows.append(row); pq_setting[row["name"]] = pq
             print(f"  {row['name']:<24} R={row['mean_r']:.4f} p1={row['p1']:.3f} hit={row['pct_target']:.1f}% "
-                  f"DC={row['total_dc']:.0f}", flush=True)
+                  f"DC={row['total_dc']:.0f} lat={row['mean_lat_us']:.0f}us", flush=True)
 
         # Ours
-        rho_ours = {}
+        rho_ours, ours_calib_s, ours_scores_k1, ours_table_len = {}, {}, None, {}
         for kc in K_SWEEP:
+            to = time.time()
             near = np.argmin(cdist(calib_q, centroids[kc], metric="sqeuclidean"), axis=1)
             sc = np.array([idx.get_dynamic_probe_score_weighted(calib_q[i], bins[kc][near[i]].tolist(), BIN_WEIGHTS,
                                                                 PROBE_COUNT) for i in range(len(calib_q))], dtype=np.float32)
             rho_ours[kc] = finite_or_none(spearmanr(sc, calib_min_ef)[0])
             si = np.round(sc).astype(int)
             tables = {"Isotonic": build_isotonic(si, calib_min_ef, K)}
+            ours_calib_s[kc] = time.time() - to          # scoring + Isotonic fit (the default recipe)
+            ours_table_len[kc] = len(tables["Isotonic"])
+            if kc == 1:
+                ours_scores_k1 = sc
             for how in ("Mean", "P90", "P70"):
                 tables[how] = table_to_list(build_bucket(si, calib_min_ef, how), K)
-            test_near = np.argmin(cdist(test_q, centroids[kc], metric="sqeuclidean"), axis=1)
+            cents, bin_lists = centroids[kc], [b.tolist() for b in bins[kc]]
             for how in RECIPES:
                 ef_list = tables[how]
-                def ours_search(i, q, kc=kc, ef_list=ef_list, test_near=test_near):
-                    labs, _, ef_used = idx.search_knn_dynamic_weighted(q, K, bins[kc][test_near[i]].tolist(), BIN_WEIGHTS,
+                def ours_search(i, q, kc=kc, ef_list=ef_list, cents=cents, bin_lists=bin_lists):
+                    # the nearest-centroid lookup is part of our per-query work, so it is timed
+                    c = 0 if kc == 1 else int(np.argmin(((cents - q) ** 2).sum(axis=1)))
+                    labs, _, ef_used = idx.search_knn_dynamic_weighted(q, K, bin_lists[c], BIN_WEIGHTS,
                                                                        ef_list, K, EF_CAP, PROBE_COUNT)
                     return labs, ef_used
-                rec, efs, dcs = run_queries(idx, test_q, test_gt, K, ours_search)
-                row, pq = summarize(f"Ours (K={kc}, {how})", rec, efs, dcs, kc)
+                rec, efs, dcs, lat = run_queries(idx, test_q, test_gt, K, ours_search)
+                row, pq = summarize(f"Ours (K={kc}, {how})", rec, efs, dcs, kc, lat)
                 rows.append(row); pq_setting[row["name"]] = pq
                 print(f"  {row['name']:<24} R={row['mean_r']:.4f} p1={row['p1']:.3f} hit={row['pct_target']:.1f}% "
-                      f"DC={row['total_dc']:.0f}", flush=True)
+                      f"DC={row['total_dc']:.0f} lat={row['mean_lat_us']:.0f}us", flush=True)
                 with open(os.path.join(RESULTS_DIR, f"ef_table_{setting}_k{kc}_{how.lower()}.json"), "w") as f:
                     json.dump(ef_list, f)
+
+        # Calibration-time choice between the two scores (discussion only, PAPER_PLAN.md): keep ours
+        # (K=1, Isotonic) if its calibration |rho| is at least Ada-ef's; an undefined rho counts as 0.
+        # Uses the calibration queries only, so it is a legitimate method; the rows copy the chosen one.
+        absr = lambda v: 0.0 if v is None else abs(v)
+        chose_ours = absr(rho_ours.get(1)) >= absr(rho_ada)
+        for variant in ("as shipped", "WAE floor"):
+            src = DEFAULT_CONFIG if chose_ours else f"Ada-ef ({variant})"
+            row = dict(next(r for r in rows if r["name"] == src))
+            row.update(name=f"Choice (with Ada-ef {variant})", chosen=src)
+            rows.append(row); pq_setting[row["name"]] = pq_setting[src]
 
         # Summary against Ada-ef (as shipped)
         ada = next(r for r in rows if r["name"] == "Ada-ef (as shipped)")
@@ -724,7 +876,36 @@ def main():
         pct = lambda x: None if x is None else (x["dc"] - ada["total_dc"]) / ada["total_dc"] * 100
         eq_r, eq_t = dc_at_quality(ours_rows, "mean_r", ada["mean_r"]), dc_at_quality(ours_rows, "pct_target", ada["pct_target"])
         fx_r = dc_at_quality(fixed, "mean_r", ada["mean_r"])
+        # Scorecard against a tuned fixed ef at the same mean recall (DC and latency savings, tail gains)
+        main_names = ["Ada-ef (as shipped)", "Ada-ef (WAE floor)", DEFAULT_CONFIG,
+                      "Choice (with Ada-ef as shipped)", "Choice (with Ada-ef WAE floor)"]
+        scorecard = {n: vs_fixed(next(r for r in rows if r["name"] == n), fixed) for n in main_names}
+        # Calibration diagnostics (the factors of updateAsOf280926.md §9)
+        ada_by_score = np.array([ada_table.get(int(s), wae) for s in np.round(ada_scores).astype(int)])
+        diagnostics = dict(
+            floor_share=float(np.mean(calib_min_ef <= grid[0])), capped_share=float(capped.mean()),
+            headroom=float(np.percentile(calib_min_ef, 90) / max(np.mean(np.maximum(calib_min_ef, K)), 1e-9)),
+            min_ef_cv=float(np.std(calib_min_ef) / max(np.mean(calib_min_ef), 1e-9)),
+            ada_distinct_scores=int(len(np.unique(np.round(ada_scores)))),
+            ada_distinct_table_efs=int(len(np.unique(ada_by_score))),
+            ours_k1_distinct_scores=None if ours_scores_k1 is None else int(len(np.unique(np.round(ours_scores_k1)))))
+        # Offline cost: seconds (first-run times, kept with the cache) and bytes each method keeps
+        ot = load_offline_times(cache)
+        d = corpus.dim
+        offline = dict(
+            ada=dict(statistics_s=ot.get("ada_statistics_s"), score_calib_s=ada_score_s,
+                     table_s=ot.get(f"ada_table_{setting}_s"),
+                     memory_bytes=int(d * d * 4 + 2 * d * 4 + len(ada_table) * 8)),
+            ours={f"K={kc}": dict(bins_s=ot.get(f"ours_bins_K{kc}_s"), min_ef_s=ot.get(f"ours_min_ef_{setting}_s"),
+                                  score_fit_s=ours_calib_s[kc],
+                                  memory_bytes=int(kc * NUM_BINS * 4 + kc * d * 4 + ours_table_len[kc] * 4))
+                  for kc in K_SWEEP},
+            note="statistics_s is the streaming mean+covariance pass (it also samples the KS pool); "
+                 "bins_s excludes the shared corpus read; K=1 also uses the corpus mean from that pass. "
+                 "None = computed by an earlier run, before timing was recorded.")
         summary = dict(setting=setting, n_calib=len(calib_q), rho_ada=rho_ada, rho_ours=rho_ours,
+                       choice="ours" if chose_ours else "Ada-ef", scorecard_vs_fixed=scorecard,
+                       diagnostics=diagnostics, offline=offline,
                        calib_min_ef_capped_frac=float(capped.mean()),
                        ada=ada, default=default,
                        ours_dc_at_ada_recall=eq_r, ours_dc_at_ada_recall_pct=pct(eq_r),
@@ -753,6 +934,21 @@ def main():
               f"{' (bound)' if fx_r and fx_r['bound'] else ''}")
         if summary["fixed_p1_at_ada_recall"] is not None:
             print(f"  tail at that recall: Ada-ef p1 {ada['p1']:.3f} / fixed ef p1 {summary['fixed_p1_at_ada_recall']:.3f}")
+        fp = lambda v, f="{:+.1f}%": "n/a" if v is None else f.format(v)
+        print(f"\n  SCORECARD vs a tuned fixed ef at the same mean recall   (choice picked {summary['choice']})")
+        print(f"  {'method':<32} {'meanR':>7} {'save DC':>8} {'save lat':>9} {'p1 gain':>8} {'p5 gain':>8} {'lat us':>7}")
+        for n, sc in scorecard.items():
+            r = next(x for x in rows if x["name"] == n)
+            print(f"  {n:<32} {r['mean_r']:>7.4f} {fp(sc['saving_dc_pct']):>8} {fp(sc['saving_lat_pct']):>9} "
+                  f"{fp(sc['p1_gain'], '{:+.3f}'):>8} {fp(sc['p5_gain'], '{:+.3f}'):>8} {r['mean_lat_us']:>7.0f}")
+        dg = diagnostics
+        print(f"  diagnostics: floor {dg['floor_share'] * 100:.1f}%, capped {dg['capped_share'] * 100:.1f}%, "
+              f"headroom {dg['headroom']:.2f}, Ada-ef distinct scores {dg['ada_distinct_scores']} "
+              f"(table efs {dg['ada_distinct_table_efs']}), ours K=1 distinct scores {dg['ours_k1_distinct_scores']}")
+        o = offline
+        print(f"  offline: Ada-ef stats {fp(o['ada']['statistics_s'], '{:.0f}s')}, table {fp(o['ada']['table_s'], '{:.0f}s')}, "
+              f"{o['ada']['memory_bytes'] / 1e6:.2f} MB | ours K=1 bins {fp(o['ours']['K=1']['bins_s'], '{:.0f}s')}, "
+              f"min-ef {fp(o['ours']['K=1']['min_ef_s'], '{:.0f}s')}, {o['ours']['K=1']['memory_bytes'] / 1e3:.1f} KB")
 
     meta["timings_s"] = timings
     meta["total_s"] = time.time() - t_all

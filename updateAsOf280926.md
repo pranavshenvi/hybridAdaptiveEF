@@ -274,3 +274,37 @@ the ef floor (median = P90 = 100), and a fixed ef of 100 already reaches 0.990 m
    as a KS-only data point.
 3. **Tables and figures from the JSON outputs, by a script in the repo** (scorecard, KS survey).
 4. **Update the published results page** from the unified runs.
+5. **Validation round 2** (PAPER_PLAN.md): Last.fm (run normalised, caveat stated), COCO-I2I/T2I,
+   Deep1B, BIGANN, MS Turing, with wall-clock latency, offline cost and the calibration-time choice.
+
+## 9. Post-hoc: choosing the score at calibration time, and what predicts the gains
+
+Computed from the existing unified results (26 valid dataset × setting runs: 14 datasets × P, R,
+minus ImageNet-ALIGN, where both scores are constant). Numbers are against a tuned fixed ef at the same mean recall.
+
+**What predicts what** (setting R, 13 datasets, Spearman): KS vs Ada-ef's |ρ| −0.87; Ada-ef's |ρ|
+vs its p1 gain +0.84; our |ρ| vs our p1 gain +0.84; share of queries at the ef floor vs our cost
+saving +0.73; headroom (P90 / mean min-ef) vs Ada-ef-WAE's saving +0.74; number of distinct ef
+values Ada-ef assigns vs its WAE saving +0.86. The KS rule matches the method with the better tail
+in 18 of 18 runs outside the band; comparing the two calibration ρ's matches it in 25 of 26 (the
+miss is Yahoo-MiniLM R, a band dataset).
+
+**Choosing by calibration ρ** (keep ours if |ρ_ours| ≥ |ρ_Ada|, using the calibration queries
+only):
+
+| Method | mean p1 gain | mean saving | cheaper than fixed ef |
+|---|---|---|---|
+| Ours (K=1 Isotonic) | +0.024 | +6.6% | 26/26 |
+| Ada-ef as shipped | +0.024 | −3.0% | 9/26 |
+| Ada-ef WAE floor | +0.021 | +2.7% | 14/26 |
+| Choice, with Ada-ef as shipped | +0.037 | +3.3% | 21/26 |
+| Choice, with Ada-ef WAE | +0.033 | +7.6% | 25/26 (worst −1.3%) |
+| Oracle (better tail in hindsight) | +0.038 | +3.6% | 21/26 |
+
+Tail regret (p1 below the better of the two): the choice 0.0008 on average, above 0.005 in 1 of
+26 runs; ours alone in 8 of 26, Ada-ef alone in 13 of 26.
+
+**How it is used in the paper:** as a discussion paragraph, not a contribution. It is ordinary
+model selection between two scores that both need calibration anyway; it shows the two are
+complementary. It is in hindsight on these 26 runs, so round 2 (PAPER_PLAN.md) records it on
+new datasets before any claim is made.
