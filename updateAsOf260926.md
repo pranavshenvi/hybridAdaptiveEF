@@ -327,6 +327,8 @@ real `learn` queries, is the last end-to-end test.
 
 ## 10. On the paper's own terms: savings and tail recall against a fixed ef
 
+> **Superseded (2026-09-29):** savings against a fixed ef in this section used linear interpolation, which overstates them by ~3–4%. Corrected numbers: `updateAsOf290926.md` §1 and §4.
+
 The Ada-ef paper claims, against a fixed ef: lower cost at the same average recall (less
 over-searching) and better recall on the hardest queries (1st/5th percentile). This scores both
 methods on exactly those terms: each method's operating point against a fixed ef interpolated to

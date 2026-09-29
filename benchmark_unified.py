@@ -159,9 +159,11 @@ def ef_grid(k):
 
 
 def fixed_efs(k):
+    # Dense where the methods land (updateAsOf290926.md: the fixed-ef reference is interpolated
+    # between grid points, so closer points leave less to interpolation).
     if k <= 100:
-        return [100, 150, 200, 300, 400, 600, 800, 1000, 1500, 2000, 3000, 5000]
-    return [1000, 1250, 1500, 2000, 2500, 3000, 4000, 5000]
+        return [100, 125, 150, 175, 200, 250, 300, 350, 400, 500, 600, 700, 800, 1000, 1250, 1500, 2000, 3000, 5000]
+    return [1000, 1125, 1250, 1375, 1500, 1750, 2000, 2250, 2500, 3000, 4000, 5000]
 
 
 def normalize(x):
@@ -584,13 +586,19 @@ def set_latency(row, pq, lat):
 
 
 def fixed_interp(fixed, goal_r, key):
-    """A tuned fixed ef at mean recall goal_r: key linearly interpolated between the two fixed-ef
-    rows around it. None if goal_r is below the smallest fixed ef's recall or above the largest."""
+    """A tuned fixed ef at mean recall goal_r, interpolated between the two fixed-ef rows around it
+    in log(1 - recall) vs log(cost) space (p1/p5 linearly, at the same position). Linear
+    interpolation in (recall, cost) overstates the fixed ef's cost, since cost grows ever faster as
+    recall nears 1: +11% on average in a leave-one-out test on the fixed-ef grids, log-log -0.4%
+    (analysis/rescore_scorecard.js --loo; updateAsOf290926.md). None outside the grid's recall range."""
     pts = sorted(fixed, key=lambda r: r["avg_ef"])
+    x = lambda r: np.log(max(1.0 - r, 1e-6))
     for a, b in zip(pts, pts[1:]):
         if a["mean_r"] < goal_r <= b["mean_r"]:
-            t = (goal_r - a["mean_r"]) / (b["mean_r"] - a["mean_r"])
-            return a[key] + t * (b[key] - a[key])
+            t = (x(goal_r) - x(a["mean_r"])) / (x(b["mean_r"]) - x(a["mean_r"]))
+            if key in ("p1", "p5"):
+                return a[key] + t * (b[key] - a[key])
+            return float(np.exp(np.log(a[key]) + t * np.log(b[key] / a[key])))
     return None
 
 
@@ -603,6 +611,8 @@ def vs_fixed(row, fixed):
     for key in ("p1", "p5"):
         f = fixed_interp(fixed, row["mean_r"], key)
         out[f"{key}_gain"] = None if f is None else row[key] - f
+    # one ef for every test query = no adaptation: the method is itself a fixed ef (plus its probe)
+    out["adapts"] = row.get("distinct_ef", 2) > 1
     return out
 
 
@@ -620,16 +630,6 @@ def save_offline_time(cache, key, secs):
     t[key] = secs
     with open(os.path.join(cache, "offline_times.json"), "w") as f:
         json.dump(t, f, indent=1)
-
-
-def interp_at(rows, key_x, goal, key_y):
-    """Linear interpolation of key_y at key_x == goal over rows sorted by cost."""
-    pts = sorted(rows, key=lambda r: r["total_dc"])
-    for a, b in zip(pts, pts[1:]):
-        if a[key_x] < goal <= b[key_x]:
-            t = (goal - a[key_x]) / (b[key_x] - a[key_x])
-            return a[key_y] + t * (b[key_y] - a[key_y])
-    return None
 
 
 def dc_at_quality(rows, metric, goal):
@@ -896,6 +896,14 @@ def main():
                     json.dump(ef_list, f)
 
         # Latency pass: fixed-ef grid and headline methods; replaces their single-pass latency
+        # time only the fixed-ef points that bracket a headline method's recall (all the scorecard needs)
+        fx_sorted = sorted(fixed_rows, key=lambda r: r["avg_ef"])
+        keep = set()
+        for h in (r for r in rows if r["name"] in searchers and not r["name"].startswith("Fixed")):
+            for a, b in zip(fx_sorted, fx_sorted[1:]):
+                if a["mean_r"] < h["mean_r"] <= b["mean_r"]:
+                    keep.update((a["name"], b["name"]))
+        searchers = {n: f for n, f in searchers.items() if not n.startswith("Fixed") or n in keep}
         print(f"  latency pass: {len(searchers)} methods x {len(test_q)} queries x {args.lat_rounds} rounds ...", flush=True)
         med = timing_pass(searchers, test_q, args.lat_rounds)
         for j, r in enumerate(rows):
@@ -923,7 +931,8 @@ def main():
         default = next(r for r in rows if r["name"] == DEFAULT_CONFIG)
         pct = lambda x: None if x is None else (x["dc"] - ada["total_dc"]) / ada["total_dc"] * 100
         eq_r, eq_t = dc_at_quality(ours_rows, "mean_r", ada["mean_r"]), dc_at_quality(ours_rows, "pct_target", ada["pct_target"])
-        fx_r = dc_at_quality(fixed, "mean_r", ada["mean_r"])
+        fx_dc = fixed_interp(fixed, ada["mean_r"], "total_dc")
+        fx_r = None if fx_dc is None else dict(dc=fx_dc, bound=False, via="fixed ef, log-log interpolation")
         # Scorecard against a tuned fixed ef at the same mean recall (DC and latency savings, tail gains)
         main_names = ["Ada-ef (as shipped)", "Ada-ef (WAE floor)", DEFAULT_CONFIG,
                       "Choice (with Ada-ef as shipped)", "Choice (with Ada-ef WAE floor)"]
@@ -959,8 +968,8 @@ def main():
                        ours_dc_at_ada_recall=eq_r, ours_dc_at_ada_recall_pct=pct(eq_r),
                        ours_dc_at_ada_target_hit=eq_t, ours_dc_at_ada_target_hit_pct=pct(eq_t),
                        fixed_dc_at_ada_recall=fx_r, fixed_dc_at_ada_recall_pct=pct(fx_r),
-                       fixed_p1_at_ada_recall=interp_at(fixed, "mean_r", ada["mean_r"], "p1"),
-                       fixed_p5_at_ada_recall=interp_at(fixed, "mean_r", ada["mean_r"], "p5"))
+                       fixed_p1_at_ada_recall=fixed_interp(fixed, ada["mean_r"], "p1"),
+                       fixed_p5_at_ada_recall=fixed_interp(fixed, ada["mean_r"], "p5"))
         with open(os.path.join(RESULTS_DIR, f"rows_{setting}.json"), "w") as f:
             json.dump(rows, f, indent=1)
         with open(os.path.join(RESULTS_DIR, f"summary_{setting}.json"), "w") as f:
@@ -988,7 +997,8 @@ def main():
         for n, sc in scorecard.items():
             r = next(x for x in rows if x["name"] == n)
             print(f"  {n:<32} {r['mean_r']:>7.4f} {fp(sc['saving_dc_pct']):>8} {fp(sc['saving_lat_pct']):>9} "
-                  f"{fp(sc['p1_gain'], '{:+.3f}'):>8} {fp(sc['p5_gain'], '{:+.3f}'):>8} {r['mean_lat_us']:>7.0f}")
+                  f"{fp(sc['p1_gain'], '{:+.3f}'):>8} {fp(sc['p5_gain'], '{:+.3f}'):>8} {r['mean_lat_us']:>7.0f}"
+                  f"{'' if sc['adapts'] else '   (one ef for all queries: no adaptation)'}")
         dg = diagnostics
         print(f"  diagnostics: floor {dg['floor_share'] * 100:.1f}%, capped {dg['capped_share'] * 100:.1f}%, "
               f"headroom {dg['headroom']:.2f}, Ada-ef distinct scores {dg['ada_distinct_scores']} "

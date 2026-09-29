@@ -97,6 +97,8 @@ holds") held clearly on DINO and ResNet and only marginally on GIST (§6).
 
 ## 2. The fixed-ef scorecard (C7), extended
 
+> **Superseded (2026-09-29):** savings against a fixed ef in this section used linear interpolation, which overstates them by ~3–4%. Corrected numbers: `updateAsOf290926.md` §1 and §4.
+
 On all seven high-KS datasets (SIFT, Yambda, DeepImage, DINO, ResNet, and — after §6 — GIST and
 Fashion-MNIST; 14 runs):
 
@@ -210,6 +212,8 @@ GIST, Fashion-MNIST) plus VIBE's DINO and ResNet.
 
 ## 6. GIST-960 and Fashion-MNIST results
 
+> **Superseded (2026-09-29):** savings against a fixed ef in this section used linear interpolation, which overstates them by ~3–4%. Corrected numbers: `updateAsOf290926.md` §1 and §4.
+
 Results: `server_results/results_unified_gist960_20260928_115317/` (49 min) and
 `results_unified_fashionmnist784_20260928_124209/` (6 min); Ada-ef score check 50/50 identical on
 both, no errors. Scorecard terms as in §1.1.
@@ -278,6 +282,8 @@ the ef floor (median = P90 = 100), and a fixed ef of 100 already reaches 0.990 m
    Deep1B, BIGANN, MS Turing, with wall-clock latency, offline cost and the calibration-time choice.
 
 ## 9. Post-hoc: choosing the score at calibration time, and what predicts the gains
+
+> **Superseded (2026-09-29):** savings against a fixed ef in this section used linear interpolation, which overstates them by ~3–4%. Corrected numbers: `updateAsOf290926.md` §1 and §4.
 
 Computed from the existing unified results (26 valid dataset × setting runs: 14 datasets × P, R,
 minus ImageNet-ALIGN, where both scores are constant). Numbers are against a tuned fixed ef at the same mean recall.

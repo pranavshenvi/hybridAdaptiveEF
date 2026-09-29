@@ -1,4 +1,4 @@
-# Paper plan (2026-09-25, revised 2026-09-26 and 2026-09-28)
+# Paper plan (2026-09-25, revised 2026-09-26, 2026-09-28 and 2026-09-29)
 
 One fixed target. Anything not listed here is out of scope until the paper is written.
 
@@ -11,12 +11,15 @@ paper states but never tests. We test it on 43 datasets and find it fails on a r
 43, including classic benchmarks such as SIFT, GIST and Fashion-MNIST), in a way that cannot be
 guessed from the kind of data. Where it fails, Ada-ef stops adapting — on SIFT and Yambda it gives
 every query the same ef — while an empirical, distribution-free difficulty score keeps the adaptive
-advantage. The empirical method is also never worse than a tuned fixed ef on cost, a guarantee
-Ada-ef does not have. A KS test on the raw vectors, taking minutes and no index, tells a
-practitioner in advance which side of the line their data falls on.
+advantage. The empirical method also has a floor Ada-ef lacks: across 20 datasets it never costs
+more than 3.1% over a tuned fixed ef, is cheaper whenever it adapts at all, and keeps tail recall at
+least at the fixed ef's. A KS test on the raw vectors, taking minutes and no index, flags most of
+the failure cases in advance — with one known miss (BIGANN), where the upper tail breaks while the
+bulk looks Gaussian.
 
-**Honest limit, stated in the paper:** on near-Gaussian data — which includes most modern
+**Honest limits, stated in the paper:** on near-Gaussian data — which includes most modern
 contrastive text and multimodal embeddings — Ada-ef remains the better choice for tail recall.
+On cross-modal queries (text → image, user → item; 3 of 3 datasets) neither score adapts at all.
 
 **Target venue:** VLDB Experiments, Analysis & Benchmarks track or SIGMOD Experiments & Analysis;
 arXiv first. Fallback: a SIGMOD/VLDB workshop.
@@ -30,29 +33,35 @@ arXiv first. Fallback: a SIGMOD/VLDB workshop.
 2. **Method** — the empirical (percentile) difficulty score, as the fix where the assumption
    fails: better ranking, lower cost than a fixed ef and better tail recall where Ada-ef has none.
    (Claim M1.)
-3. **Robustness guarantee** — the empirical method is cheaper than a tuned fixed ef in every run
-   (26 of 26); Ada-ef as shipped in 9 of 26. (Claim M2.)
+3. **Robustness** — the empirical method stays within 3.1% of a tuned fixed ef's cost in every run
+   and is cheaper in 32 of 34 same-modality runs, with p1 at least the fixed ef's in 33 of 34;
+   Ada-ef as shipped is cheaper in 11 of 34 and slower in wall-clock in 12 of 12. (Claim M2.)
 4. **Offline test** — KS on the raw vectors predicts which score ranks queries better, before any
-   index is built (crossover band 0.044–0.066). (Claim D1.)
+   index is built (crossover band 0.044–0.066), with one failure so far (BIGANN) that points to a
+   tail-weighted test. (Claim D1.)
 5. **Evaluation lessons** for adaptive-ef methods, drawn from every reversal in this project.
    (Claim E1.)
 
 **Discussion, not a contribution:** the two scores can be compared at calibration time (both
 methods calibrate anyway) and the better one kept. In hindsight this would have picked the method
-with the better tail in 25 of 26 runs (`updateAsOf280926.md` §9). It shows the two approaches are
-complementary; it is standard model selection and is presented as deployment guidance only.
+with the better tail in 25 of 26 runs (`updateAsOf280926.md` §9), but out of sample it failed on
+MS Turing, picking Ada-ef's worse tail (`updateAsOf290926.md` §3.2). It shows the two approaches
+are complementary; it is standard model selection and is presented as deployment guidance only.
 
 ## Claims
 
-Evidence: `updateAsOf260926.md`, `updateAsOf280926.md` (§ numbers refer to 260926 unless marked).
+Evidence: `updateAsOf260926.md`, `updateAsOf280926.md`, `updateAsOf290926.md` (§ numbers refer to
+260926 unless marked). **All savings against a fixed ef use log-log interpolation** (290926 §1);
+the numbers in 260926 §10 and 280926 §2, §6, §9 are superseded by 290926 §4.
 
 | # | Claim | Status under the frozen protocol |
 |---|---|---|
-| D1 | **Which difficulty score ranks queries better is predictable offline from KS:** Ada-ef's Gaussian score on near-Gaussian data, the empirical score on clearly non-Gaussian data | **Supported.** KS vs Ada-ef's calibration ρ: Spearman −0.87 over 13 datasets. Crossover band 0.044–0.066 at 200 queries (§6). Out-of-sample predictions written before running: DINO, ResNet, GIST, Fashion-MNIST (our side) ✅; LAION (Ada-ef side) ✅ weakly; Cohere (borderline) ✅; Yahoo-MiniLM split (band); ImageNet-ALIGN untestable. **No ranking prediction failed** (280926 §1.5). Plus the controlled synthetic experiment |
+| D1 | **Which difficulty score ranks queries better is predictable offline from KS:** Ada-ef's Gaussian score on near-Gaussian data, the empirical score on clearly non-Gaussian data | **Supported.** KS vs Ada-ef's calibration ρ: Spearman −0.87 over 13 datasets. Crossover band 0.044–0.066 at 200 queries (§6). Out-of-sample predictions written before running: DINO, ResNet, GIST, Fashion-MNIST (our side) ✅; LAION (Ada-ef side) ✅ weakly; Cohere (borderline) ✅; Yahoo-MiniLM split (band); ImageNet-ALIGN untestable (280926 §1.5). Round 2 (290926 §3): Deep1B (ours) ✅, MS Turing (Ada-ef) ✅ on ranking, COCO-I2I band as expected, Last.fm and COCO-T2I untestable (no adaptation), **BIGANN (Ada-ef) ❌** — ours ranks far better (ρ 0.74 vs 0.42) at KS 0.029. **Next:** a tail-weighted statistic and Ada-ef's distinct-score count, tested on existing runs (290926 §3.1). Plus the controlled synthetic experiment |
 | D2 | **How often each side applies, and that it must be measured** | 43 datasets: **9 on the non-Gaussian side** (SIFT-1M, DeepImage, Deep1B, Yambda, DINO, ResNet, Fashion-MNIST, GIST, Last.fm). No modern contrastive text or multimodal model reaches it; within other data types KS varies (SIFT-1M 0.126 vs SIFT-1B 0.029; MNIST 0.037 vs Fashion-MNIST 0.073) (§7; 280926 §4). No published paper reports such normality tests; Ada-ef and He et al. (ICML 2012) assume the approximation |
-| M1 | **Where the assumption fails, Ada-ef loses its advantage over a fixed ef and the empirical score keeps it** | **Supported on 7 of 7 high-KS datasets, four out of sample** (14 runs; 280926 §2, §6): our ranking better in 14; ours cheaper than a tuned fixed ef in 14 and better p1 in 10 (up to +0.085); Ada-ef as shipped cheaper in 1, with no tail gain where it assigns one ef to every query. The end-to-end gain varies: large tail gains on DeepImage, DINO, ResNet; cost only on SIFT, Yambda; almost nothing on GIST |
-| M2 | **Robustness: the empirical method is never worse than a tuned fixed ef on cost** | **Ours cheaper in 26 of 26 valid runs** (+0.5% to +16.3%); Ada-ef as shipped 9 of 26 (worst −17.3%), Ada-ef with WAE floor 14 of 26 (280926 §2) |
-| E1 | Evaluation lessons for adaptive-ef methods | Proxy spread depends on the score; spread depends on the target; 30–88% of queries at the ef floor at 0.95; probe cost must be counted (Ada-ef's fixed 1,025-distance probe dominates at small budgets); a hindsight-tuned fixed ef is a reference, not a baseline; KS needs 200+ queries; ~2% of LAION queries unreachable by any method; two results reversed between protocols (MS MARCO-384's large win; Cohere's calibration collapse) |
+| M1 | **Where the assumption fails, Ada-ef loses its advantage over a fixed ef and the empirical score keeps it** | **Supported on 8 of 8 high-KS datasets, five out of sample** (16 runs; 290926 §4): our ranking better in 16; our p1 gain at least Ada-ef's in 16; ours cheaper than a tuned fixed ef in 14 (misses: DeepImage P −3.1%, GIST R −1.0%), p1 ≥ fixed in 15; Ada-ef as shipped cheaper in 2, p1 ≥ fixed in 8. The end-to-end gain varies: large tail gains on DeepImage, Deep1B, DINO, ResNet; small on SIFT, Yambda; almost nothing on GIST. BIGANN (low KS) behaves like this group too |
+| M2 | **Robustness: the empirical method has a floor at a tuned fixed ef; Ada-ef does not** | Same-modality runs (34; 290926 §4): ours cheaper in 32 (worst −3.1%), p1 ≥ fixed in 33; Ada-ef as shipped cheaper in 11, WAE floor 17; p1 ≥ fixed 24 and 25. Wall-clock (round 2, 8 adaptive runs): ours −2.9% to +2.5% against fixed ef, Ada-ef as shipped −1% to −39% (and −87% on Last.fm). *Was "cheaper in 26 of 26": that used a biased linear interpolation (290926 §1)* |
+| L1 | **Shared limit: cross-modal queries** | Last.fm (user → item), COCO-T2I and ImageNet-ALIGN (text → image): both scores give every real query the same ef, 3 of 3 datasets. Ours then costs −1.3% to +0.5% against a fixed ef, Ada-ef up to 10% more DC and 87% more time (its probe) (290926 §3.3) |
+| E1 | Evaluation lessons for adaptive-ef methods | Proxy spread depends on the score; spread depends on the target; 30–88% of queries at the ef floor at 0.95; probe cost must be counted (Ada-ef's fixed 1,025-distance probe dominates at small budgets); a hindsight-tuned fixed ef is a reference, not a baseline; KS needs 200+ queries; ~2% of LAION queries unreachable by any method; two results reversed between protocols (MS MARCO-384's large win; Cohere's calibration collapse); **linear interpolation of the fixed-ef reference overstates every saving by ~3–4%** (290926 §1); latency must be timed in rotated rounds (single-pass timing varied 24% run to run) |
 | (neg.) | Head to head, our cost ≤ Ada-ef's on most datasets (old C2) | **Does not hold**; reported as it came out. On near-Gaussian data Ada-ef wins the tail (MS MARCO, Cohere, GloVe) and, with its WAE floor, the cost (GloVe ~50%) |
 | (neg.) | Ada-ef's corpus-point calibration fails to transfer to real queries (old C4) | **Not supported end to end** under the paper protocol (§9). The KS survey shows the distributions differ (5 of 6 OOD VIBE sets), but no end-to-end failure was observed |
 
@@ -63,7 +72,8 @@ not hold, so this is an analysis paper. Its method result is M1 + M2, not "faste
 
 - **Tail recall** at equal mean recall: 1st and 5th percentile (Ada-ef's headline claim).
 - **Cost** at equal mean recall against a tuned fixed ef: **wall-clock latency per query
-  (single thread)** and distance computations (hardware-independent companion).
+  (single thread)** and distance computations (hardware-independent companion). The fixed ef at
+  a given recall is interpolated in log(1 − recall) vs log(cost) on a dense ef grid.
 - **Target attainment:** mean recall against the 0.95 target; share of queries reaching it.
 - **Offline cost:** calibration time and memory for each method.
 - **Mechanism:** calibration ρ of each score; KS.
@@ -78,14 +88,14 @@ Wall-clock latency and offline cost are recorded from validation round 2 onward
 New datasets, none run end to end before, all already downloaded (`standard_data/`); KS from the
 200-query standard-suite survey (280926 §4). Predictions:
 
-| Dataset | KS (95%) | Predicted better score (D1) | Predicted for M2 |
-|---|---|---|---|
-| Last.fm-64 (recommendation, inner product; run normalised, caveat stated) | 0.216 ± 0.003 | ours | ours cheaper than fixed ef |
-| Deep1B, first 2M rows | 0.067 ± 0.005 | ours (uncertain: interval crosses 0.066) | ours cheaper than fixed ef |
-| COCO-I2I | 0.046 ± 0.004 | band (uncertain) — no prediction | ours cheaper than fixed ef |
-| COCO-T2I (OOD) | 0.056 ± 0.004 | band — no prediction | ours cheaper than fixed ef |
-| BIGANN (SIFT-1B), first 2M rows | 0.029 ± 0.002 | Ada-ef | ours cheaper than fixed ef |
-| MS Turing, first 2M rows | 0.010 ± 0.001 | Ada-ef | ours cheaper than fixed ef |
+| Dataset | KS (95%) | Predicted better score (D1) | Predicted for M2 | Outcome (290926 §3) |
+|---|---|---|---|---|
+| Last.fm-64 (recommendation, inner product; run normalised, caveat stated) | 0.216 ± 0.003 | ours | ours cheaper than fixed ef | untestable: one ef for every real query (both methods); ours −0.2% |
+| Deep1B, first 2M rows | 0.067 ± 0.005 | ours (uncertain: interval crosses 0.066) | ours cheaper than fixed ef | ✅ ρ 0.64/0.67 vs 0.39/0.41; ✅ +4.9/+3.7%, p1 +0.08 |
+| COCO-I2I | 0.046 ± 0.004 | band (uncertain) — no prediction | ours cheaper than fixed ef | near tie on ρ; ✅ +3.8/+3.7% |
+| COCO-T2I (OOD) | 0.056 ± 0.004 | band — no prediction | ours cheaper than fixed ef | untestable in R (one ef); ✗ −0.5/−0.2% (no adaptation) |
+| BIGANN (SIFT-1B), first 2M rows | 0.029 ± 0.002 | Ada-ef | ours cheaper than fixed ef | ❌ ours ρ 0.74 vs 0.42; ✅ +8.0/+7.0% |
+| MS Turing, first 2M rows | 0.010 ± 0.001 | Ada-ef | ours cheaper than fixed ef | ✅ ρ (R 0.48 vs 0.40, P tie); ✅ +2.5/+1.9% |
 
 Also recorded, to test the discussion paragraph: which score the calibration-time comparison picks,
 and whether that is the method with the better tail on the test queries.
