@@ -60,3 +60,5 @@ detailed_metrics.json
 # Cache files
 *.pkl
 server_results/darth_data/
+after_loop_*.log
+darth_setup.log
