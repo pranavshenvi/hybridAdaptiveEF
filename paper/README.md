@@ -6,6 +6,7 @@
     python3 analysis/make_paper_figures.py           # on the server
     cp paper_out_<latest>/*.pdf paper/figures/ && cp paper_out_<latest>/*.tex paper/tables/
 
-Build: upload the `paper/` folder to Overleaf, or `latexmk -pdf main.tex` where TeX Live is
+Build locally (Windows, MiKTeX): `powershell -ExecutionPolicy Bypass -File paperbuild.ps1` (opens
+main.pdf). Or upload the `paper/` folder to Overleaf, or `latexmk -pdf main.tex` where TeX Live is
 installed. Red `[...]` marks (`\pending{}`) are numbers still being measured or details to fill;
 none may remain at submission. Bib entries not marked VERIFIED need their volume/pages checked.
