@@ -6,7 +6,7 @@ Reads, from --results-dir (default: the repo root on the server):
   results_unified_<dataset>_<ts>/   rows_{P,R}.json, summary_{P,R}.json, meta.json, per_query_{P,R}.npz
                                     (latest non-smoke run per dataset)
   results_ks_survey_*/ks_survey.json        KS surveys (local, VIBE, standard; later runs override)
-  results_tail_survey_*/tail_survey.json    tail survey (latest); its 200-query KS is used per dataset
+  results_tail_survey_*/tail_survey.json    tail survey (latest), table 5 only
   results_controlled_summary_*/controlled_summary.json   controlled experiments (latest)
 
 Writes paper_out_<ts>/ with CSV + LaTeX (booktabs) tables and PDF + PNG figures:
@@ -44,7 +44,8 @@ OURS_C, ADA_C, WAE_C, FIXED_C = "#2a78d6", "#eb6834", "#1baf7a", "#8a8984"
 INK, INK2, GRID, BAND_C = "#0b0b0b", "#52514e", "#e6e5e1", "#efeeea"
 METHODS = {"Ours (K=1, Isotonic)": "Ours", "Ada-ef (as shipped)": "Ada-ef", "Ada-ef (WAE floor)": "Ada-ef WAE"}
 COLOR = {"Ours": OURS_C, "Ada-ef": ADA_C, "Ada-ef WAE": WAE_C}
-BAND_LO, BAND_HI = 0.044, 0.066
+BAND_LO, BAND_HI = 0.044, 0.0655   # edges measured on MS MARCO-384 (0.0442) and DeepImage-96 (0.0656), quoted
+                                    # as 0.044-0.066; 0.0655 keeps DeepImage on its own (upper) edge after rounding
 CROSS_MODAL = {"vibe_imagenet_align", "coco_t2i", "lastfm64"}
 NAMES = {"glove100": "GloVe-100", "deepimage96": "DeepImage-96", "sift128": "SIFT-1M", "dbpedia1536": "DBpedia-1536",
          "yambda": "Yambda", "msmarco384": "MS MARCO-384", "cohere1024": "Cohere-1024", "laion_i2i": "LAION-I2I",
@@ -61,8 +62,9 @@ SOURCE = {"glove100": "ann-benchmarks", "deepimage96": "ann-benchmarks", "sift12
           "deep1b": "Big-ANN", "bigann": "Big-ANN", "msturing": "Big-ANN"}
 IN_ADA_PAPER = {"glove100": "yes", "deepimage96": "yes", "cohere1024": "yes (subset)", "laion_i2i": "yes (subset)",
                 "msmarco384": "stand-in"}
-# 200-query KS from the surveys, used if the tail survey does not cover a dataset
-KS_FALLBACK = {"glove100": .018, "dbpedia1536": .038, "msmarco384": .044, "cohere1024": .049, "laion_i2i": .034,
+# KS of record (200-query surveys, as quoted in the docs; DeepImage 0.0656 is the band edge itself, so it is
+# listed as 0.066). Grouping and tables use these; the tail survey re-measurement appears only in table 5.
+KS = {"glove100": .018, "dbpedia1536": .038, "msmarco384": .044, "cohere1024": .049, "laion_i2i": .034,
                "deepimage96": .066, "yambda": .090, "sift128": .126, "vibe_landmark_dino": .076,
                "vibe_inaturalist_resnet": .115, "gist960": .091, "fashionmnist784": .073, "vibe_yahoo_minilm": .054,
                "vibe_imagenet_align": .058, "lastfm64": .216, "deep1b": .067, "coco_i2i": .046, "coco_t2i": .056,
@@ -157,8 +159,8 @@ def main():
     runs = latest_per_name(R, "results_unified_")
     tail_dir = latest_dir(R, "results_tail_survey_*")
     tail = read_json(os.path.join(tail_dir, "tail_survey.json")) if tail_dir else {}
-    ks_of = {ds: (tail[ds]["ks"] if ds in tail else KS_FALLBACK.get(ds)) for ds in runs}
-    print(f"{len(runs)} benchmark datasets; tail survey: {tail_dir or 'not found (KS from the fallback table)'}")
+    ks_of = {ds: KS.get(ds) for ds in runs}
+    print(f"{len(runs)} benchmark datasets; tail survey: {tail_dir or 'not found (table 5 skipped)'}")
 
     # ---- load every run -------------------------------------------------------------------
     data = {}
