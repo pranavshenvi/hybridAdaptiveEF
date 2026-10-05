@@ -44,6 +44,9 @@ OURS_C, ADA_C, WAE_C, FIXED_C = "#2a78d6", "#eb6834", "#1baf7a", "#8a8984"
 INK, INK2, GRID, BAND_C = "#0b0b0b", "#52514e", "#e6e5e1", "#efeeea"
 METHODS = {"Ours (K=1, Isotonic)": "Ours", "Ada-ef (as shipped)": "Ada-ef", "Ada-ef (WAE floor)": "Ada-ef WAE"}
 COLOR = {"Ours": OURS_C, "Ada-ef": ADA_C, "Ada-ef WAE": WAE_C}
+MARKER = {"Ours": "o", "Ada-ef": "s", "Ada-ef WAE": "D"}     # shape as well as colour: never colour alone
+SIZE = {"Ours": 30, "Ada-ef": 26, "Ada-ef WAE": 20}
+CONNECT_C = "#c9c8c2"
 BAND_LO, BAND_HI = 0.044, 0.0655   # edges measured on MS MARCO-384 (0.0442) and DeepImage-96 (0.0656), quoted
                                     # as 0.044-0.066; 0.0655 keeps DeepImage on its own (upper) edge after rounding
 CROSS_MODAL = {"vibe_imagenet_align", "coco_t2i", "lastfm64"}
@@ -54,7 +57,7 @@ NAMES = {"glove100": "GloVe-100", "deepimage96": "DeepImage-96", "sift128": "SIF
          "fashionmnist784": "Fashion-MNIST", "lastfm64": "Last.fm", "deep1b": "Deep1B (2M)", "coco_i2i": "COCO-I2I",
          "coco_t2i": "COCO-T2I", "bigann": "BIGANN (2M)", "msturing": "MS Turing (2M)"}
 SOURCE = {"glove100": "ann-benchmarks", "deepimage96": "ann-benchmarks", "sift128": "ann-benchmarks",
-          "dbpedia1536": "Qdrant", "yambda": "Yambda", "msmarco384": "MS MARCO (MiniLM)",
+          "dbpedia1536": "DBpedia, OpenAI embeddings", "yambda": "Yambda", "msmarco384": "MS MARCO (MiniLM)",
           "cohere1024": "Cohere, files 00-04", "laion_i2i": "LAION, shards 0-19",
           "vibe_landmark_dino": "VIBE", "vibe_inaturalist_resnet": "VIBE", "vibe_yahoo_minilm": "VIBE",
           "vibe_imagenet_align": "VIBE", "gist960": "ann-benchmarks", "fashionmnist784": "ann-benchmarks",
@@ -126,7 +129,9 @@ def write_table(out, name, headers, rows, fmt=None):
         if v is None or (isinstance(v, float) and not np.isfinite(v)):
             return "--"
         return esc(fmt[h](v) if h in fmt else v)
-    lines = [r"\begin{tabular}{" + "l" * 2 + "r" * (len(headers) - 2) + "}", r"\toprule",
+    numeric = lambda j: all(r[j] is None or isinstance(r[j], (int, float)) for r in rows)
+    align = "".join("r" if rows and numeric(j) else "l" for j in range(len(headers)))
+    lines = [r"\begin{tabular}{" + align + "}", r"\toprule",
              " & ".join(esc(h) for h in headers) + r" \\", r"\midrule"]
     lines += [" & ".join(cell(h, v) for h, v in zip(headers, r)) + r" \\" for r in rows]
     lines += [r"\bottomrule", r"\end{tabular}"]
@@ -265,41 +270,45 @@ def main():
         ax.set_yticks(y)
         ax.set_yticklabels([n for n, _ in items], fontsize=5.5)
         ax.set_xscale("log")
-        ax.set_xlabel("KS of q·v against Ada-ef's CLT Normal (200 queries, 95% interval)")
+        ax.set_xlabel("KS against Ada-ef's CLT Normal (200 queries, ±95%)")
         ax.grid(axis="y", visible=False)
         ax.text(np.sqrt(BAND_LO * BAND_HI), len(items) - 0.2, "crossover band", ha="center", va="bottom", fontsize=6,
                 color=INK2)
         ax.set_title(f"KS survey: {len(items)} datasets, "
-                     f"{sum(r['ks'] >= BAND_HI for _, r in items)} at or above {BAND_HI}", loc="left")
+                     f"{sum(r['ks'] >= BAND_HI for _, r in items)} on the non-Gaussian side of the band", loc="left")
         save(fig, out, "fig1_ks_survey")
         print(f"\nKS survey: {len(items)} datasets ({sum(r['ks'] >= BAND_HI for _, r in items)} >= {BAND_HI})")
     else:
         print("\nKS survey: no results_ks_survey_* folders found; table 2 / figure 1 skipped")
 
-    # ---- figure 2: p1 gain over fixed ef vs KS ---------------------------------------------
-    fig, ax = plt.subplots(figsize=(4.6, 3.0))
-    shade_band(ax)
-    ax.axhline(0, color=INK2, lw=0.8, zorder=1)
-    for m in ("Ada-ef", "Ours"):
+    # ---- figure 2: p1 gain over fixed ef, one row per dataset sorted by KS -------------------
+    rows2 = []
+    for ds in order:
+        g = {m: [c["p1_gain"] for c in card if c["dataset"] == ds and c["method"] == m and c["p1_gain"] is not None]
+             for m in ("Ours", "Ada-ef")}
+        if g["Ours"] and g["Ada-ef"]:
+            rows2.append((ds, float(np.mean(g["Ours"])), float(np.mean(g["Ada-ef"]))))
+    fig, ax = plt.subplots(figsize=(4.4, 0.19 * len(rows2) + 0.9))
+    for i, (ds, _, _) in enumerate(rows2):
+        if BAND_LO <= ks_of[ds] < BAND_HI:
+            ax.axhspan(i - 0.5, i + 0.5, color=BAND_C, lw=0, zorder=0)
+    ax.axvline(0, color=INK2, lw=0.8, zorder=1)
+    for i, (_, o, a) in enumerate(rows2):
+        ax.plot([a, o], [i, i], color=CONNECT_C, lw=1.5, zorder=2, solid_capstyle="round")
+    for m, idx in (("Ada-ef", 2), ("Ours", 1)):
         for cm in (False, True):
-            pts = []
-            for ds in order:
-                v = [c["p1_gain"] for c in card if c["dataset"] == ds and c["method"] == m and c["p1_gain"] is not None]
-                if v and (ds in CROSS_MODAL) == cm:
-                    pts.append((ks_of[ds], float(np.mean(v)), ds))
+            pts = [(r[idx], i) for i, r in enumerate(rows2) if (r[0] in CROSS_MODAL) == cm]
             if pts:
-                ax.scatter([p[0] for p in pts], [p[1] for p in pts], s=26, zorder=3, linewidths=1.2,
-                           facecolors="none" if cm else COLOR[m], edgecolors=COLOR[m],
+                ax.scatter([p[0] for p in pts], [p[1] for p in pts], marker=MARKER[m], s=SIZE[m], zorder=3,
+                           linewidths=1.2, facecolors="none" if cm else COLOR[m], edgecolors=COLOR[m],
                            label=m + (" (cross-modal: no adaptation)" if cm else ""))
-    for ds in order:                                   # label the ours point of each dataset
-        v = [c["p1_gain"] for c in card if c["dataset"] == ds and c["method"] == "Ours" and c["p1_gain"] is not None]
-        if v:
-            ax.annotate(NAMES.get(ds, ds), (ks_of[ds], float(np.mean(v))), fontsize=5, color=INK2,
-                        xytext=(3, 2), textcoords="offset points")
-    ax.set_xscale("log")
-    ax.set_xlabel("KS (higher = less Gaussian); shaded: crossover band")
-    ax.set_ylabel("p1 recall gain over a tuned fixed ef\n(mean of settings P, R)")
-    ax.legend(loc="upper left")
+    ax.set_yticks(np.arange(len(rows2)))
+    ax.set_yticklabels([f"{NAMES.get(ds, ds)}  {ks_of[ds]:.3f}" for ds, _, _ in rows2], fontsize=6)
+    ax.set_ylim(-0.6, len(rows2) - 0.4)
+    ax.grid(axis="y", visible=False)
+    ax.set_xlabel("p1 recall gain over a tuned fixed ef at the same mean recall (mean of P, R)")
+    ax.set_ylabel("dataset and KS (least Gaussian at top; shaded: band)")
+    ax.legend(loc="lower left", bbox_to_anchor=(0, 1.0), ncol=2, fontsize=6)
     save(fig, out, "fig2_p1_vs_ks")
 
     # ---- figure 3: cost vs recall, small multiples -----------------------------------------
@@ -319,21 +328,26 @@ def main():
             fx = [r for r in s["fixed"] if r["mean_r"] >= 0.80]
             ax.plot([r["mean_r"] for r in fx], [r[key] for r in fx], color=FIXED_C, lw=1.5, marker="o", ms=2.5,
                     label="fixed ef", zorder=2)
-            for full, m in METHODS.items():
+            for full, m in reversed(list(METHODS.items())):          # ours drawn last, on top
                 r = next((x for x in s["rows"] if x["name"] == full), None)
                 if r is not None and r.get(key) is not None:
-                    ax.scatter([r["mean_r"]], [r[key]], s=28, color=COLOR[m], edgecolors="white", linewidths=1.5,
-                               zorder=4, label=m)
+                    ax.scatter([r["mean_r"]], [r[key]], s=SIZE[m], marker=MARKER[m], color=COLOR[m],
+                               edgecolors="white", linewidths=1.0, zorder=4, label=m)
             ax.set_yscale("log")
-            ax.set_title(NAMES.get(ds, ds) + (" (x-modal)" if ds in CROSS_MODAL else ""), loc="left")
+            ax.set_title(f"{NAMES.get(ds, ds)}{' (x-modal)' if ds in CROSS_MODAL else ''} · KS {ks_of[ds]:.3f}",
+                         loc="left", fontsize=7)
             ax.tick_params(labelsize=6)
         for ax in axes.flat[len(dss):]:
             ax.set_visible(False)
-        h, l = axes.flat[0].get_legend_handles_labels()
-        fig.legend(h, l, loc="lower center", ncol=4)
+        hl = {}
+        for ax in axes.flat[:len(dss)]:
+            for h, l in zip(*ax.get_legend_handles_labels()):
+                hl.setdefault(l, h)
+        labels = [l for l in ("fixed ef", "Ours", "Ada-ef", "Ada-ef WAE") if l in hl]
+        fig.legend([hl[l] for l in labels], labels, loc="upper center", ncol=4, bbox_to_anchor=(0.5, 1.0))
         fig.supxlabel("mean recall@K (setting R)", fontsize=8)
         fig.supylabel(ylabel, fontsize=8)
-        fig.tight_layout(rect=(0, 0.04, 1, 1))
+        fig.tight_layout(rect=(0, 0, 1, 0.97))
         save(fig, out, name)
     small_multiples("total_dc", "fig3_cost_vs_recall", "distance computations per query", False)
     small_multiples("mean_lat_us", "fig3b_latency_vs_recall", "latency per query (µs)", True)
@@ -359,7 +373,7 @@ def main():
             ax.set_xlabel("latency per query (µs)")
             ax.set_ylabel("share of queries")
             ax.set_title(NAMES.get(ds, ds) + " (setting R)", loc="left")
-            ax.legend(loc="lower right")
+            ax.legend(loc="upper left")
         fig.tight_layout()
         save(fig, out, "fig3c_latency_cdf")
     else:
@@ -409,12 +423,14 @@ def main():
                 for ds in order if ds not in CROSS_MODAL]
         real = [p for p in real if np.isfinite(p[1])]
         ax.scatter([p[0] for p in real], [p[1] for p in real], s=22, color=FIXED_C, zorder=2, label="real datasets")
-        for exp, color, label in (("B", OURS_C, "synthetic B (α sweep)"), ("D", ADA_C, "synthetic D (cluster separation)")):
+        # synthetic runs by shape in ink: blue/orange mean "ours"/"Ada-ef" in every other figure
+        for exp, marker, face, label in (("B", "^", INK, "synthetic B (α sweep)"),
+                                         ("D", "s", "none", "synthetic D (cluster separation)")):
             pts = [(r["ks_mean"], r["rho_advantage"]) for r in runs_c
                    if r.get("experiment") == exp and r.get("ks_mean") is not None and r.get("rho_advantage") is not None]
             if pts:
-                ax.scatter([p[0] for p in pts], [p[1] for p in pts], s=30, color=color, edgecolors="white",
-                           linewidths=1.2, zorder=3, label=label)
+                ax.scatter([p[0] for p in pts], [p[1] for p in pts], s=30, marker=marker, facecolors=face,
+                           edgecolors=INK, linewidths=1.2, zorder=3, label=label)
         ax.set_xscale("log")
         ax.set_xlabel("KS (higher = less Gaussian)")
         ax.set_ylabel("ranking advantage of our score\n|ρ ours| − |ρ Ada-ef|")
