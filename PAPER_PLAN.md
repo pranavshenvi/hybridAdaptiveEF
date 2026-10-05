@@ -2,8 +2,8 @@
 
 One fixed target. Anything not listed here is out of scope until the paper is written.
 
-**Working title:** *When the Gaussian Assumption Breaks: Diagnosing and Fixing Distribution-Aware
-Adaptive Search in HNSW*
+**Title (chosen 2026-10-05):** *PercEF: Exploiting Empirical Percentiles for Adaptive HNSW Search
+Beyond the Gaussian Assumption*. The method is called PercEF throughout.
 
 **Thesis:** Ada-ef (SIGMOD 2026) adapts HNSW's search budget per query using a difficulty score
 built on a Gaussian (CLT) model of the query-to-data similarity distribution — an assumption its
