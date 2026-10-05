@@ -13,9 +13,9 @@ guessed from the kind of data. Where it fails, Ada-ef stops adapting — on SIFT
 every query the same ef — while an empirical, distribution-free difficulty score keeps the adaptive
 advantage. The empirical method also has a floor Ada-ef lacks: across 20 datasets it never costs
 more than 3.1% over a tuned fixed ef, is cheaper whenever it adapts at all, and keeps tail recall at
-least at the fixed ef's. A KS test on the raw vectors, taking minutes and no index, flags most of
-the failure cases in advance — with one known miss (BIGANN), where the upper tail breaks while the
-bulk looks Gaussian.
+least at the fixed ef's. A KS test on the raw vectors, taking seconds and no index, predicts which
+score ranks queries better on 18 of 19 datasets — with one known miss (BIGANN), where our method
+still wins end to end.
 
 **Honest limits, stated in the paper:** on near-Gaussian data — which includes most modern
 contrastive text and multimodal embeddings — Ada-ef remains the better choice for tail recall.
@@ -37,8 +37,9 @@ arXiv first. Fallback: a SIGMOD/VLDB workshop.
    and is cheaper in 32 of 34 same-modality runs, with p1 at least the fixed ef's in 33 of 34;
    Ada-ef as shipped is cheaper in 11 of 34 and slower in wall-clock in 12 of 12. (Claim M2.)
 4. **Offline test** — KS on the raw vectors predicts which score ranks queries better, before any
-   index is built (crossover band 0.044–0.066), with one failure so far (BIGANN) that points to a
-   tail-weighted test. (Claim D1.)
+   index is built (crossover band 0.044–0.066): 18 of 19 datasets, 16 of 19 leave-one-out, one
+   known miss (BIGANN); tail-weighted alternatives tested and rejected. Backup check at
+   calibration: Ada-ef's distinct-score count. (Claim D1.)
 5. **Evaluation lessons** for adaptive-ef methods, drawn from every reversal in this project.
    (Claim E1.)
 
@@ -56,7 +57,7 @@ the numbers in 260926 §10 and 280926 §2, §6, §9 are superseded by 290926 §4
 
 | # | Claim | Status under the frozen protocol |
 |---|---|---|
-| D1 | **Which difficulty score ranks queries better is predictable offline from KS:** Ada-ef's Gaussian score on near-Gaussian data, the empirical score on clearly non-Gaussian data | **Supported.** KS vs Ada-ef's calibration ρ: Spearman −0.87 over 13 datasets. Crossover band 0.044–0.066 at 200 queries (§6). Out-of-sample predictions written before running: DINO, ResNet, GIST, Fashion-MNIST (our side) ✅; LAION (Ada-ef side) ✅ weakly; Cohere (borderline) ✅; Yahoo-MiniLM split (band); ImageNet-ALIGN untestable (280926 §1.5). Round 2 (290926 §3): Deep1B (ours) ✅, MS Turing (Ada-ef) ✅ on ranking, COCO-I2I band as expected, Last.fm and COCO-T2I untestable (no adaptation), **BIGANN (Ada-ef) ❌** — ours ranks far better (ρ 0.74 vs 0.42) at KS 0.029. **Next:** a tail-weighted statistic and Ada-ef's distinct-score count, tested on existing runs (290926 §3.1). Plus the controlled synthetic experiment |
+| D1 | **Which difficulty score ranks queries better is predictable offline from KS:** Ada-ef's Gaussian score on near-Gaussian data, the empirical score on clearly non-Gaussian data | **Supported.** KS vs Ada-ef's calibration ρ: Spearman −0.87 over 13 datasets. Crossover band 0.044–0.066 at 200 queries (§6). Out-of-sample predictions written before running: DINO, ResNet, GIST, Fashion-MNIST (our side) ✅; LAION (Ada-ef side) ✅ weakly; Cohere (borderline) ✅; Yahoo-MiniLM split (band); ImageNet-ALIGN untestable (280926 §1.5). Round 2 (290926 §3): Deep1B (ours) ✅, MS Turing (Ada-ef) ✅ on ranking, COCO-I2I band as expected, Last.fm and COCO-T2I untestable (no adaptation), **BIGANN (Ada-ef) ❌** — ours ranks far better (ρ 0.74 vs 0.42) at KS 0.029. Tail-weighted alternatives (Anderson–Darling, upper-quantile error, tail mass) tested on all 20 datasets and rejected: none beats guessing in leave-one-out; KS sorts 18/19 (16/19 leave-one-out) (290926 §7). BIGANN stays in (pre-registered, all checks passed, ours wins on it end to end). Plus the controlled synthetic experiment |
 | D2 | **How often each side applies, and that it must be measured** | 43 datasets: **9 on the non-Gaussian side** (SIFT-1M, DeepImage, Deep1B, Yambda, DINO, ResNet, Fashion-MNIST, GIST, Last.fm). No modern contrastive text or multimodal model reaches it; within other data types KS varies (SIFT-1M 0.126 vs SIFT-1B 0.029; MNIST 0.037 vs Fashion-MNIST 0.073) (§7; 280926 §4). No published paper reports such normality tests; Ada-ef and He et al. (ICML 2012) assume the approximation |
 | M1 | **Where the assumption fails, Ada-ef loses its advantage over a fixed ef and the empirical score keeps it** | **Supported on 8 of 8 high-KS datasets, five out of sample** (16 runs; 290926 §4): our ranking better in 16; our p1 gain at least Ada-ef's in 16; ours cheaper than a tuned fixed ef in 14 (misses: DeepImage P −3.1%, GIST R −1.0%), p1 ≥ fixed in 15; Ada-ef as shipped cheaper in 2, p1 ≥ fixed in 8. The end-to-end gain varies: large tail gains on DeepImage, Deep1B, DINO, ResNet; small on SIFT, Yambda; almost nothing on GIST. BIGANN (low KS) behaves like this group too |
 | M2 | **Robustness: the empirical method has a floor at a tuned fixed ef; Ada-ef does not** | Same-modality runs (34; 290926 §4): ours cheaper in 32 (worst −3.1%), p1 ≥ fixed in 33; Ada-ef as shipped cheaper in 11, WAE floor 17; p1 ≥ fixed 24 and 25. Wall-clock (round 2, 8 adaptive runs): ours −2.9% to +2.5% against fixed ef, Ada-ef as shipped −1% to −39% (and −87% on Last.fm). *Was "cheaper in 26 of 26": that used a biased linear interpolation (290926 §1)* |

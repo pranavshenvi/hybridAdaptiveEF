@@ -77,16 +77,15 @@ min-ef, P / R.
 BIGANN (SIFT-1B) has a near-Gaussian bulk (KS 0.029), yet Ada-ef's score takes only 5 (P) and 11
 (R) distinct values on 2,000 calibration queries, and ours ranks queries far better (ρ 0.74 vs
 0.42). The same happened on SIFT-1M (KS 0.126: Ada-ef gave every query one ef), so SIFT descriptors
-defeat Ada-ef's score at either KS. The likely reason: Ada-ef's score depends on where the query's
-*nearest* points fall in the predicted Normal — the extreme upper tail — while KS measures the
-largest gap anywhere, which is dominated by the bulk. A Gaussian bulk with a non-Gaussian upper
-tail passes KS and still breaks the score.
+defeat Ada-ef's score at either KS. The first hypothesis — Ada-ef's score depends on the extreme
+upper tail, which KS (dominated by the bulk) does not see — was tested and **refuted** (§7): the
+tail statistics predict no better than always guessing "ours", BIGANN's upper tail is close to
+Gaussian, and the text embeddings where Ada-ef wins have the *least* Gaussian tails.
 
-Consequence for D1: KS alone is not a sufficient offline test. Two candidates, to test on the
-existing runs before any new run: a tail-weighted statistic (Anderson–Darling, or the error of the
-predicted Normal's upper quantiles, e.g. 99.9%, against the empirical ones), and the number of
-distinct Ada-ef scores on a few hundred corpus points (cheap once the index exists; it correlated
-+0.86 with Ada-ef-WAE's saving in `updateAsOf280926.md` §9 and flags BIGANN, SIFT and Yambda).
+BIGANN stays in the paper. It was pre-registered; every check on it passed (Ada-ef's statistics
+50/50 identical to the original construction, normal fixed-ef recall, KS reproduced at 0.0299,
+the 2M prefix is how Big-ANN builds its own subsets); and on it our method wins end to end
+(ranking, p1, cost). Only the forecast missed.
 
 ### 3.2 MS Turing: Ada-ef ranks better, its tail is still worse than a fixed ef
 
@@ -150,8 +149,9 @@ Linear interpolation had given ours 38/38, Ada-ef 15/38 and Ada-ef-WAE 22/38.
   result is now the stronger half of M2.
 - **M1 (the failure regime)** holds and is now 8 datasets, 16 runs: ours ranks better in 16/16, its
   p1 gain is at least Ada-ef's in 16/16, cheaper than fixed ef in 14/16; Ada-ef cheaper in 2/16.
-- **D1 (offline test)** has its first failure (BIGANN). Report it; test a tail-weighted statistic
-  and the distinct-score count on the existing runs before claiming a better test.
+- **D1 (offline test)** stays KS: 18 of 19 datasets with a clear winner sorted correctly (16 of 19
+  leave-one-out), one known miss (BIGANN). Tail-weighted alternatives tested and rejected (§7).
+  Backup at calibration time: Ada-ef's distinct-score count.
 - **New limitation, shared:** cross-modal queries (3 of 3 datasets) — no adaptation by either
   method.
 - **Calibration-time choice:** failed out of sample on MS Turing; stays one discussion paragraph.
@@ -159,8 +159,45 @@ Linear interpolation had given ours 38/38, Ada-ef 15/38 and Ada-ef-WAE 22/38.
 
 ## 6. Next steps
 
-1. Tail-weighted KS variant and distinct-score count on the 20 datasets, from existing caches
-   (`stats.npz` holds the KS pool); see whether either predicts BIGANN and keeps the others.
-2. Tables and figures from `analysis/rescore_scorecard.js --json`.
-3. Optional: rerun one dataset with the dense grid to confirm the log-log numbers directly.
-4. Update the published results page.
+1. ✅ Tail-weighted alternatives to KS (§7): rejected; KS stays.
+2. Optional: why BIGANN fools KS — compare Ada-ef's raw scores on BIGANN and GloVe (index on the
+   server). Otherwise reported as an open question.
+3. Tables and figures from `analysis/rescore_scorecard.js --json`.
+4. ✅ Dense grid and log-log interpolation confirmed on the COCO-I2I smoke run (ours +2.1/+4.5% DC,
+   was +5.4/+9.8% with the biased interpolation).
+5. Update the published results page.
+
+## 7. Tail-weighted alternatives to KS: tested, rejected (2026-10-05)
+
+`survey_tail.py`, raw vectors only, same sampling as the KS survey (200 queries, ≤ 1M corpus rows),
+all 20 benchmark datasets. Per dataset: KS; Anderson–Darling A²/n against the same Normal; the
+upper-quantile error of the CLT Normal in sd (`tailz` at 1e-2, 1e-3, 1e-4); the tail mass beyond
+its 99.9% point (`exc3`, log10 of observed / expected). Label: the ranking margin, mean over P and
+R of |ρ_ours(K=1)| − |ρ_Ada-ef|. 19 datasets have |margin| > 0.02: 14 ours, 5 Ada-ef, so guessing
+"ours" every time scores 14/19.
+
+| Statistic | Spearman with margin | Best threshold | Leave-one-out | BIGANN |
+|---|---|---|---|---|
+| **KS** | **+0.68** | **18/19** | **16/19** | wrong |
+| Anderson–Darling | +0.68 | 17/19 | 14/19 | wrong |
+| tail z, signed (1e-2 / 1e-3 / 1e-4) | +0.15 / −0.09 / −0.23 | 14/19 | 9–14/19 | right |
+| tail z, absolute | +0.42 / +0.21 / +0.07 | 16/19 | 14/19 | wrong |
+| tail mass beyond 99.9% (signed / absolute) | −0.06 / +0.48 | 14 / 16/19 | 14/19 | right |
+
+No tail statistic beats guessing in leave-one-out; those that put BIGANN on the right side do not
+separate the other datasets. The reason the hypothesis fails is in the raw numbers: the text
+embeddings where Ada-ef's score ranks better have the heaviest upper tails relative to the Normal
+(tail z at 1e-4: MS MARCO +2.29, Cohere +1.91, dbpedia +1.49), while BIGANN's is close to Gaussian
+(−0.26), as are GloVe (+0.12), LAION (+0.06) and MS Turing (+0.04). How well the Normal fits the
+upper tail is not what decides whether Ada-ef's score ranks queries.
+
+Two observations worth keeping: SIFT-1M, GIST and Fashion-MNIST have much *lighter* tails than
+the Normal predicts (tail mass beyond 99.9%: 10^−3.1, 10^−2.6, 10^−1.9 of the expected), consistent
+with Ada-ef assigning one ef to every SIFT and Yambda query; Last.fm's tail is extreme (+11 sd at
+1e-4).
+
+**For the paper:** D1 is stated with KS — 18 of 19 datasets (16 of 19 leave-one-out), one known
+miss (BIGANN), the tail alternatives reported as tested and rejected. A second-stage check that
+costs nothing: Ada-ef's calibration already scores a few hundred points; if those scores take only
+a handful of distinct values (BIGANN 5–11 vs 60–100 where it works) its score cannot rank queries.
+That check needs the index, so it complements the offline test rather than replacing it.
