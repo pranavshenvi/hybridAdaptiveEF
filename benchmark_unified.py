@@ -104,13 +104,20 @@ ap.add_argument("--laion-shards", type=int, default=20, help="LAION image shards
 ap.add_argument("--smoke", action="store_true", help="tiny query sets and K=1 only, to check the pipeline")
 ap.add_argument("--lat-rounds", type=int, default=3,
                 help="rounds of the latency pass (fixed ef + headline methods; per-query median)")
+ap.add_argument("--ablation", action="store_true",
+                help="probe-length ablation: Ada-ef with a 100-distance probe and ours with 1025 (own results folder)")
+ap.add_argument("--quick", action="store_true", help="K_clusters=1 and the Isotonic recipe only")
+ap.add_argument("--export-darth", metavar="DIR", default=None,
+                help="write this dataset in DARTH's file layout under DIR and exit (needs an earlier run's caches)")
 args = ap.parse_args()
 SETTINGS = [s.strip().upper() for s in args.settings.split(",") if s.strip()]
 assert all(s in ("P", "R") for s in SETTINGS), "--settings takes P and/or R"
 
 TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
-RESULTS_DIR = f"results_unified_{args.dataset}{'_smoke' if args.smoke else ''}_{TIMESTAMP}"
-os.makedirs(RESULTS_DIR, exist_ok=True)
+RESULTS_DIR = (f"results_unified_{args.dataset}{'_smoke' if args.smoke else ''}"
+               f"{'_ablation' if args.ablation else ''}_{TIMESTAMP}")
+if not args.export_darth:
+    os.makedirs(RESULTS_DIR, exist_ok=True)
 sys.stdout.reconfigure(encoding='utf-8')
 
 
@@ -123,7 +130,8 @@ class Logger:
         self.terminal.flush(); self.log.flush()
 
 
-sys.stdout = Logger(os.path.join(RESULTS_DIR, "benchmark_unified.log"))
+if not args.export_darth:
+    sys.stdout = Logger(os.path.join(RESULTS_DIR, "benchmark_unified.log"))
 
 from scipy.spatial.distance import cdist
 from scipy.stats import spearmanr, kstest
@@ -142,8 +150,8 @@ TARGET_RECALL = 0.95
 EF_CAP = 5000
 PROBE_COUNT, NUM_BINS, QUANTILE_STEP, STATICS_LENGTH = 100, 5, 1e-3, 1025
 BIN_WEIGHTS = [float(100.0 * np.exp(-i)) for i in range(NUM_BINS)]
-K_SWEEP = [1] if args.smoke else [1, 8, 50]
-RECIPES = ["Isotonic", "Mean", "P90", "P70"]
+K_SWEEP = [1] if (args.smoke or args.quick) else [1, 8, 50]
+RECIPES = ["Isotonic"] if args.quick else ["Isotonic", "Mean", "P90", "P70"]
 DEFAULT_CONFIG = "Ours (K=1, Isotonic)"
 N_CALIB_P = 50 if args.smoke else 200
 N_CALIB_R_FULL = 2000             # dataset splits never depend on --smoke
@@ -652,7 +660,65 @@ def dc_at_quality(rows, metric, goal):
 # ═══════════════════════════════════════════════════════════════════════
 #  Main
 # ═══════════════════════════════════════════════════════════════════════
+def write_vecs(f, x, dtype):
+    """fvecs / ivecs: each row is int32 dim followed by the values."""
+    x = np.ascontiguousarray(x, dtype=dtype)
+    rec = np.empty((len(x), x.shape[1] + 1), dtype=dtype)
+    rec[:, 0] = np.frombuffer(np.int32(x.shape[1]).tobytes(), dtype=dtype)[0]
+    rec[:, 1:] = x
+    f.write(rec.tobytes())
+
+
+def export_darth(spec, out_root):
+    """Write the dataset in the layout darth/setup_darth.sh teaches DARTH's loader to read:
+    <out_root>/<NAME>/base.fvecs, {train,validation,test}.fvecs, {split}.gt.ivecs (ids of the
+    true top-K) and {split}.gtd.fvecs (their squared L2 distances). Train + validation = the
+    R-calibration queries, test = the test queries, ground truth = the cached one the other
+    methods were scored on. Vectors are unit-normalised, as in every other run."""
+    corpus, K = spec["corpus"], spec["k"]
+    gt_path = os.path.join("unified_cache", spec["tag"], f"gt_k{K}.npz")
+    if not os.path.exists(gt_path):
+        sys.exit(f"{gt_path} not found: run the benchmark on this dataset once first")
+    g = np.load(gt_path)
+    name = "CUSTOM_" + args.dataset.upper()
+    d = os.path.join(out_root, name)
+    os.makedirs(d, exist_ok=True)
+    kept = corpus.kept_ids()                       # FAISS numbers vectors 0..n-1 in insertion order
+    print(f"  exporting {name}: {corpus.n} x {corpus.dim} -> {d}", flush=True)
+    with open(os.path.join(d, "base.fvecs"), "wb") as f:
+        for _, x in corpus.chunks():
+            write_vecs(f, x, np.float32)
+    # R-calibration queries: the last quarter (at most 500) tunes DARTH's prediction intervals,
+    # the rest trains its predictor. Same query budget as the other methods.
+    cq, cg = spec["calib_r"], g["r"]
+    n_val = min(500, len(cq) // 4)
+    splits = {"train": (cq[:-n_val], cg[:-n_val]), "validation": (cq[-n_val:], cg[-n_val:]),
+              "test": (spec["test_q"], g["test"])}
+    for split, (q, ids) in splits.items():
+        q = normalize(q)
+        local = ids if corpus.keep is None else np.searchsorted(kept, ids)
+        dist = np.empty(ids.shape, dtype=np.float32)
+        for a in range(0, len(q), 256):
+            b = min(a + 256, len(q))
+            uniq, inv = np.unique(ids[a:b].ravel(), return_inverse=True)   # h5py: increasing, unique rows
+            nb = corpus.rows(uniq)[inv].reshape(b - a, ids.shape[1], -1)
+            dist[a:b] = ((nb - q[a:b, None, :]) ** 2).sum(axis=2)
+        with open(os.path.join(d, f"{split}.fvecs"), "wb") as f:
+            write_vecs(f, q, np.float32)
+        with open(os.path.join(d, f"{split}.gt.ivecs"), "wb") as f:
+            write_vecs(f, local.astype(np.int32), np.int32)
+        with open(os.path.join(d, f"{split}.gtd.fvecs"), "wb") as f:
+            write_vecs(f, dist, np.float32)
+        print(f"    {split}: {len(q)} queries, top-{ids.shape[1]}", flush=True)
+    with open(os.path.join(d, "meta.json"), "w") as f:
+        json.dump(dict(dataset=args.dataset, name=name, n=int(corpus.n), dim=int(corpus.dim), k=int(K),
+                       n_train=len(splits["train"][0]), n_val=n_val, n_test=len(splits["test"][0])), f, indent=1)
+    print(f"  done: {d}")
+
+
 def main():
+    if args.export_darth:
+        return export_darth(load_dataset(args.dataset), args.export_darth)
     t_all = time.time()
     timings = {}
     print("═" * 90)
@@ -895,6 +961,48 @@ def main():
                 with open(os.path.join(RESULTS_DIR, f"ef_table_{setting}_k{kc}_{how.lower()}.json"), "w") as f:
                     json.dump(ef_list, f)
 
+        # Probe-length ablation (--ablation): each score also runs with the other's probe length, so
+        # the thresholds are the only difference left (paper, \S3.3). Ada-ef keeps its own code and
+        # group-average table; only statics_length changes. Ours keeps its thresholds and isotonic fit.
+        ablation_rho = {}
+        if args.ablation:
+            L_A, L_O = PROBE_COUNT, STATICS_LENGTH
+            a_sc = np.array([idx.adaptive_search_knn_paper(q, K, L_A, scorer, None)[2] for q in calib_q])
+            ablation_rho[f"ada_L{L_A}"] = finite_or_none(spearmanr(a_sc, calib_min_ef)[0])
+            tab_l = os.path.join(cache, f"ada_table_{setting}_L{L_A}.json")
+            if os.path.exists(tab_l):
+                with open(tab_l) as f:
+                    z = json.load(f); a_table, a_wae = {int(k): v for k, v in z["table"].items()}, z["wae"]
+            else:
+                print(f"  [ablation] Ada-ef table with a {L_A}-distance probe ...", flush=True)
+                a_table, a_wae = ada_target_recall_table(idx, np.round(a_sc).astype(int), calib_q, calib_gt, K, grid)
+                with open(tab_l, "w") as f:
+                    json.dump(dict(table=a_table, wae=a_wae), f, indent=1)
+            for variant, table in (("as shipped", a_table), ("WAE floor", {s_: max(e, a_wae) for s_, e in a_table.items()})):
+                sketch = hnsw.AdaEfPaperSketch([(s_, [(e, float(TARGET_RECALL))]) for s_, e in table.items()], TARGET_RECALL)
+                def ada_l_search(i, q, sketch=sketch):
+                    labs, _, _, ef_used = idx.adaptive_search_knn_paper(q, K, L_A, scorer, sketch)
+                    return labs, ef_used
+                rec, efs, dcs, lat = run_queries(idx, test_q, test_gt, K, ada_l_search)
+                row, pq = summarize(f"Ada-ef L={L_A} ({variant})", rec, efs, dcs, 0, lat, dict(wae=a_wae, probe_len=L_A))
+                searchers[row["name"]] = ada_l_search
+                rows.append(row); pq_setting[row["name"]] = pq
+                print(f"  {row['name']:<30} R={row['mean_r']:.4f} p1={row['p1']:.3f} DC={row['total_dc']:.0f}", flush=True)
+            b1 = bins[1][0].tolist()
+            o_sc = np.array([idx.get_dynamic_probe_score_weighted(q, b1, BIN_WEIGHTS, L_O) for q in calib_q], dtype=np.float32)
+            ablation_rho[f"ours_L{L_O}"] = finite_or_none(spearmanr(o_sc, calib_min_ef)[0])
+            o_list = build_isotonic(np.round(o_sc).astype(int), calib_min_ef, K)
+            def ours_l_search(i, q, o_list=o_list):
+                labs, _, ef_used = idx.search_knn_dynamic_weighted(q, K, b1, BIN_WEIGHTS, o_list, K, EF_CAP, L_O)
+                return labs, ef_used
+            rec, efs, dcs, lat = run_queries(idx, test_q, test_gt, K, ours_l_search)
+            row, pq = summarize(f"Ours (K=1, Isotonic, L={L_O})", rec, efs, dcs, 1, lat, dict(probe_len=L_O))
+            searchers[row["name"]] = ours_l_search
+            rows.append(row); pq_setting[row["name"]] = pq
+            print(f"  {row['name']:<30} R={row['mean_r']:.4f} p1={row['p1']:.3f} DC={row['total_dc']:.0f}", flush=True)
+            print(f"  [ablation] rho: Ada-ef L={L_A} {ablation_rho[f'ada_L{L_A}']} (L={STATICS_LENGTH}: {rho_ada}) | "
+                  f"ours L={L_O} {ablation_rho[f'ours_L{L_O}']} (L={PROBE_COUNT}: {rho_ours.get(1)})", flush=True)
+
         # Latency pass: fixed-ef grid and headline methods; replaces their single-pass latency
         # time only the fixed-ef points that bracket a headline method's recall (all the scorecard needs)
         fx_sorted = sorted(fixed_rows, key=lambda r: r["avg_ef"])
@@ -936,6 +1044,9 @@ def main():
         # Scorecard against a tuned fixed ef at the same mean recall (DC and latency savings, tail gains)
         main_names = ["Ada-ef (as shipped)", "Ada-ef (WAE floor)", DEFAULT_CONFIG,
                       "Choice (with Ada-ef as shipped)", "Choice (with Ada-ef WAE floor)"]
+        if args.ablation:
+            main_names += [f"Ada-ef L={PROBE_COUNT} (as shipped)", f"Ada-ef L={PROBE_COUNT} (WAE floor)",
+                           f"Ours (K=1, Isotonic, L={STATICS_LENGTH})"]
         scorecard = {n: vs_fixed(next(r for r in rows if r["name"] == n), fixed) for n in main_names}
         # Calibration diagnostics (the factors of updateAsOf280926.md §9)
         ada_by_score = np.array([ada_table.get(int(s), wae) for s in np.round(ada_scores).astype(int)])
@@ -962,6 +1073,7 @@ def main():
                  "None = computed by an earlier run, before timing was recorded.")
         summary = dict(setting=setting, n_calib=len(calib_q), rho_ada=rho_ada, rho_ours=rho_ours,
                        choice="ours" if chose_ours else "Ada-ef", scorecard_vs_fixed=scorecard,
+                       ablation_rho=ablation_rho or None,
                        diagnostics=diagnostics, offline=offline,
                        calib_min_ef_capped_frac=float(capped.mean()),
                        ada=ada, default=default,

@@ -91,7 +91,7 @@ def latest_per_name(root, prefix):
     for d in glob.glob(os.path.join(root, prefix + "*")):
         b = os.path.basename(d)
         m = re.match(re.escape(prefix) + r"(.+)_(\d{8}_\d{6})$", b)
-        if not m or "smoke" in b or not os.path.isdir(d):
+        if not m or "smoke" in b or "ablation" in b or not os.path.isdir(d):
             continue
         if m.group(1) not in out or b > os.path.basename(out[m.group(1)]):
             out[m.group(1)] = d

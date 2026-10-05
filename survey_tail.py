@@ -164,7 +164,7 @@ def labels(results_dir):
     latest = {}
     for d in glob.glob(os.path.join(results_dir, "results_unified_*")):
         b = os.path.basename(d)
-        if "smoke" in b:
+        if "smoke" in b or "ablation" in b:
             continue
         ds = b[len("results_unified_"):-len("_YYYYmmdd_HHMMSS")]
         if ds not in latest or b > os.path.basename(latest[ds]):
