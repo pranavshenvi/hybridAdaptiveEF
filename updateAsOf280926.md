@@ -195,7 +195,7 @@ Results: `results_ks_survey_standard_*/ks_survey.json`.
    benchmark studies measure hardness with LID and relative contrast. The KS measurements are
    therefore a contribution, not something to cite.
 
-**All surveys combined:** of the 43 datasets measured (8 unified, 19 VIBE, 16 standard), 9 are on
+**All surveys combined:** of the 41 datasets measured (6 of ours, 19 VIBE, 16 standard; first written as 43, which counted GIST and Fashion-MNIST twice — corrected 2026-10-05), 9 are on
 our side of the band: SIFT-1M, DeepImage, Deep1B, Yambda, DINO, ResNet, Fashion-MNIST, GIST, Last.fm.
 
 ## 5. Two standard datasets added to the benchmark
@@ -266,7 +266,7 @@ the ef floor (median = P90 = 100), and a fixed ef of 100 already reaches 0.990 m
 - **Ada-ef's fixed probe cost** (1,025 distances) is a real disadvantage at small search budgets
   (Fashion-MNIST) and should be stated as a separate effect from score quality.
 - **C6 changes wording:** not "vision/audio features are non-Gaussian" but "KS varies within every
-  data type and must be measured; 9 of 43 datasets surveyed are on the non-Gaussian side, including
+  data type and must be measured; 9 of 41 datasets surveyed are on the non-Gaussian side, including
   classic ann-benchmarks sets and recommendation embeddings".
 - **LAION** is reported with its tail at p5 and the reachability note (§3).
 - **ALIGN** is reported as a case where neither score adapts (cross-modal).

@@ -7,8 +7,8 @@ Adaptive Search in HNSW*
 
 **Thesis:** Ada-ef (SIGMOD 2026) adapts HNSW's search budget per query using a difficulty score
 built on a Gaussian (CLT) model of the query-to-data similarity distribution — an assumption its
-paper states but never tests. We test it on 43 datasets and find it fails on a real minority (9 of
-43, including classic benchmarks such as SIFT, GIST and Fashion-MNIST), in a way that cannot be
+paper states but never tests. We test it on 41 datasets and find it fails on a real minority (9 of
+41, including classic benchmarks such as SIFT, GIST and Fashion-MNIST), in a way that cannot be
 guessed from the kind of data. Where it fails, Ada-ef stops adapting — on SIFT and Yambda it gives
 every query the same ef — while an empirical, distribution-free difficulty score keeps the adaptive
 advantage. The empirical method also has a floor Ada-ef lacks: across 20 datasets it never costs
@@ -27,7 +27,7 @@ arXiv first. Fallback: a SIGMOD/VLDB workshop.
 ## Contributions (in the order the paper presents them)
 
 1. **Diagnosis** — the first test of Ada-ef's Gaussian assumption: KS statistic of the
-   query-to-data similarity distribution on 43 datasets (ann-benchmarks, Big-ANN, VIBE, and the
+   query-to-data similarity distribution on 41 datasets (ann-benchmarks, Big-ANN, VIBE, and the
    Ada-ef paper's own). It fails on 9; KS varies within every data type, so it must be measured.
    (Claims D1, D2.)
 2. **Method** — the empirical (percentile) difficulty score, as the fix where the assumption
@@ -58,7 +58,7 @@ the numbers in 260926 §10 and 280926 §2, §6, §9 are superseded by 290926 §4
 | # | Claim | Status under the frozen protocol |
 |---|---|---|
 | D1 | **Which difficulty score ranks queries better is predictable offline from KS:** Ada-ef's Gaussian score on near-Gaussian data, the empirical score on clearly non-Gaussian data | **Supported.** KS vs Ada-ef's calibration ρ: Spearman −0.87 over 13 datasets. Crossover band 0.044–0.066 at 200 queries (§6). Out-of-sample predictions written before running: DINO, ResNet, GIST, Fashion-MNIST (our side) ✅; LAION (Ada-ef side) ✅ weakly; Cohere (borderline) ✅; Yahoo-MiniLM split (band); ImageNet-ALIGN untestable (280926 §1.5). Round 2 (290926 §3): Deep1B (ours) ✅, MS Turing (Ada-ef) ✅ on ranking, COCO-I2I band as expected, Last.fm and COCO-T2I untestable (no adaptation), **BIGANN (Ada-ef) ❌** — ours ranks far better (ρ 0.74 vs 0.42) at KS 0.029. Tail-weighted alternatives (Anderson–Darling, upper-quantile error, tail mass) tested on all 20 datasets and rejected: none beats guessing in leave-one-out; KS sorts 18/19 (16/19 leave-one-out) (290926 §7). BIGANN stays in (pre-registered, all checks passed, ours wins on it end to end). Plus the controlled synthetic experiment |
-| D2 | **How often each side applies, and that it must be measured** | 43 datasets: **9 on the non-Gaussian side** (SIFT-1M, DeepImage, Deep1B, Yambda, DINO, ResNet, Fashion-MNIST, GIST, Last.fm). No modern contrastive text or multimodal model reaches it; within other data types KS varies (SIFT-1M 0.126 vs SIFT-1B 0.029; MNIST 0.037 vs Fashion-MNIST 0.073) (§7; 280926 §4). No published paper reports such normality tests; Ada-ef and He et al. (ICML 2012) assume the approximation |
+| D2 | **How often each side applies, and that it must be measured** | 41 datasets surveyed (6 of ours, 19 VIBE, 16 ann-benchmarks/Big-ANN; GloVe-200 appears in two suites): **9 on the non-Gaussian side** (SIFT-1M, DeepImage, Deep1B, Yambda, DINO, ResNet, Fashion-MNIST, GIST, Last.fm). No modern contrastive text or multimodal model reaches it; within other data types KS varies (SIFT-1M 0.126 vs SIFT-1B 0.029; MNIST 0.037 vs Fashion-MNIST 0.073) (§7; 280926 §4). No published paper reports such normality tests; Ada-ef and He et al. (ICML 2012) assume the approximation |
 | M1 | **Where the assumption fails, Ada-ef loses its advantage over a fixed ef and the empirical score keeps it** | **Supported on 8 of 8 high-KS datasets, five out of sample** (16 runs; 290926 §4): our ranking better in 16; our p1 gain at least Ada-ef's in 16; ours cheaper than a tuned fixed ef in 14 (misses: DeepImage P −3.1%, GIST R −1.0%), p1 ≥ fixed in 15; Ada-ef as shipped cheaper in 2, p1 ≥ fixed in 8. The end-to-end gain varies: large tail gains on DeepImage, Deep1B, DINO, ResNet; small on SIFT, Yambda; almost nothing on GIST. BIGANN (low KS) behaves like this group too |
 | M2 | **Robustness: the empirical method has a floor at a tuned fixed ef; Ada-ef does not** | Same-modality runs (34; 290926 §4): ours cheaper in 32 (worst −3.1%), p1 ≥ fixed in 33; Ada-ef as shipped cheaper in 11, WAE floor 17; p1 ≥ fixed 24 and 25. Wall-clock (round 2, 8 adaptive runs): ours −2.9% to +2.5% against fixed ef, Ada-ef as shipped −1% to −39% (and −87% on Last.fm). *Was "cheaper in 26 of 26": that used a biased linear interpolation (290926 §1)* |
 | L1 | **Shared limit: cross-modal queries** | Last.fm (user → item), COCO-T2I and ImageNet-ALIGN (text → image): both scores give every real query the same ef, 3 of 3 datasets. Ours then costs −1.3% to +0.5% against a fixed ef, Ada-ef up to 10% more DC and 87% more time (its probe) (290926 §3.3) |
@@ -160,7 +160,7 @@ uniform sample, and Ada-ef's covariance is accumulated in float64 rather than fl
 ## Deliverables (what the paper shows)
 
 1. **Table 1** — datasets, protocol, KS (200 queries, with interval), ρ of both scores (D1).
-2. **Figure 1 / Table 2** — the KS survey of 43 datasets (D2): KS with 95% interval, coloured by
+2. **Figure 1 / Table 2** — the KS survey of 41 datasets (D2): KS with 95% interval, coloured by
    the side of the band, same-data/different-model pairs highlighted.
 3. **Table 3 (main)** — the scorecard against a tuned fixed ef (M1, M2): per dataset and setting,
    for Ada-ef (as shipped, WAE floor) and ours, the p1/p5 gain and the cost saving (wall-clock
