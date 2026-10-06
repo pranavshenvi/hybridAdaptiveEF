@@ -14,12 +14,22 @@ COMMIT=0d9bafcf31d1d79668bc71139fe93fa5e70b5185          # the version inspected
 mkdir -p "$ROOT"
 cd "$ROOT"
 
+# LightGBM needs CMake >= 3.28; Ubuntu 22.04 ships 3.22. A newer CMake from pip needs no sudo.
+CMAKE=cmake
+have=$(cmake --version 2>/dev/null | head -1 | awk '{print $3}')
+if [ -z "$have" ] || [ "$(printf '%s\n' 3.28 "$have" | sort -V | head -1)" != "3.28" ]; then
+  python3 -m pip install --user --upgrade "cmake>=3.28"
+  CMAKE="$HOME/.local/bin/cmake"
+fi
+echo "using $($CMAKE --version | head -1)"
+
 # LightGBM C library (DARTH links against it at $HOME/lightgbm-install)
 if [ ! -f "$HOME/lightgbm-install/lib/lib_lightgbm.so" ]; then
   [ -d LightGBM ] || git clone --recursive --depth 1 https://github.com/microsoft/LightGBM.git
-  cmake -S LightGBM -B LightGBM/build -DCMAKE_INSTALL_PREFIX="$HOME/lightgbm-install" -DCMAKE_BUILD_TYPE=Release
-  cmake --build LightGBM/build -j"$(nproc)"
-  cmake --install LightGBM/build
+  rm -rf LightGBM/build
+  "$CMAKE" -S LightGBM -B LightGBM/build -DCMAKE_INSTALL_PREFIX="$HOME/lightgbm-install" -DCMAKE_BUILD_TYPE=Release
+  "$CMAKE" --build LightGBM/build -j"$(nproc)"
+  "$CMAKE" --install LightGBM/build
 fi
 
 # DARTH at the pinned commit
@@ -58,7 +68,8 @@ open(p, "w").write(s[:j] + block + s[j:])
 print("patched", p)
 EOF
 
-cmake -DFAISS_ENABLE_GPU=OFF -DFAISS_ENABLE_PYTHON=OFF -DBUILD_TESTING=OFF -DBUILD_SHARED_LIBS=ON \
+rm -rf build
+"$CMAKE" -DFAISS_ENABLE_GPU=OFF -DFAISS_ENABLE_PYTHON=OFF -DBUILD_TESTING=OFF -DBUILD_SHARED_LIBS=ON \
       -DCMAKE_BUILD_TYPE=Release -B build -S .
 make -C build -j"$(nproc)" faiss
 make -C build -j"$(nproc)" hnsw_test
