@@ -8,7 +8,7 @@ const { applyTheme } = require(process.env.PPTX_SKILL ||
   "C:/Users/adebeo/.claude/skills/synced/81f1b1b5-7c94-4926-91c8-fca4a2a070f6_ff6d1026-246b-4214-87da-3cc36522d9da/pptx/scripts/apply_theme.js");
 
 const OUT = process.argv[2] || "PercEF_review.pptx";
-const FIG = path.join(__dirname, "..", "server_results", "paper_out_20261005_212926");
+const FIG = path.join(__dirname, "..", "server_results", "paper_out_20261006_145536");
 const LOGO = path.join(__dirname, "..", "poster", "assets", "logo_pes.png");
 
 // PES template colours, shared with the poster; method colours as in the paper's figures
