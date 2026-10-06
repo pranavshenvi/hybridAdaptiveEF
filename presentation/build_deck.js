@@ -98,7 +98,7 @@ s.addText([
 s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.8, y: 0.6, w: 3.0, h: 1.6, rectRadius: 0.1, fill: { color: C.background1 },
   line: { color: C.background1, width: 0 }, objectName: "Logo backing" });
 s.addImage({ path: LOGO, x: 0.95, y: 0.72, w: 2.7, h: 2.7 * 373 / 727, objectName: "PES logo" });
-s.addNotes("PercEF is a fix for adaptive search in vector databases. Ada-ef, a SIGMOD 2026 method, chooses the search effort per query by assuming the data looks like a bell curve. We tested that assumption, found where it fails, and built a method that works either way.");
+s.addNotes("(0:05) Hi, we are [team]. Our project is PercEF: making adaptive vector search work when the data is not bell-shaped.");
 
 // ================================================================= 1b. background: vector search and HNSW
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Introduction" });
@@ -153,7 +153,7 @@ s.addText([
   s.addText("entry", { x: pos(2, 0)[0] - 0.45, y: pos(2, 0)[1] - 0.45, w: 0.9, h: 0.28, fontSize: 11, bold: true, color: C.accent1,
     align: "center", margin: 0, isTextBox: true, objectName: "HNSW entry label" });
 })();
-s.addNotes("Vector search finds the nearest vectors to a query. An index like HNSW avoids comparing against everything: it walks a layered graph from a sparse top layer down to the full bottom layer. ef is how many candidates it keeps at the bottom: larger means more accurate but slower.");
+s.addNotes("(0:12) Vector search finds the items closest to a query among millions of embeddings. To be fast, an index like HNSW walks a layered graph from the top down. A setting called ef decides how many candidates the search keeps: more is more accurate, but slower.");
 
 // ================================================================= 2. problem statement
 pres.addSection({ title: "Problem statement" });
@@ -166,7 +166,7 @@ card(s, 4.75, 2.45, 3.85, 2.2, "Hard query", "Needs a large ef.\nA small shared 
 card(s, 8.9, 2.45, 3.85, 2.2, "Goal", "Choose ef per query: meet the target recall (95%), help the worst queries, and cost no more than one well-tuned ef.", { fill: C.accent1, headColor: C.background1 });
 s.addText("Recall = share of a query's 100 true nearest neighbours that the search finds.", { x: 0.6, y: 4.95, w: 12.1, h: 0.5,
   fontSize: 15, italic: true, color: C.accent2, margin: 0, isTextBox: true, objectName: "Recall definition" });
-s.addNotes("Easy queries get too much effort, hard queries too little. The target is a per-query ef that reaches 95% recall without costing more than the best single ef.");
+s.addNotes("(0:08) Most systems use one ef for every query. Easy queries waste work, and hard queries miss some of their neighbours.");
 
 // ================================================================= 3. existing methodology
 pres.addSection({ title: "Existing methodology" });
@@ -180,7 +180,7 @@ card(s, 6.85, 1.45, 5.9, 3.7, "Distribution-aware: Ada-ef",
   { bodySize: 16, fill: "DCEFF3" });
 s.addText("Our question: does Ada-ef's bell-curve assumption hold on real data?", { x: 0.6, y: 5.5, w: 12.1, h: 0.6,
   fontSize: 20, bold: true, color: C.accent1, margin: 0, isTextBox: true, objectName: "Bridge question" });
-s.addNotes("Two families. Learned methods train a model per dataset and consult it during the search. Ada-ef needs no training: it assumes the similarities are Gaussian and reads query difficulty from a short probe. Its stated claims: meet a target recall, avoid under- and over-searching, and its Gaussian theory applies to learned embeddings.");
+s.addNotes("(0:08) Existing fixes either train a model per dataset, like DARTH, or, like Ada-ef from SIGMOD 2026, assume that a query's similarities follow a bell curve.");
 
 // ================================================================= 4. how Ada-ef works
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Existing methodology" });
@@ -196,7 +196,7 @@ s.addText("The thresholds come from the bell curve. If the real similarities are
   { x: 0.6, y: 3.45, w: 12.1, h: 0.9, fontSize: 18, color: C.text1, margin: 0, isTextBox: true, objectName: "Ada-ef weakness" });
 card(s, 0.6, 4.55, 12.15, 1.7, "The gap", "Ada-ef's paper states this assumption but never measures it on data. Neither does any other ANN paper we found.",
   { fill: "FCE9DF", headColor: C.accent4, bodySize: 16 });
-s.addNotes("The highlighted step is the weak point: the five thresholds are placed using the bell curve. When the data is not Gaussian, almost no probe distance falls under them, and every query gets the same score and the same ef.");
+s.addNotes("(0:08) Ada-ef places its difficulty thresholds using that bell curve. Nobody had checked whether real data is bell-shaped.");
 
 // ================================================================= 5. the diagnosis
 pres.addSection({ title: "Our method" });
@@ -211,7 +211,7 @@ s.addText(bullets([
   "Data type does not predict it: SIFT-1M 0.126 vs SIFT-1B 0.029; Fashion-MNIST 0.073 vs MNIST 0.037",
   "There, Ada-ef stops adapting: on SIFT it gives every query the same ef",
 ]), { x: 6.45, y: 1.4, w: 6.3, h: 5.3, color: C.text1, valign: "top", margin: 0, isTextBox: true, objectName: "Diagnosis bullets" });
-s.addNotes("Each dot is a dataset; higher KS means less Gaussian. Most modern text embeddings fit well, which is why Ada-ef works on its own datasets. Nine do not, and you cannot tell from the kind of data, so it has to be measured.");
+s.addNotes("(0:10) We tested it on 41 datasets. Nine are clearly not bell-shaped, including SIFT and GIST, and you cannot tell from the kind of data. On those, Ada-ef stops adapting.");
 
 // ================================================================= 6. PercEF
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Our method" });
@@ -237,7 +237,7 @@ s.addText(bullets([
   "Probe of 100 distances instead of 1,025; the search does not restart after it",
   "No covariance matrix: a few kilobytes instead of up to 9.4 MB",
 ]), { x: 0.6, y: 4.8, w: 12.1, h: 1.8, color: C.text1, valign: "top", margin: 0, isTextBox: true, objectName: "PercEF bullets" });
-s.addNotes("PercEF keeps Ada-ef's probe-score-table design and changes one thing: the thresholds are the data's own distance percentiles. Calibration fits an isotonic curve from score to the ef each calibration query needed.");
+s.addNotes("(0:10) Our method, PercEF, keeps Ada-ef's design but measures the thresholds from the data's own distance percentiles, with a ten times shorter probe and no covariance matrix.");
 
 // ================================================================= 7. the KS test as a decision rule
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Our method" });
@@ -255,7 +255,7 @@ stat(s, 4.85, 3.4, 3.6, "14", "predictions written down before the runs; one fai
 stat(s, 8.8, 3.4, 3.6, "0", "tail-weighted alternatives that beat KS (tested and rejected)", C.accent4);
 s.addText("Every KS prediction was recorded before running the dataset, so the test was checked out of sample.",
   { x: 0.9, y: 5.4, w: 11.5, h: 0.6, fontSize: 16, color: C.text1, margin: 0, isTextBox: true, objectName: "KS note" });
-s.addNotes("The KS test is a pre-check a practitioner can run in seconds. Leave-one-out accuracy is 16 of 19. The one miss is SIFT-1B, where KS said Ada-ef but PercEF won; we tested tail-weighted statistics as replacements and none did better.");
+s.addNotes("(0:08) A KS test on the raw vectors, which takes seconds, tells you which method to use. It picked the right one on 18 of 19 datasets, with every prediction written down before the run.");
 
 // ================================================================= 8. novelty
 pres.addSection({ title: "Novelty" });
@@ -270,7 +270,7 @@ const nv = [
 nv.forEach(([h, b], i) => card(s, 0.6 + (i % 2) * 6.15, 1.4 + Math.floor(i / 2) * 2.1, 5.95, 1.85, h, b, { bodySize: 16, fill: i % 2 ? C.background2 : "DCEFF3" }));
 s.addText("Also: an evaluation guide for adaptive search (interpolation bias, timing noise, probe cost), from errors we caught in our own runs.",
   { x: 0.6, y: 5.65, w: 12.1, h: 0.5, fontSize: 14, italic: true, color: C.accent2, margin: 0, isTextBox: true, objectName: "Novelty footnote" });
-s.addNotes("Four contributions. The diagnosis is new: nobody had measured this assumption. The method is a one-idea change, explained by the diagnosis. The cost floor and the offline test make it usable in practice.");
+s.addNotes("(0:08) So we contribute the first test of this assumption, a distribution-free score, a cost floor, and an offline test.");
 
 // ================================================================= 9. setup and metrics
 pres.addSection({ title: "Results" });
@@ -291,7 +291,7 @@ table(s, [
   ["Latency", "Time per query (µs)"],
   ["Tuned fixed ef", "One ef for all queries, picked in hindsight for the same mean recall: the reference"],
 ], 6.5, 1.4, 6.25, [2.1, 4.15], "Metrics table", 13);
-s.addNotes("All comparisons are against the best fixed ef chosen in hindsight at the same mean recall, a demanding reference no deployment could choose in advance. p1 measures how badly the worst queries are served.");
+s.addNotes("(0:05) We followed Ada-ef's own protocol on 20 datasets and compared everything against the best fixed ef.");
 
 // ================================================================= 10. non-Gaussian results
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Results" });
@@ -312,7 +312,7 @@ stat(s, 9.2, 3.15, 3.5, "16 / 16", "runs where PercEF's worst-case gain is at le
 stat(s, 9.2, 4.85, 3.5, "14 vs 2", "runs cheaper than the fixed ef: PercEF vs Ada-ef (of 16)", C.accent2);
 s.addText("16 runs = the 8 non-Gaussian datasets x 2 calibration settings", { x: 9.2, y: 6.35, w: 3.55, h: 0.5, fontSize: 11,
   italic: true, color: C.accent6, margin: 0, isTextBox: true, objectName: "Runs definition" });
-s.addNotes("Eight non-Gaussian datasets, two calibration settings each. Example: on DeepImage the worst 1% of queries gain 8.5 recall points with PercEF against 4.3 with Ada-ef, at the same mean recall as the fixed ef.");
+s.addNotes("(0:10) Each pair of bars is a dataset. On the non-Gaussian datasets, PercEF improves the worst one percent of queries in every run: on DeepImage by 8.5 recall points, against 4.3 for Ada-ef.");
 
 // ================================================================= 11. cost and speed
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Results" });
@@ -332,7 +332,7 @@ s.addChart(pres.charts.BAR, [{ name: "Speed-up", labels: sp, values: [1.37, 1.24
   showValue: true, dataLabelFontSize: 11, dataLabelColor: HEX.ink, dataLabelFormatCode: "0.00", objectName: "Speed-up chart" });
 s.addText("Fair to Ada-ef: on its own long-search datasets, Ada-ef with its WAE floor is the fastest (21% faster than the fixed ef on GloVe).",
   { x: 4.7, y: 5.95, w: 8.05, h: 0.75, fontSize: 14, italic: true, color: C.accent2, margin: 0, isTextBox: true, objectName: "Speed note" });
-s.addNotes("34 runs = 17 datasets x 2 calibration settings. PercEF is 1.03x to 1.37x faster than Ada-ef as shipped, mainly because Ada-ef computes 1,025 probe distances per query and PercEF 100. It is not many times faster; its main win is the worst-case recall.");
+s.addNotes("(0:08) PercEF does less work than the best fixed ef in 32 of 34 runs, never more than 2.5 percent extra, and runs 1.0 to 1.4 times faster than Ada-ef. Even on bell-shaped data it saves work in every run; Ada-ef's advantage there is a better worst case.");
 
 // ================================================================= 12. checks
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Results" });
@@ -357,7 +357,7 @@ table(s, [
   ["Deep1B", "+0.098", "+0.081", "1.9x slower", "3% slower"],
 ], 6.95, 1.75, 5.8, [1.2, 1.1, 1.1, 1.2, 1.2], "DARTH table", 12);
 s.addText("DARTH has the best tail but costs time and training; PercEF gets much of the gain at almost no time cost.", { x: 6.95, y: 4.3, w: 5.8, h: 0.9, fontSize: 14, italic: true, color: C.accent2, margin: 0, isTextBox: true, objectName: "DARTH takeaway" });
-s.addNotes("Left: each score at both probe lengths. On non-Gaussian data PercEF ranks better at both, so the thresholds carry the advantage. Right: DARTH, the learned method, wins the worst-case recall but is up to 2.3x slower than a fixed ef and needs minutes of training per dataset.");
+s.addNotes("(0:08) The gain comes from the thresholds, not the shorter probe. The learned method DARTH has a better worst case, but is up to 2.3 times slower.");
 
 // ================================================================= 13. combined idea (tested, not adopted)
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Results" });
@@ -379,7 +379,7 @@ s.addText(bullets([
   "Ada-ef's tail edge on Gaussian data needs its own score and its table together",
   "Plain PercEF keeps the best or tied-best worst-case recall on 5 of 6 datasets",
 ], 15), { x: 0.6, y: 5.25, w: 12.1, h: 1.6, color: C.text1, valign: "top", margin: 0, isTextBox: true, objectName: "Combo bullets" });
-s.addNotes("We tested whether Ada-ef's better worst-case recall on Gaussian data came from its ef table. It did not: with that table our score barely improves on GloVe. Plain PercEF stays the default; the result goes in the paper as a tested explanation that did not hold.");
+s.addNotes("(hidden slide, skipped when presenting) Tested idea that did not hold: PercEF's score with Ada-ef's table.");
 
 // ================================================================= 14. limits and next steps
 pres.addSection({ title: "Wrap-up" });
@@ -391,7 +391,7 @@ card(s, 0.6, 1.4, 5.95, 3.4, "Limits, stated openly",
 card(s, 6.85, 1.4, 5.9, 3.4, "Next steps",
   "• Understand why Ada-ef's score and table together win the tail on GloVe\n• Final figures and numbers in the paper\n• Guide review, author list\n• arXiv preprint and code release\n• Submit: PVLDB Experiments, Analysis & Benchmarks track",
   { bodySize: 16, fill: "DCEFF3" });
-s.addNotes("These limits are in the paper. Reviewers trust a paper that says what does not work.");
+s.addNotes("(0:06) On bell-shaped text data Ada-ef still wins the worst case, and queries from a different modality remain open.");
 
 // ================================================================= 15. conclusion
 s = pres.addSlide({ masterName: "DARK", sectionTitle: "Wrap-up" });
@@ -400,7 +400,7 @@ s.addText([
   { text: "Ada-ef's bell-curve assumption fails on 9 of 41 datasets. PercEF measures the thresholds instead: better worst-case recall where the assumption fails, never meaningfully costlier than a tuned fixed ef, and a seconds-long test that says which method to use.", options: { breakLine: true } },
   { text: "Thank you. Questions?", options: { bold: true } },
 ], { placeholder: "body" });
-s.addNotes("One sentence to remember: measure the distribution instead of assuming it.");
+s.addNotes("(0:05) In short: measure the distribution, don't assume it. Thank you.");
 
 (async () => {
   await pres.writeFile({ fileName: OUT });

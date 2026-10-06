@@ -1,7 +1,8 @@
 # Demo video script (under 2 minutes)
 
-About 300 words at a calm pace; the times add up to 2:00. The hidden slide (our score + Ada-ef's
-table) is skipped automatically in slideshow mode.
+About 310 words at a calm pace; the times add up to about 2:00. The hidden slide (our score +
+Ada-ef's table) is skipped automatically in slideshow mode. The same lines are in each slide's
+speaker notes.
 
 | # | Slide | Say (about) | Time |
 |---|---|---|---|
@@ -15,10 +16,10 @@ table) is skipped automatically in slideshow mode.
 | 8 | KS test | "A KS test on the raw vectors, which takes seconds, tells you which method to use. It picked the right one on 18 of 19 datasets, with every prediction written down before the run." | 0:08 |
 | 9 | Novelty | "So we contribute the first test of this assumption, a distribution-free score, a cost floor, and an offline test." | 0:08 |
 | 10 | Setup | "We followed Ada-ef's own protocol on 20 datasets and compared everything against the best fixed ef." | 0:05 |
-| 11 | Non-Gaussian results | "On the non-Gaussian datasets, PercEF improves the worst one percent of queries in every run: on DeepImage by 8.5 recall points, against 4.3 for Ada-ef." | 0:10 |
-| 12 | Cost | "And it never costs more than 2.5 percent over the best fixed ef, while running 1.0 to 1.4 times faster than Ada-ef." | 0:08 |
+| 11 | Non-Gaussian results | "Each pair of bars is a dataset. On the non-Gaussian datasets, PercEF improves the worst one percent of queries in every run: on DeepImage by 8.5 recall points, against 4.3 for Ada-ef." | 0:10 |
+| 12 | Cost | "PercEF does less work than the best fixed ef in 32 of 34 runs, never more than 2.5 percent extra, and runs 1.0 to 1.4 times faster than Ada-ef. Even on bell-shaped data it saves work in every run; Ada-ef's advantage there is a better worst case." | 0:10 |
 | 13 | Checks | "The gain comes from the thresholds, not the shorter probe. The learned method DARTH has a better worst case, but is up to 2.3 times slower." | 0:08 |
-| 14 | Limits | "On bell-shaped text data Ada-ef still wins, and queries from a different modality remain open." | 0:06 |
+| 14 | Limits | "On bell-shaped text data Ada-ef still wins the worst case, and queries from a different modality remain open." | 0:06 |
 | 15 | Conclusion | "In short: measure the distribution, don't assume it. Thank you." | 0:05 |
 
 If you run long, drop slide 10 (setup) and shorten slide 2.
