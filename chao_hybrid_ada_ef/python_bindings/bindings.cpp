@@ -967,6 +967,22 @@ public:
 };
 
 
+// PercEF's per-dataset search configuration (thresholds, weights, calibrated ef table), built once
+// and passed by reference on every query, as Ada-ef's AdaEfPaperSketch is. Passing Python lists
+// instead converts them to vectors on every call, a per-query cost Ada-ef does not pay.
+class PercEFConfig {
+public:
+    std::vector<float> bins, weights;
+    std::vector<int> ef_table;
+    int min_ef, max_ef, probe_count;
+
+    PercEFConfig(std::vector<float> bins_, std::vector<float> weights_, std::vector<int> ef_table_,
+                 int min_ef_, int max_ef_, int probe_count_)
+        : bins(std::move(bins_)), weights(std::move(weights_)), ef_table(std::move(ef_table_)),
+          min_ef(min_ef_), max_ef(max_ef_), probe_count(probe_count_) {}
+};
+
+
 PYBIND11_PLUGIN(chao_hybrid_ada_ef_cpp) {
         py::module m("chao_hybrid_ada_ef_cpp");
 
@@ -979,6 +995,11 @@ PYBIND11_PLUGIN(chao_hybrid_ada_ef_cpp) {
         py::class_<AdaEfPaperSketch, std::shared_ptr<AdaEfPaperSketch>>(m, "AdaEfPaperSketch")
         .def(py::init<std::vector<std::pair<int, std::vector<std::pair<int, float>>>>, float>(),
              py::arg("ef_recall_estimators"), py::arg("expected_recall"));
+
+        py::class_<PercEFConfig, std::shared_ptr<PercEFConfig>>(m, "PercEFConfig")
+        .def(py::init<std::vector<float>, std::vector<float>, std::vector<int>, int, int, int>(),
+             py::arg("bins"), py::arg("weights"), py::arg("ef_table"), py::arg("min_ef"), py::arg("max_ef"),
+             py::arg("probe_count"));
 
         py::class_<Index<float>>(m, "Index")
         .def(py::init(&Index<float>::createFromParams), py::arg("params"))
@@ -1123,6 +1144,32 @@ PYBIND11_PLUGIN(chao_hybrid_ada_ef_cpp) {
             }
             return py::make_tuple(labels, dists, ef_used);
         })
+        .def("search_percef", [](Index<float>& self, py::array_t<float, py::array::c_style> query, int k,
+                                 std::shared_ptr<PercEFConfig> cfg) {
+            // Same search as search_knn_dynamic_weighted, configuration held in C++.
+            auto buf = query.request();
+            if (buf.ndim != 1) throw std::runtime_error("Expected 1-D query vector");
+            auto res_pair = self.appr_alg->searchKnnDynamicWeighted(static_cast<const float*>(buf.ptr), k, cfg->bins,
+                                                                    cfg->weights, cfg->ef_table, cfg->min_ef,
+                                                                    cfg->max_ef, cfg->probe_count);
+            auto& res = res_pair.first;
+            int ef_used = res_pair.second;
+            py::array_t<hnswlib::labeltype> labels(k);
+            py::array_t<float> dists(k);
+            auto lb = labels.mutable_unchecked<1>();
+            auto db = dists.mutable_unchecked<1>();
+            for (int j = k - 1; j >= 0; j--) {
+                if (!res.empty()) {
+                    lb(j) = res.top().second;
+                    db(j) = res.top().first;
+                    res.pop();
+                } else {
+                    lb(j) = -1;
+                    db(j) = 1e30f;
+                }
+            }
+            return py::make_tuple(labels, dists, ef_used);
+        }, py::arg("query"), py::arg("k"), py::arg("config"))
         .def("get_dynamic_probe_score_weighted", [](Index<float>& self, py::array_t<float, py::array::c_style> query, std::vector<float> bins, std::vector<float> weights, int probe_count) {
             auto buf = query.request();
             if (buf.ndim != 1) throw std::runtime_error("Expected 1-D query vector");

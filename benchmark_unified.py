@@ -801,7 +801,7 @@ def main():
 
     # 4. Ada-ef estimator from streamed statistics; cross-check against the original construction
     verify = None
-    if not hasattr(hnsw.AdaEfPaperScorer, "from_stats_file"):
+    if not hasattr(hnsw, "PercEFConfig") or not hasattr(hnsw.AdaEfPaperScorer, "from_stats_file"):
         sys.exit("The C++ extension predates AdaEfPaperScorer.from_stats_file. Rebuild it cleanly:\n"
                  "  cd chao_hybrid_ada_ef && rm -rf build chao_hybrid_ada_ef_cpp*.so && "
                  "python3 setup.py build_ext --inplace && cd ..")
@@ -945,11 +945,12 @@ def main():
             cents, bin_lists = centroids[kc], [b.tolist() for b in bins[kc]]
             for how in RECIPES:
                 ef_list = tables[how]
-                def ours_search(i, q, kc=kc, ef_list=ef_list, cents=cents, bin_lists=bin_lists):
+                # thresholds, weights and ef table held in C++ (one config per centroid), as Ada-ef's sketch is
+                cfgs = [hnsw.PercEFConfig(b, BIN_WEIGHTS, ef_list, K, EF_CAP, PROBE_COUNT) for b in bin_lists]
+                def ours_search(i, q, kc=kc, cents=cents, cfgs=cfgs):
                     # the nearest-centroid lookup is part of our per-query work, so it is timed
                     c = 0 if kc == 1 else int(np.argmin(((cents - q) ** 2).sum(axis=1)))
-                    labs, _, ef_used = idx.search_knn_dynamic_weighted(q, K, bin_lists[c], BIN_WEIGHTS,
-                                                                       ef_list, K, EF_CAP, PROBE_COUNT)
+                    labs, _, ef_used = idx.search_percef(q, K, cfgs[c])
                     return labs, ef_used
                 rec, efs, dcs, lat = run_queries(idx, test_q, test_gt, K, ours_search)
                 row, pq = summarize(f"Ours (K={kc}, {how})", rec, efs, dcs, kc, lat)
@@ -992,8 +993,9 @@ def main():
             o_sc = np.array([idx.get_dynamic_probe_score_weighted(q, b1, BIN_WEIGHTS, L_O) for q in calib_q], dtype=np.float32)
             ablation_rho[f"ours_L{L_O}"] = finite_or_none(spearmanr(o_sc, calib_min_ef)[0])
             o_list = build_isotonic(np.round(o_sc).astype(int), calib_min_ef, K)
-            def ours_l_search(i, q, o_list=o_list):
-                labs, _, ef_used = idx.search_knn_dynamic_weighted(q, K, b1, BIN_WEIGHTS, o_list, K, EF_CAP, L_O)
+            o_cfg = hnsw.PercEFConfig(b1, BIN_WEIGHTS, o_list, K, EF_CAP, L_O)
+            def ours_l_search(i, q, o_cfg=o_cfg):
+                labs, _, ef_used = idx.search_percef(q, K, o_cfg)
                 return labs, ef_used
             rec, efs, dcs, lat = run_queries(idx, test_q, test_gt, K, ours_l_search)
             row, pq = summarize(f"Ours (K=1, Isotonic, L={L_O})", rec, efs, dcs, 1, lat, dict(probe_len=L_O))
