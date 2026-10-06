@@ -91,7 +91,7 @@ y = body(X[0], y, 1.5, [
   { bullet: "Measure how often the Gaussian assumption holds on public embedding datasets." },
   { bullet: "Build a distribution-free difficulty score that works where it does not." },
   { bullet: "Give a quick offline test that says which method to use." },
-  { bullet: "Compare fairly on Ada-ef's own metrics: tail recall, cost, latency." },
+  { bullet: "Compare fairly with Ada-ef and a learned method (DARTH)." },
 ], "Objectives") + GAP;
 y = header(X[0], y, "DATASET AND FEATURES", C.teal, "Dataset");
 body(X[0], y, 9.05 - y, [
@@ -171,7 +171,7 @@ s.addText("Tail-recall gain over the best fixed ef, 20 datasets sorted by KS (to
   margin: 0, valign: "top", isTextBox: true, objectName: "Results figure caption" });
 const stats = [
   ["16/16", "runs on non-Gaussian data: PercEF's tail recall at least Ada-ef's"],
-  ["32/34", "runs cheaper than the best fixed ef (Ada-ef: 11/34); never over +3.1%"],
+  ["32/34", "runs cheaper than the best fixed ef (Ada-ef: 10/34); never over +2.5%"],
   ["18/19", "datasets where the KS test picks the better method"],
 ];
 const sx = X[2] + 0.1 + figW + 0.15, sw = COL_W - figW - 0.35;
@@ -191,9 +191,9 @@ y += resH + GAP;
 
 y = header(X[2], y, "CONCLUSIONS AND FUTURE WORK", C.teal, "Conclusions");
 body(X[2], y, 9.05 - y, [
-  { label: "a)", text: "Ada-ef's Gaussian model fails on 9 of 41 datasets, including SIFT and GIST. There PercEF restores per-query adaptation: better tail recall, at most 3.1% over the best fixed ef." },
-  { label: "b)", text: "Next: explain the SIFT-1B miss and handle cross-modal queries." },
-], "Conclusions", 12.5);
+  { label: "a)", text: "Ada-ef's Gaussian model fails on 9 of 41 datasets (6 learned embeddings); there PercEF gives better tail recall, at most 2.5% over the best fixed ef." },
+  { label: "b)", text: "DARTH (learned): best tail, up to 2.3x slower. Next: the SIFT-1B miss, cross-modal queries." },
+], "Conclusions", 12);
 
 // ---------------------------------------------------------------- members and guide
 const FY = 9.3, SLOT = 18.9 / 5;
