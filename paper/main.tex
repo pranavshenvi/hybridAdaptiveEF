@@ -99,7 +99,9 @@ and gives better or equal tail recall in all 16 runs (Fig.~\ref{fig:teaser}). It
 that Ada-ef lacks: across 17 datasets it never costs more than 2.5\% over the best fixed \ef{} at
 the same recall, a fixed \ef{} chosen with hindsight on the test queries. Finally, because the
 failure is visible in the raw vectors, the same KS statistic tells a practitioner which score to
-use before building an index; it picks the better one on 18 of 19 datasets. We also report what
+use before building an index; it picks the better one on 18 of 19 datasets. Against DARTH, a
+learned method that checks each query while it runs, PercEF gives a smaller tail gain but almost
+no time penalty (at most 3\% over a fixed \ef{}), where DARTH is up to 2.3 times as slow. We also report what
 does not work: Ada-ef keeps the better tail on near-Gaussian text embeddings, neither score adapts
 when queries come from a different modality than the database, and one prediction (SIFT-1B) fails.
 
@@ -415,6 +417,48 @@ methods need seconds for their statistics. Calibration time is dominated by meas
 $\mathrm{ef}^*$ (ours, up to 257\,s on MS Turing) and by Ada-ef's per-group search (206\,s on the
 same set). Ada-ef keeps a $d \times d$ covariance (up to 9.4\,MB at $d = 1536$); ours keeps five
 thresholds, the centroid and the table, a few kilobytes.
+
+\paragraph{A learned method.}
+DARTH~\cite{chatzakis2026darth} stops each search when a gradient-boosted model, fed with features
+of the search so far, predicts that the target recall has been reached. We ran the authors' code
+(their FAISS fork, unchanged apart from a build path and a data loader) on four datasets with the
+same test queries and ground truth, $M = 16$, $\mathit{ef}_{\mathrm{construction}} = 500$, one
+thread, a model trained on 1,500 calibration queries (its paper uses 10,000) and its prediction
+intervals tuned on the other 500, as in its authors' scripts. Each method is compared with a fixed
+\ef{} of its own library, because the two HNSW implementations build different graphs and time
+queries differently (Table~\ref{tab:darth}). DARTH has the best tail on all four datasets and
+reaches the target on all of them. It pays for this in time: it is slower than its fixed \ef{} on
+every dataset, by 6\% on GloVe and by about a factor of two on SIFT-1M and Deep1B, where a search
+takes under a millisecond and the repeated model calls dominate. This agrees with the Ada-ef
+paper's finding that Ada-ef is much faster than learned methods. It also needs 3 to 10 minutes of
+training per dataset and gigabytes of search traces. PercEF does not reach DARTH's tail, but it
+comes close on Deep1B (0.081 against 0.098) at about half the time, and it stays within a few
+percent of the fixed \ef{} in both work and time on every dataset, with no training.
+
+\begin{table}[t]
+  \caption{DARTH, Ada-ef (as shipped) and PercEF against a tuned fixed \ef{} of their own library at
+  the same mean recall (setting R). Positive savings: cheaper or faster than the fixed \ef{}.}
+  \label{tab:darth}
+  \centering\footnotesize
+  \begin{tabular}{llrrr}
+    \toprule
+    Dataset & Method & p1 gain & DC saving & Latency saving \\
+    \midrule
+    GloVe     & DARTH  & \textbf{+0.080} & \textbf{+15.5\%} & $-$6.3\% \\
+              & Ada-ef & +0.073 & +11.5\% & 0.0\% \\
+              & PercEF & +0.029 & +5.9\%  & \textbf{+1.4\%} \\
+    MS Turing & DARTH  & \textbf{+0.044} & \textbf{+6.7\%} & $-$41.9\% \\
+              & Ada-ef & $-$0.041 & +0.1\% & $-$1.2\% \\
+              & PercEF & +0.010 & +1.9\% & \textbf{+0.9\%} \\
+    SIFT-1M   & DARTH  & \textbf{+0.048} & $-$2.8\% & $-$126\% \\
+              & Ada-ef & 0.000 & $-$0.2\% & $-$25.7\% \\
+              & PercEF & +0.028 & \textbf{+2.7\%} & \textbf{$-$1.3\%} \\
+    Deep1B    & DARTH  & \textbf{+0.098} & $-$9.4\% & $-$92\% \\
+              & Ada-ef & +0.052 & +0.2\% & $-$23.6\% \\
+              & PercEF & +0.081 & \textbf{+3.7\%} & \textbf{$-$2.9\%} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
 
 \paragraph{Cross-modal queries.}
 On Last.fm (user vectors against song vectors), COCO text-to-image and ImageNet ALIGN text-to-image,

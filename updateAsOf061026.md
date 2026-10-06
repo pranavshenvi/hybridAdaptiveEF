@@ -89,6 +89,58 @@ and Deep1B; if the gap to the DC saving remains, profile the C++ search next.
 
 ## 5. Next steps
 
-1. Rebuild the extension; re-time DeepImage-96 and Deep1B with `search_percef`.
-2. DARTH (the build failed on CMake 3.22; fixed in `setup_darth.sh`).
-3. Regenerate figures and tables; fill the remaining \pending marks in the paper.
+1. Rebuild the extension; re-time DeepImage-96 and Deep1B with `search_percef` (queued).
+2. ✅ DARTH (§6).
+3. PercEF's score with Ada-ef's group-average table (`--group-table`, queued).
+4. Regenerate figures and tables; fill the remaining \pending marks in the paper.
+
+## 6. DARTH, the learned baseline
+
+DARTH (Chatzakis et al., SIGMOD 2026) stops each HNSW search when a LightGBM model, fed with
+features of the search so far, predicts that the target recall is reached. It is the learned
+method the Ada-ef paper compares against. We ran the authors' own code (their FAISS fork,
+commit `0d9bafc`; only the CMake LightGBM path and a generic data-loader layout patched,
+`darth/`) on the same test queries and ground truth as PercEF and Ada-ef.
+
+**Protocol.** FAISS HNSW, M = 16, efConstruction = 500, one thread. Predictor: LightGBM,
+100 trees, the authors' feature set, trained on traces of 1,500 R-calibration queries (their
+paper: 10,000); prediction intervals chosen on the other 500 with their grid. Search cap
+(efSearch) 3,000 for GloVe and MS Turing (FAISS recall at 2,000 is only 0.965 and 0.981, too
+little room to stop early), 2,000 for SIFT-1M and Deep1B. Target recall 0.95. Each method is
+compared with a tuned fixed ef of its own library (FAISS for DARTH, HNSWlib for the others),
+log-log interpolation; absolute times are not compared across libraries.
+
+| Dataset | Method | p1 gain | DC saving | Latency saving | Mean recall |
+|---|---|---|---|---|---|
+| GloVe (Gaussian) | DARTH | **+0.080** | +15.5% | −6.3% | 0.962 |
+| | Ada-ef as shipped / WAE | +0.073 / +0.048 | +11.5% / **+26.5%** | 0.0% / **+21.3%** | 0.953 / 0.974 |
+| | PercEF | +0.029 | +5.9% | +1.4% | 0.943 |
+| MS Turing (Gaussian) | DARTH | **+0.044** | **+6.7%** | −41.9% | 0.974 |
+| | Ada-ef as shipped | −0.041 | +0.1% | −1.2% | 0.952 |
+| | PercEF | +0.010 | +1.9% | **+0.9%** | 0.950 |
+| SIFT-1M (non-Gaussian) | DARTH | **+0.048** | −2.8% | −126% | 0.960 |
+| | Ada-ef as shipped | 0.000 | −0.2% | −25.7% | 0.963 |
+| | PercEF | +0.028 | **+2.7%** | **−1.3%** | 0.964 |
+| Deep1B (non-Gaussian) | DARTH | **+0.098** | −9.4% | −92% | 0.959 |
+| | Ada-ef as shipped | +0.052 | +0.2% | −23.6% | 0.961 |
+| | PercEF | +0.081 | **+3.7%** | **−2.9%** | 0.961 |
+
+(Setting R. SIFT's HNSWlib rows come from its 2026-10-06 run, which has latency.)
+
+1. **DARTH has the best tail on all four datasets** and meets the target on all four (mean recall
+   0.959–0.974), with 1,500 training queries instead of 10,000. Checking each query while it runs
+   protects the hardest queries directly.
+2. **It pays in time.** Slower than the fixed ef on all four: 6% on GloVe, 42% on MS Turing, about
+   2x on SIFT-1M and Deep1B, where a search takes well under a millisecond and the repeated model
+   calls dominate. It saves distance computations only on the long-search datasets.
+3. **This reproduces the Ada-ef paper's claim** that Ada-ef is much faster than learned methods:
+   against each library's fixed ef, Ada-ef is 26% slower on SIFT-1M, DARTH 126%.
+4. **Offline cost.** DARTH: 182–608 s per dataset for traces, training and interval tuning (index
+   build excluded), plus gigabytes of trace files. PercEF: seconds for its thresholds plus its
+   calibration sweep (up to 257 s on MS Turing), no training, no trace files.
+5. **Where PercEF stands:** the only one of the three within a few percent of the fixed ef in both
+   work and time on every dataset (−2.9% to +1.4% in latency here), with tail gains on non-Gaussian
+   data that approach DARTH's (Deep1B +0.081 against +0.098) at about half its time. It does not
+   beat DARTH's tail. The paper presents the three as a trade-off: DARTH for the best tail at a
+   time cost, Ada-ef for speed on Gaussian data with long searches, PercEF for tail gains without
+   extra cost or training, robust to the data's distribution.
