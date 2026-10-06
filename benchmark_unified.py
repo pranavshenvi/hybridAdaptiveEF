@@ -107,6 +107,8 @@ ap.add_argument("--lat-rounds", type=int, default=3,
 ap.add_argument("--ablation", action="store_true",
                 help="probe-length ablation: Ada-ef with a 100-distance probe and ours with 1025 (own results folder)")
 ap.add_argument("--quick", action="store_true", help="K_clusters=1 and the Isotonic recipe only")
+ap.add_argument("--group-table", action="store_true",
+                help="also run PercEF's score with Ada-ef's group-average ef table (own results folder)")
 ap.add_argument("--export-darth", metavar="DIR", default=None,
                 help="write this dataset in DARTH's file layout under DIR and exit (needs an earlier run's caches)")
 args = ap.parse_args()
@@ -115,7 +117,7 @@ assert all(s in ("P", "R") for s in SETTINGS), "--settings takes P and/or R"
 
 TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 RESULTS_DIR = (f"results_unified_{args.dataset}{'_smoke' if args.smoke else ''}"
-               f"{'_ablation' if args.ablation else ''}_{TIMESTAMP}")
+               f"{'_ablation' if (args.ablation or args.group_table) else ''}_{TIMESTAMP}")
 if not args.export_darth:
     os.makedirs(RESULTS_DIR, exist_ok=True)
 sys.stdout.reconfigure(encoding='utf-8')
@@ -1005,6 +1007,32 @@ def main():
             print(f"  [ablation] rho: Ada-ef L={L_A} {ablation_rho[f'ada_L{L_A}']} (L={STATICS_LENGTH}: {rho_ada}) | "
                   f"ours L={L_O} {ablation_rho[f'ours_L{L_O}']} (L={PROBE_COUNT}: {rho_ours.get(1)})", flush=True)
 
+        # PercEF's score with Ada-ef's ef table (--group-table): per rounded score, the smallest ef at
+        # which the calibration queries with that score reach the target on *average* recall, built by
+        # the same function as Ada-ef's table; WAE floor variant as for Ada-ef. Tests whether Ada-ef's
+        # tail edge on near-Gaussian data comes from its table (updateAsOf061026.md \S2).
+        if args.group_table:
+            g_path = os.path.join(cache, f"percef_group_table_{setting}.json")
+            if os.path.exists(g_path):
+                with open(g_path) as f:
+                    z = json.load(f); g_table, g_wae = {int(k): v for k, v in z["table"].items()}, z["wae"]
+            else:
+                print("  [group table] PercEF score with Ada-ef's group-average table ...", flush=True)
+                g_table, g_wae = ada_target_recall_table(idx, np.round(ours_scores_k1).astype(int), calib_q, calib_gt, K, grid)
+                with open(g_path, "w") as f:
+                    json.dump(dict(table=g_table, wae=g_wae), f, indent=1)
+            b1g = bins[1][0].tolist()
+            for variant, table in (("as shipped", g_table), ("WAE floor", {s_: max(e, g_wae) for s_, e in g_table.items()})):
+                g_cfg = hnsw.PercEFConfig(b1g, BIN_WEIGHTS, table_to_list(table, K), K, EF_CAP, PROBE_COUNT)
+                def g_search(i, q, g_cfg=g_cfg):
+                    labs, _, ef_used = idx.search_percef(q, K, g_cfg)
+                    return labs, ef_used
+                rec, efs, dcs, lat = run_queries(idx, test_q, test_gt, K, g_search)
+                row, pq = summarize(f"PercEF + group table ({variant})", rec, efs, dcs, 1, lat, dict(wae=g_wae))
+                searchers[row["name"]] = g_search
+                rows.append(row); pq_setting[row["name"]] = pq
+                print(f"  {row['name']:<34} R={row['mean_r']:.4f} p1={row['p1']:.3f} DC={row['total_dc']:.0f}", flush=True)
+
         # Latency pass: fixed-ef grid and headline methods; replaces their single-pass latency
         # time only the fixed-ef points that bracket a headline method's recall (all the scorecard needs)
         fx_sorted = sorted(fixed_rows, key=lambda r: r["avg_ef"])
@@ -1049,6 +1077,8 @@ def main():
         if args.ablation:
             main_names += [f"Ada-ef L={PROBE_COUNT} (as shipped)", f"Ada-ef L={PROBE_COUNT} (WAE floor)",
                            f"Ours (K=1, Isotonic, L={STATICS_LENGTH})"]
+        if args.group_table:
+            main_names += ["PercEF + group table (as shipped)", "PercEF + group table (WAE floor)"]
         scorecard = {n: vs_fixed(next(r for r in rows if r["name"] == n), fixed) for n in main_names}
         # Calibration diagnostics (the factors of updateAsOf280926.md §9)
         ada_by_score = np.array([ada_table.get(int(s), wae) for s in np.round(ada_scores).astype(int)])
