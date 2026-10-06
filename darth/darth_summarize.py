@@ -32,6 +32,8 @@ def fixed_interp(fixed, goal, key):
     for a, b in zip(fixed, fixed[1:]):
         if a["mean_r"] < goal <= b["mean_r"]:
             t = (x(goal) - x(a["mean_r"])) / (x(b["mean_r"]) - x(a["mean_r"]))
+            if a.get(key) is None or b.get(key) is None:   # e.g. no latency in runs before Oct 2026
+                return None
             if key in ("p1", "p5"):
                 return a[key] + t * (b[key] - a[key])
             return float(np.exp(np.log(a[key]) + t * np.log(b[key] / a[key])))
@@ -69,19 +71,21 @@ print(f"  {'DARTH (FAISS)':<34} {darth['mean_r']:>7.4f} {darth['p1']:>6.3f} {dar
 
 ours = None
 if len(sys.argv) > 2:                                   # our HNSWlib run on the same dataset, setting R
-    with open(os.path.join(sys.argv[2], "summary_R.json")) as f:
-        s = json.loads(f.read().replace("NaN", "null"))
+    # Scored here from rows_R.json, which every run has (summaries before Oct 2026 lack the scorecard).
     with open(os.path.join(sys.argv[2], "rows_R.json")) as f:
         rows = {r["name"]: r for r in json.loads(f.read().replace("NaN", "null"))}
+    hfixed = sorted((r for r in rows.values() if r["name"].startswith("Fixed")), key=lambda r: r["avg_ef"])
     ours = {}
-    print("\n  Same queries, HNSWlib, setting R (each against its own library's fixed ef):")
-    for n, c in s["scorecard_vs_fixed"].items():
-        if n.startswith("Choice"):
+    print(f"\n  Same queries, HNSWlib ({os.path.basename(sys.argv[2].rstrip('/'))}), setting R, "
+          f"each against its own library's fixed ef:")
+    for n in ("Ada-ef (as shipped)", "Ada-ef (WAE floor)", "Ours (K=1, Isotonic)"):
+        if n not in rows:
             continue
-        r = rows[n]
+        r, c = rows[n], vs_fixed(rows[n], hfixed)
         ours[n] = dict(mean_r=r["mean_r"], p1=r["p1"], pct_target=r["pct_target"], **c)
+        lat = "n/a" if r.get("mean_lat_us") is None else f"{r['mean_lat_us']:.0f}"
         print(f"  {n:<34} {r['mean_r']:>7.4f} {r['p1']:>6.3f} {r['pct_target']:>6.1f} {r['total_dc']:>8.0f} "
-              f"{r['mean_lat_us']:>8.0f} {fp(c['saving_dc_pct']):>8} {fp(c['saving_lat_pct']):>9} {fp(c['p1_gain'], '{:+.3f}'):>8}")
+              f"{lat:>8} {fp(c['saving_dc_pct']):>8} {fp(c['saving_lat_pct']):>9} {fp(c['p1_gain'], '{:+.3f}'):>8}")
 
 with open(os.path.join(run, "summary.json"), "w") as f:
     json.dump(dict(darth=darth, faiss_fixed=fixed, hnswlib_setting_R=ours), f, indent=1)
