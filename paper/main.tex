@@ -83,8 +83,12 @@ measured it on 41 datasets from ann-benchmarks, Big-ANN, VIBE and the Ada-ef pap
 with a Kolmogorov--Smirnov (KS) statistic between each query's actual similarities and the
 Gaussian Ada-ef predicts (Fig.~\ref{fig:survey}). Modern contrastive text embeddings fit well. Nine
 datasets do not, and they are not exotic: SIFT, GIST, Fashion-MNIST, DeepImage and Deep1B are
-among them. Nor does the data type give it away: SIFT-1M is the least Gaussian image dataset we
-measured, while SIFT-1B is close to Gaussian, and MNIST fits much better than Fashion-MNIST.
+among them. The Ada-ef paper presents its model for high-dimensional learned embeddings, and SIFT,
+GIST and Fashion-MNIST (hand-crafted descriptors and pixels) lie outside that scope; but the other
+six are learned embeddings (CNN features in DeepImage and Deep1B, DINO and ResNet image models,
+an audio model in Yambda, a factorisation model in Last.fm), so the model also fails inside it.
+Nor does the data type give it away: SIFT-1M is the least Gaussian image dataset we measured,
+while SIFT-1B is close to Gaussian, and MNIST fits much better than Fashion-MNIST.
 
 On these datasets Ada-ef's score loses most of its ability to separate easy from hard queries. On
 SIFT and on the Yambda audio embeddings it assigns the same \ef{} to every query. We keep Ada-ef's
@@ -226,8 +230,11 @@ settings: \emph{P}, 200 database vectors as in the Ada-ef paper, and \emph{R}, u
 real queries. Test queries are disjoint from both.
 
 \paragraph{Metrics and the fixed-\ef{} reference.}
-We report what the Ada-ef paper reports: mean recall against the target, tail recall (the 1st and
-5th percentile of per-query recall, p1 and p5), latency per query, and offline cost. Distance
+Ada-ef's stated aims are to meet a declared target recall while avoiding both under- and
+over-searching~\cite{zhang2026adaef}. We measure them directly: mean recall against the target;
+tail recall, the 1st and 5th percentile of per-query recall (p1, p5), which shows how far the
+worst-served queries fall short (under-searching); and cost, both as latency per query and as
+distance computations (over-searching); plus offline time and memory. Distance
 computations (DC), including every probe, serve as a hardware-independent measure of cost. As a
 reference we run HNSW at a grid of fixed \ef{} values and, for each method, interpolate the fixed
 \ef{} that reaches the same mean recall. This is the best fixed \ef{} anyone could choose in

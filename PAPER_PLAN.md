@@ -23,6 +23,11 @@ and with its WAE floor it is also faster than a fixed ef there. The ablation (06
 part of its ranking edge comes from its 10x longer probe, most of its tail edge from its ef table.
 On cross-modal queries (text → image, user → item; 3 of 3 datasets) neither score adapts at all.
 
+**Scope (from the Ada-ef paper's own contributions list):** its Gaussian model is presented for
+high-dimensional *learned* embeddings. SIFT, GIST and Fashion-MNIST are outside that scope, but 6
+of the 9 non-Gaussian datasets are learned embeddings (DeepImage, Deep1B, Landmark-DINO,
+iNaturalist-ResNet, Yambda, Last.fm), so the failure is inside it. The paper says so explicitly.
+
 **Target venue:** VLDB Experiments, Analysis & Benchmarks track or SIGMOD Experiments & Analysis;
 arXiv first. Fallback: a SIGMOD/VLDB workshop.
 
@@ -73,9 +78,9 @@ the numbers in 260926 §10 and 280926 §2, §6, §9 are superseded by 290926 §4
 **Decision rule, fixed in advance (2026-09-25) and applied 2026-09-26:** the head-to-head claim did
 not hold, so this is an analysis paper. Its method result is M1 + M2, not "faster than Ada-ef".
 
-## Metrics (aligned with what the Ada-ef paper reports, §7.2–7.3)
+## Metrics (measuring Ada-ef's stated aims: target recall, no under- or over-searching)
 
-- **Tail recall** at equal mean recall: 1st and 5th percentile (Ada-ef's headline claim).
+- **Tail recall** at equal mean recall: 1st and 5th percentile, our measure of under-searching. (Ada-ef's stated contributions, checked 2026-10-07: meet a target recall while avoiding under- and over-searching; a Gaussian theory of similarities, applicable to learned embeddings. Whether its evaluation reports percentile recall is unverified, so the paper does not attribute p1/p5 to it.)
 - **Cost** at equal mean recall against a tuned fixed ef: **wall-clock latency per query
   (single thread)** and distance computations (hardware-independent companion). The fixed ef at
   a given recall is interpolated in log(1 − recall) vs log(cost) on a dense ef grid.
