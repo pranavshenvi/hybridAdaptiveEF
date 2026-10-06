@@ -1,0 +1,10 @@
+{
+  "_help": "Names for the deck (slide 1) and the poster (bottom strip). Fill in once; every rebuild keeps them. Photo: a path relative to this file (e.g. poster/photos/member1.jpg), or leave empty for the grey frame.",
+  "members": [
+    { "name": "Member 1", "srn": "SRN", "photo": "" },
+    { "name": "Member 2", "srn": "SRN", "photo": "" },
+    { "name": "Member 3", "srn": "SRN", "photo": "" },
+    { "name": "Member 4", "srn": "SRN", "photo": "" }
+  ],
+  "guide": { "name": "Guide name", "designation": "Designation", "photo": "" }
+}

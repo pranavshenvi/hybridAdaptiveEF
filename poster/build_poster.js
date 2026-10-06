@@ -197,15 +197,26 @@ body(X[2], y, 9.05 - y, [
 
 // ---------------------------------------------------------------- members and guide
 const FY = 9.3, SLOT = 18.9 / 5;
-const people = [["Member 1", "SRN"], ["Member 2", "SRN"], ["Member 3", "SRN"], ["Member 4", "SRN"], ["Guide", "Designation"]];
-people.forEach(([who, second], i) => {
+// names, SRNs and photos live in ../team.json so that rebuilding the poster never loses them
+const fsTeam = require("fs"), pathTeam = require("path");
+const TEAM = JSON.parse(fsTeam.readFileSync(pathTeam.join(__dirname, "..", "team.json"), "utf8"));
+const people = [...TEAM.members.map((m, i) => ({ who: `Member ${i + 1}`, line1: m.name, line2: m.srn, photo: m.photo })),
+                { who: "Guide", line1: "Guide: " + TEAM.guide.name, line2: TEAM.guide.designation, photo: TEAM.guide.photo }];
+people.forEach(({ who, line1, line2, photo }, i) => {
   const x0 = 0.55 + i * SLOT;
-  s.addText("Photo", { shape: pres.shapes.ROUNDED_RECTANGLE, rectRadius: 0.1, x: x0 + 0.15, y: FY + 0.05, w: 1.3, h: 1.45,
-    fill: { color: C.photo }, line: { color: C.border, width: 0.75 }, fontFace: FONT, fontSize: 11, color: C.muted,
-    align: "center", valign: "middle", objectName: `${who} photo` });
+  const photoPath = photo ? pathTeam.join(__dirname, "..", photo) : "";
+  if (photoPath && fsTeam.existsSync(photoPath)) {
+    s.addImage({ path: photoPath, x: x0 + 0.15, y: FY + 0.05, w: 1.3, h: 1.45,
+      sizing: { type: "cover", w: 1.3, h: 1.45 }, objectName: `${who} photo` });
+  } else {
+    if (photo) console.warn(`photo not found for ${who}: ${photoPath}`);
+    s.addText("Photo", { shape: pres.shapes.ROUNDED_RECTANGLE, rectRadius: 0.1, x: x0 + 0.15, y: FY + 0.05, w: 1.3, h: 1.45,
+      fill: { color: C.photo }, line: { color: C.border, width: 0.75 }, fontFace: FONT, fontSize: 11, color: C.muted,
+      align: "center", valign: "middle", objectName: `${who} photo` });
+  }
   s.addText([
-    { text: who === "Guide" ? "Guide: Name" : `${who}: Name`, options: { bold: true, breakLine: true } },
-    { text: second },
+    { text: line1, options: { bold: true, breakLine: true } },
+    { text: line2 },
   ], { x: x0 + 1.62, y: FY + 0.35, w: SLOT - 1.75, h: 0.95, fontFace: FONT, fontSize: 13, color: C.ink,
     valign: "middle", margin: 0, isTextBox: true, objectName: `${who} name` });
   if (i > 0) s.addShape(pres.shapes.LINE, { x: x0 - 0.02, y: FY + 0.2, w: 0, h: 1.25,

@@ -8,6 +8,8 @@ const { applyTheme } = require(process.env.PPTX_SKILL ||
   "C:/Users/adebeo/.claude/skills/synced/81f1b1b5-7c94-4926-91c8-fca4a2a070f6_ff6d1026-246b-4214-87da-3cc36522d9da/pptx/scripts/apply_theme.js");
 
 const OUT = process.argv[2] || "PercEF_review.pptx";
+// team names live in ../team.json so that rebuilding the deck never loses them
+const TEAM = JSON.parse(require("fs").readFileSync(path.join(__dirname, "..", "team.json"), "utf8"));
 const FIG = path.join(__dirname, "..", "server_results", "paper_out_20261006_203218");
 const LOGO = path.join(__dirname, "..", "poster", "assets", "logo_pes.png");
 
@@ -93,7 +95,7 @@ let s = pres.addSlide({ masterName: "DARK", sectionTitle: "Introduction" });
 s.addText("PercEF: Exploiting Empirical Percentiles for Adaptive HNSW Search Beyond the Gaussian Assumption", { placeholder: "title" });
 s.addText([
   { text: "Project review  ·  Department of Computer Science and Engineering, PES University", options: { breakLine: true } },
-  { text: "Team: [Member 1], [Member 2], [Member 3], [Member 4]   ·   Guide: [Guide name]" },
+  { text: "Team: " + TEAM.members.map((m) => m.name).join(", ") + "   ·   Guide: " + TEAM.guide.name },
 ], { placeholder: "body" });
 s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.8, y: 0.6, w: 3.0, h: 1.6, rectRadius: 0.1, fill: { color: C.background1 },
   line: { color: C.background1, width: 0 }, objectName: "Logo backing" });
