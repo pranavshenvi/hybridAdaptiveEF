@@ -35,7 +35,7 @@ pres.defineSlideMaster({
   objects: [
     { placeholder: { options: { name: "title", type: "title", x: 0.8, y: 2.2, w: 11.7, h: 1.9, fontSize: 36, bold: true,
         color: C.background1, valign: "bottom", align: "left", margin: 0 }, text: "" } },
-    { placeholder: { options: { name: "body", type: "body", x: 0.8, y: 4.3, w: 11.7, h: 1.6, fontSize: 18,
+    { placeholder: { options: { name: "body", type: "body", x: 0.8, y: 4.3, w: 11.7, h: 2.8, fontSize: 18,
         color: C.background2, valign: "top", margin: 0 }, text: "" } },
   ],
 });
@@ -93,9 +93,13 @@ function table(s, rows, x, y, w, colW, name, size = 13) {
 pres.addSection({ title: "Introduction" });
 let s = pres.addSlide({ masterName: "DARK", sectionTitle: "Introduction" });
 s.addText("PercEF: Exploiting Empirical Percentiles for Adaptive HNSW Search Beyond the Gaussian Assumption", { placeholder: "title" });
+const who = (m) => m.name + " (" + (m.srn || m.note || "") + ")";            // SRN, or the note for an alumnus
+const teamLines = [];
+for (let i = 0; i < TEAM.members.length; i += 2) teamLines.push(TEAM.members.slice(i, i + 2).map(who).join("    ·    "));
 s.addText([
-  { text: "Project review  ·  Department of Computer Science and Engineering, PES University", options: { breakLine: true } },
-  { text: "Team: " + TEAM.members.map((m) => m.name).join(", ") + "   ·   Guide: " + TEAM.guide.name },
+  { text: "Project review  ·  Department of Computer Science and Engineering, PES University", options: { breakLine: true, paraSpaceAfter: 10 } },
+  ...teamLines.map((l) => ({ text: l, options: { breakLine: true, fontSize: 16 } })),
+  { text: "Guide: " + TEAM.guide.name + ", " + TEAM.guide.designation, options: { fontSize: 16, bold: true } },
 ], { placeholder: "body" });
 s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.8, y: 0.6, w: 3.0, h: 1.6, rectRadius: 0.1, fill: { color: C.background1 },
   line: { color: C.background1, width: 0 }, objectName: "Logo backing" });

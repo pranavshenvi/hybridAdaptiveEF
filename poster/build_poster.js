@@ -200,7 +200,7 @@ const FY = 9.3, SLOT = 18.9 / 5;
 // names, SRNs and photos live in ../team.json so that rebuilding the poster never loses them
 const fsTeam = require("fs"), pathTeam = require("path");
 const TEAM = JSON.parse(fsTeam.readFileSync(pathTeam.join(__dirname, "..", "team.json"), "utf8"));
-const people = [...TEAM.members.map((m, i) => ({ who: `Member ${i + 1}`, line1: m.name, line2: m.srn, photo: m.photo })),
+const people = [...TEAM.members.map((m, i) => ({ who: `Member ${i + 1}`, line1: m.name, line2: m.srn || m.note || "", photo: m.photo })),
                 { who: "Guide", line1: "Guide: " + TEAM.guide.name, line2: TEAM.guide.designation, photo: TEAM.guide.photo }];
 people.forEach(({ who, line1, line2, photo }, i) => {
   const x0 = 0.55 + i * SLOT;
