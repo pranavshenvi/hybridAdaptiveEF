@@ -169,3 +169,37 @@ as Ada-ef's own rows; only the score differs. p1 gain against the tuned fixed ef
 3. The WAE-floored combination is faster than the fixed ef on 5 of 6 (up to 3.7%), but its tail
    gain falls to about zero on GloVe and MS Turing: not a general improvement, not featured.
 4. In the paper: one sentence in the probe-length paragraph, as a tested and rejected explanation.
+
+## 8. Every run timed: the final counts
+
+Until now time had been measured on 18 of the 34 same-modality runs. The nine datasets run before
+timing existed (SIFT-1M, GIST, Fashion-MNIST, Yambda, DBpedia, Landmark-DINO, iNaturalist-ResNet,
+Yahoo-MiniLM, ImageNet-ALIGN) were re-run with the current code (dense fixed-ef grid, PercEF
+configuration in C++, 3-round timing). Every count below is over the same runs. Against a tuned fixed
+ef at the same mean recall (`analysis/rescore_scorecard.js`, `paper_out_20261006_203218`):
+
+| Runs | Method | Less work | Faster | p1 at least the fixed ef's |
+|---|---|---|---|---|
+| All same-modality (34) | PercEF | **32** (worst −2.5%) | **23** | **31** |
+| | Ada-ef as shipped | 10 | 3 | 22 |
+| | Ada-ef WAE floor | 17 | 8 | 23 |
+| Non-Gaussian (16) | PercEF | **14** | 5 | **13** |
+| | Ada-ef as shipped | 2 | 0 | 6 |
+| In or below the band (18) | PercEF | **18** | **18** | **18** |
+| | Ada-ef as shipped | 8 | 3 | 16 |
+
+1. **On near-Gaussian data PercEF has no weak spot against the fixed ef**: less work and less time
+   in all 18 runs (by 1.9–11% and 0.3–6%), and the tail never lower. Ada-ef's tail gain is larger in
+   11 of these 18; it is a trade-off, not a loss, and the paper now says so.
+2. **On non-Gaussian data PercEF is usually slightly slower than the fixed ef**: faster in 5 of 16,
+   slower in 11, by at most 3% in 9 of them and by 3.7% and 8.6% on DeepImage. These searches take
+   well under a millisecond and its fixed per-query overhead is not repaid. Ada-ef is 10–90% slower.
+3. **Against Ada-ef directly**: PercEF ranks better in 16 of 16 non-Gaussian runs, has at least its
+   tail gain in 15 (Yambda P is a tie near zero: −0.003 vs −0.001), and is faster in 15 (GIST P is
+   the exception, where PercEF also reaches 1.3 points higher recall). Over all 34 runs it is faster
+   than Ada-ef in 31, by 0.99–1.78x in the 18 where both reach nearly the same recall.
+4. **PercEF's tail falls below the fixed ef's in three runs**, all small: Yambda P −0.003, GIST P
+   −0.003, GIST R −0.015 (Ada-ef on GIST R: −0.046).
+5. Changed numbers in the paper, plan, deck, poster and video script: 14/18 → 23/34 faster;
+   33/34 → 31/34 tail at least the fixed ef's; 16/16 → 15/16 tail at least Ada-ef's; speed-up over
+   Ada-ef 1.03–1.37x → up to 1.78x; iNaturalist p1 +0.040 → +0.034, GIST −0.006 → −0.009.

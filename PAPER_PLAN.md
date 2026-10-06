@@ -12,14 +12,17 @@ paper states but never tests. We test it on 41 datasets and find it fails on a r
 guessed from the kind of data. Where it fails, Ada-ef stops adapting — on SIFT and Yambda it gives
 every query the same ef — while an empirical, distribution-free difficulty score keeps the adaptive
 advantage. The empirical method also has a floor Ada-ef lacks: across 20 datasets it never costs
-more than 2.5% over a tuned fixed ef, is cheaper whenever it adapts at all, and keeps tail recall at
-least at the fixed ef's. A KS test on the raw vectors, taking seconds and no index, predicts which
+more than 2.5% over a tuned fixed ef, is cheaper in 32 of 34 runs, and keeps tail recall at least at
+the fixed ef's in 31 of 34; on near-Gaussian data it is cheaper and faster than that fixed ef in every
+run. A KS test on the raw vectors, taking seconds and no index, predicts which
 score ranks queries better on 18 of 19 datasets — with one known miss (BIGANN), where our method
 still wins end to end.
 
 **Honest limits, stated in the paper:** on near-Gaussian data — which includes most modern
-contrastive text and multimodal embeddings — Ada-ef remains the better choice for tail recall,
-and with its WAE floor it is also faster than a fixed ef there. The ablation (061026 §2) shows why:
+contrastive text and multimodal embeddings — Ada-ef gives larger tail gains (11 of 18 runs in or
+below the band), and with its WAE floor it is also faster than a fixed ef there. PercEF stays cheaper
+and faster than the fixed ef in all 18 of those runs: a trade-off, not a loss. On non-Gaussian data
+PercEF is slower than the fixed ef in 11 of 16 runs (within 3% in 9; up to 8.6% on DeepImage). The ablation (061026 §2) shows why:
 part of its ranking edge comes from its 10x longer probe; its tail edge needs its own score and its ef
 table together (neither a longer probe nor Ada-ef's table gives PercEF that tail, 061026 §2, §7).
 On cross-modal queries (text → image, user → item; 3 of 3 datasets) neither score adapts at all.
@@ -42,9 +45,10 @@ arXiv first. Fallback: a SIGMOD/VLDB workshop.
    fails: better ranking, lower cost than a fixed ef and better tail recall where Ada-ef has none.
    (Claim M1.)
 3. **Robustness** — the empirical method stays within 2.5% of a tuned fixed ef's cost in every run
-   and is cheaper in 32 of 34 same-modality runs, with p1 at least the fixed ef's in 33 of 34;
-   Ada-ef as shipped is cheaper in 10 of 34. Wall-clock: PercEF faster than the fixed ef in 14 of 18
-   timed runs, Ada-ef as shipped 3 of 18, with WAE 8 of 18. (Claim M2.)
+   and is cheaper in 32 of 34 same-modality runs, with p1 at least the fixed ef's in 31 of 34;
+   Ada-ef as shipped is cheaper in 10 of 34. Wall-clock (every run timed): PercEF faster than the
+   fixed ef in 23 of 34, Ada-ef as shipped 3 of 34, with WAE 8 of 34; PercEF faster than Ada-ef in
+   31 of 34. (Claim M2.)
 4. **Offline test** — KS on the raw vectors predicts which score ranks queries better, before any
    index is built (crossover band 0.044–0.066): 18 of 19 datasets, 16 of 19 leave-one-out, one
    known miss (BIGANN); tail-weighted alternatives tested and rejected. Backup check at
@@ -68,8 +72,8 @@ the numbers in 260926 §10 and 280926 §2, §6, §9 are superseded by 290926 §4
 |---|---|---|
 | D1 | **Which difficulty score ranks queries better is predictable offline from KS:** Ada-ef's Gaussian score on near-Gaussian data, the empirical score on clearly non-Gaussian data | **Supported.** KS vs Ada-ef's calibration ρ: Spearman −0.87 over 13 datasets. Crossover band 0.044–0.066 at 200 queries (§6). Out-of-sample predictions written before running: DINO, ResNet, GIST, Fashion-MNIST (our side) ✅; LAION (Ada-ef side) ✅ weakly; Cohere (borderline) ✅; Yahoo-MiniLM split (band); ImageNet-ALIGN untestable (280926 §1.5). Round 2 (290926 §3): Deep1B (ours) ✅, MS Turing (Ada-ef) ✅ on ranking, COCO-I2I band as expected, Last.fm and COCO-T2I untestable (no adaptation), **BIGANN (Ada-ef) ❌** — ours ranks far better (ρ 0.74 vs 0.42) at KS 0.029. Tail-weighted alternatives (Anderson–Darling, upper-quantile error, tail mass) tested on all 20 datasets and rejected: none beats guessing in leave-one-out; KS sorts 18/19 (16/19 leave-one-out) (290926 §7). BIGANN stays in (pre-registered, all checks passed, ours wins on it end to end). Plus the controlled synthetic experiment |
 | D2 | **How often each side applies, and that it must be measured** | 41 datasets surveyed (6 of ours, 19 VIBE, 16 ann-benchmarks/Big-ANN; GloVe-200 appears in two suites): **9 on the non-Gaussian side** (SIFT-1M, DeepImage, Deep1B, Yambda, DINO, ResNet, Fashion-MNIST, GIST, Last.fm). No modern contrastive text or multimodal model reaches it; within other data types KS varies (SIFT-1M 0.126 vs SIFT-1B 0.029; MNIST 0.037 vs Fashion-MNIST 0.073) (§7; 280926 §4). No published paper reports such normality tests; Ada-ef and He et al. (ICML 2012) assume the approximation |
-| M1 | **Where the assumption fails, Ada-ef loses its advantage over a fixed ef and the empirical score keeps it** | **Supported on 8 of 8 high-KS datasets, five out of sample** (16 runs; 290926 §4): our ranking better in 16; our p1 gain at least Ada-ef's in 16; ours cheaper than a tuned fixed ef in 14 (misses: DeepImage P −3.1%, GIST R −1.0%), p1 ≥ fixed in 15; Ada-ef as shipped cheaper in 2, p1 ≥ fixed in 8. The end-to-end gain varies: large tail gains on DeepImage, Deep1B, DINO, ResNet; small on SIFT, Yambda; almost nothing on GIST. BIGANN (low KS) behaves like this group too |
-| M2 | **Robustness: the empirical method has a floor at a tuned fixed ef; Ada-ef does not** | Same-modality runs (34; 061026 §1): ours cheaper in 32 (worst −2.5%), p1 ≥ fixed in 33; Ada-ef as shipped cheaper in 10, WAE floor 17; p1 ≥ fixed 24 and 25. Wall-clock (18 timed adaptive runs): PercEF faster than the fixed ef in 14 (all 14 in or below the band; slower on the 4 non-Gaussian runs, being re-timed after the C++ config fix, 061026 §3); Ada-ef as shipped 3, WAE 8 — WAE is faster on GloVe (21%), MS MARCO, Cohere R and LAION, slower on short searches (up to −87% on Last.fm). *Was "cheaper in 26 of 26": that used a biased linear interpolation (290926 §1)* |
+| M1 | **Where the assumption fails, Ada-ef loses its advantage over a fixed ef and the empirical score keeps it** | **Supported on 8 of 8 high-KS datasets, five out of sample** (16 runs; 290926 §4): our ranking better in 16; our p1 gain at least Ada-ef's in 15 (Yambda P, a tie near zero); ours cheaper than a tuned fixed ef in 14 (misses: DeepImage P −2.5%, GIST R −0.8%), p1 ≥ fixed in 13; Ada-ef as shipped cheaper in 2, p1 ≥ fixed in 6. Time: PercEF faster than the fixed ef in 5 of 16, Ada-ef in 0; PercEF faster than Ada-ef in 15 of 16 (061026 §8). The end-to-end gain varies: large tail gains on DeepImage, Deep1B, DINO, ResNet; small on SIFT, Yambda; almost nothing on GIST. BIGANN (low KS) behaves like this group too |
+| M2 | **Robustness: the empirical method has a floor at a tuned fixed ef; Ada-ef does not** | Same-modality runs (34, every run timed; 061026 §8): ours cheaper in 32 (worst −2.5%), faster in 23 (all 18 in or below the band, 5 of 16 non-Gaussian), p1 ≥ fixed in 31; Ada-ef as shipped cheaper in 10, faster in 3, p1 ≥ fixed in 22; WAE floor 17, 8, 23 — WAE is faster on GloVe (21%), MS MARCO, Cohere R and LAION, slower on short searches (up to −90%). PercEF faster than Ada-ef in 31 of 34 (0.99–1.78x at near-equal recall). *Was "cheaper in 26 of 26": that used a biased linear interpolation (290926 §1)* |
 | B1 | **Against a learned method (DARTH)** | Same queries, own library's fixed ef (061026 §6), GloVe, MS Turing, SIFT-1M, Deep1B: DARTH has the best p1 on all four and meets the target, but is slower than the fixed ef on all four (6% to about 2x) and needs training (3–10 min, GB of traces). PercEF stays within −2.9% to +1.4% of the fixed ef's time and gets close to DARTH's tail on Deep1B (+0.081 vs +0.098). Not a win over DARTH: a trade-off. Reproduces Ada-ef's claim of being much faster than learned methods |
 | A1 | **The thresholds, not the probe length, carry PercEF's advantage** | Each score run with the other's probe length (061026 §2): on SIFT-1M, Deep1B, DeepImage, SIFT-1B the empirical thresholds rank better at both lengths (by 0.21–0.47). At equal probe length they rank at least as well as the Gaussian ones on 5 of 6 datasets (exception: GloVe at 1025, 0.80 vs 0.76). On near-Gaussian data Ada-ef's tail edge needs its score and its table together: PercEF with Ada-ef's table stays at +0.031 on GloVe vs Ada-ef's +0.073 (061026 §7) |
 | L1 | **Shared limit: cross-modal queries** | Last.fm (user → item), COCO-T2I and ImageNet-ALIGN (text → image): both scores give every real query the same ef, 3 of 3 datasets. Ours then costs −1.3% to +0.5% against a fixed ef, Ada-ef up to 10% more DC and 87% more time (its probe) (290926 §3.3) |

@@ -170,7 +170,7 @@ s.addText("Tail-recall gain over the best fixed ef, 20 datasets sorted by KS (to
   x: X[2] + 0.1, y: y + 0.12 + figH, w: figW, h: 0.42, fontFace: FONT, fontSize: 10, italic: true, color: C.muted,
   margin: 0, valign: "top", isTextBox: true, objectName: "Results figure caption" });
 const stats = [
-  ["16/16", "runs on non-Gaussian data: PercEF's tail recall at least Ada-ef's"],
+  ["15/16", "runs on non-Gaussian data: PercEF's tail recall at least Ada-ef's"],
   ["32/34", "runs cheaper than the best fixed ef (Ada-ef: 10/34); never over +2.5%"],
   ["18/19", "datasets where the KS test picks the better method"],
 ];
