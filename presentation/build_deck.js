@@ -100,6 +100,61 @@ s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.8, y: 0.6, w: 3.0, h: 1.6, rect
 s.addImage({ path: LOGO, x: 0.95, y: 0.72, w: 2.7, h: 2.7 * 373 / 727, objectName: "PES logo" });
 s.addNotes("PercEF is a fix for adaptive search in vector databases. Ada-ef, a SIGMOD 2026 method, chooses the search effort per query by assuming the data looks like a bell curve. We tested that assumption, found where it fails, and built a method that works either way.");
 
+// ================================================================= 1b. background: vector search and HNSW
+s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Introduction" });
+s.addText("Background: vector search and HNSW", { placeholder: "title" });
+s.addText([
+  { text: "Vector search. ", options: { bold: true, color: C.text2 } },
+  { text: "Text, images and audio are turned into vectors (embeddings); similar items get nearby vectors. A query is answered by finding its nearest vectors.", options: { breakLine: true, paraSpaceAfter: 10 } },
+  { text: "Why it matters. ", options: { bold: true, color: C.text2 } },
+  { text: "Semantic search, recommendations and retrieval for LLMs (RAG) all run on it.", options: { breakLine: true, paraSpaceAfter: 10 } },
+  { text: "Why an index. ", options: { bold: true, color: C.text2 } },
+  { text: "Comparing a query with millions of vectors is too slow, so an index searches only a small part of the data and returns approximate neighbours.", options: { breakLine: true, paraSpaceAfter: 10 } },
+  { text: "HNSW. ", options: { bold: true, color: C.text2 } },
+  { text: "A layered graph: the search enters at the sparse top layer, moves towards the query and drops down a layer at a time.", options: { breakLine: true, paraSpaceAfter: 10 } },
+  { text: "ef. ", options: { bold: true, color: C.accent1 } },
+  { text: "How many candidates the bottom-layer search keeps. Larger ef: more accurate, but slower." },
+], { x: 0.6, y: 1.35, w: 5.9, h: 5.4, fontSize: 15, color: C.text1, valign: "top", margin: 0, isTextBox: true, objectName: "Background text" });
+(() => {                                                    // HNSW sketch: three layers, one search
+  const LX = 6.95, LW = 5.8, LH = 1.3, LY = [1.4, 2.95, 4.5];
+  const bx = [0.3, 0.75, 1.2, 1.65, 2.1, 2.55, 3.0, 3.45, 3.9, 4.35, 4.8, 5.25];
+  const layers = [[2, 6, 10], [0, 2, 4, 6, 8, 10], bx.map((_, i) => i)];
+  const names = ["Layer 2: few nodes", "Layer 1", "Layer 0: every vector"];
+  const jitter = (i, l) => (l === 2 ? (i % 2 ? 0.18 : -0.12) : l === 1 ? (i % 4 ? 0.1 : -0.1) : 0);
+  const pos = (i, l) => [LX + bx[i], LY[l] + LH / 2 + 0.1 + jitter(i, l)];
+  layers.forEach((nodes, l) => {
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: LX, y: LY[l], w: LW, h: LH, rectRadius: 0.08, fill: { color: C.background2 },
+      line: { color: C.background2, width: 0 }, objectName: "HNSW " + names[l] });
+    s.addText(names[l], { x: LX + 0.12, y: LY[l] + 0.05, w: 3, h: 0.3, fontSize: 11, italic: true, color: C.accent6, margin: 0,
+      isTextBox: true, objectName: "HNSW label " + l });
+    nodes.forEach((n, k) => { if (k) { const [x1, y1] = pos(nodes[k - 1], l), [x2, y2] = pos(n, l);
+      s.addShape(pres.shapes.LINE, { x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.max(Math.abs(y2 - y1), 0.001),
+        flipV: y2 < y1, line: { color: "C9CED3", width: 1 }, objectName: `HNSW edge ${l}-${k}` }); } });
+  });
+  // ef candidates kept on layer 0, around the query
+  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: LX + 3.25, y: LY[2] + 0.42, w: 1.8, h: 0.75, rectRadius: 0.12,
+    fill: { color: C.accent1, transparency: 75 }, line: { color: C.accent1, width: 1.25 }, objectName: "HNSW ef window" });
+  s.addText("ef candidates", { x: LX + 3.25, y: LY[2] + 1.18, w: 1.8, h: 0.28, fontSize: 11, bold: true, color: C.accent1,
+    align: "center", margin: 0, isTextBox: true, objectName: "HNSW ef label" });
+  layers.forEach((nodes, l) => nodes.forEach((n) => { const [x, y] = pos(n, l);
+    s.addShape(pres.shapes.OVAL, { x: x - 0.09, y: y - 0.09, w: 0.18, h: 0.18, fill: { color: C.accent2 },
+      line: { color: C.background1, width: 1 }, objectName: `HNSW node ${l}-${n}` }); }));
+  // the search: across layer 2, down, across layer 1, down, into the query's neighbourhood
+  const path = [[2, 0], [6, 0], [6, 1], [8, 1], [8, 2], [9, 2]];   // l = 0 is the top layer
+  for (let k = 1; k < path.length; k++) { const [x1, y1] = pos(path[k - 1][0], path[k - 1][1]), [x2, y2] = pos(path[k][0], path[k][1]);
+    s.addShape(pres.shapes.LINE, { x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.max(Math.abs(x2 - x1), 0.001), h: Math.max(Math.abs(y2 - y1), 0.001),
+      flipH: x2 < x1, flipV: y2 < y1, line: { color: C.accent1, width: 2.25, endArrowType: "triangle", dashType: y1 !== y2 && x1 === x2 ? "dash" : "solid" },
+      objectName: `HNSW search step ${k}` }); }
+  const [qx, qy] = [LX + 4.55, pos(9, 2)[1] + 0.05];
+  s.addShape(pres.shapes.STAR_5_POINT, { x: qx - 0.16, y: qy - 0.16, w: 0.32, h: 0.32, fill: { color: C.accent4 },
+    line: { color: C.accent4, width: 0 }, objectName: "HNSW query" });
+  s.addText("query", { x: qx + 0.12, y: qy + 0.12, w: 0.9, h: 0.3, fontSize: 11, bold: true, color: C.accent4, margin: 0,
+    isTextBox: true, objectName: "HNSW query label" });
+  s.addText("entry", { x: pos(2, 0)[0] - 0.45, y: pos(2, 0)[1] - 0.45, w: 0.9, h: 0.28, fontSize: 11, bold: true, color: C.accent1,
+    align: "center", margin: 0, isTextBox: true, objectName: "HNSW entry label" });
+})();
+s.addNotes("Vector search finds the nearest vectors to a query. An index like HNSW avoids comparing against everything: it walks a layered graph from a sparse top layer down to the full bottom layer. ef is how many candidates it keeps at the bottom: larger means more accurate but slower.");
+
 // ================================================================= 2. problem statement
 pres.addSection({ title: "Problem statement" });
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Problem statement" });
@@ -195,10 +250,10 @@ s.addText("KS ≤ 0.044: near-Gaussian → Ada-ef", { x: sx0, y: sy0, w: ks2x(0.
 s.addText("band", { x: ks2x(0.044), y: sy0, w: ks2x(0.066) - ks2x(0.044), h: 0.9, fontSize: 14, color: C.accent2, align: "center", valign: "middle", margin: 0, isTextBox: true, objectName: "Zone label band" });
 s.addText("KS ≥ 0.066: non-Gaussian → PercEF", { x: ks2x(0.066), y: sy0, w: sx0 + sw0 - ks2x(0.066), h: 0.9, fontSize: 16, bold: true, color: C.accent1, align: "center", valign: "middle", margin: 0, isTextBox: true, objectName: "Zone label PercEF" });
 s.addText("KS measured on the raw vectors (200 queries, no index needed)", { x: sx0, y: sy0 - 0.5, w: sw0, h: 0.4, fontSize: 14, italic: true, color: C.accent6, margin: 0, isTextBox: true, objectName: "Scale caption" });
-stat(s, 0.9, 3.4, 3.6, "18 / 19", "datasets where KS picks the method with the better ranking");
+stat(s, 0.9, 3.4, 3.6, "18 / 19", "of the benchmarked datasets with a clear winner, KS picked it for 18");
 stat(s, 4.85, 3.4, 3.6, "14", "predictions written down before the runs; one failed (SIFT-1B)", C.accent2);
 stat(s, 8.8, 3.4, 3.6, "0", "tail-weighted alternatives that beat KS (tested and rejected)", C.accent4);
-s.addText("Every PercEF prediction was recorded before running the dataset, so the test was checked out of sample.",
+s.addText("Every KS prediction was recorded before running the dataset, so the test was checked out of sample.",
   { x: 0.9, y: 5.4, w: 11.5, h: 0.6, fontSize: 16, color: C.text1, margin: 0, isTextBox: true, objectName: "KS note" });
 s.addNotes("The KS test is a pre-check a practitioner can run in seconds. Leave-one-out accuracy is 16 of 19. The one miss is SIFT-1B, where KS said Ada-ef but PercEF won; we tested tail-weighted statistics as replacements and none did better.");
 
@@ -255,6 +310,8 @@ s.addChart(pres.charts.BAR, [
 stat(s, 9.2, 1.45, 3.5, "16 / 16", "runs where PercEF ranks queries better than Ada-ef");
 stat(s, 9.2, 3.15, 3.5, "16 / 16", "runs where PercEF's worst-case gain is at least Ada-ef's");
 stat(s, 9.2, 4.85, 3.5, "14 vs 2", "runs cheaper than the fixed ef: PercEF vs Ada-ef (of 16)", C.accent2);
+s.addText("16 runs = the 8 non-Gaussian datasets x 2 calibration settings", { x: 9.2, y: 6.35, w: 3.55, h: 0.5, fontSize: 11,
+  italic: true, color: C.accent6, margin: 0, isTextBox: true, objectName: "Runs definition" });
 s.addNotes("Eight non-Gaussian datasets, two calibration settings each. Example: on DeepImage the worst 1% of queries gain 8.5 recall points with PercEF against 4.3 with Ada-ef, at the same mean recall as the fixed ef.");
 
 // ================================================================= 11. cost and speed
@@ -263,6 +320,8 @@ s.addText("Within 2.5% of a tuned fixed ef's cost", { placeholder: "title" });
 stat(s, 0.6, 1.45, 3.7, "32 / 34", "runs where PercEF does less work than the tuned fixed ef (Ada-ef: 10 / 34)");
 stat(s, 0.6, 3.15, 3.7, "≤ 2.5%", "PercEF's worst extra cost over the fixed ef, in any run", C.accent2);
 stat(s, 0.6, 4.85, 3.7, "14 / 18", "timed runs where PercEF is faster than the fixed ef (Ada-ef: 3 / 18)");
+s.addText("34 runs = 17 benchmarked datasets x 2 settings (3 cross-modal sets left out); 18 = runs with latency measured",
+  { x: 0.6, y: 6.3, w: 3.9, h: 0.6, fontSize: 11, italic: true, color: C.accent6, margin: 0, isTextBox: true, objectName: "Runs definition" });
 const sp = ["COCO-I2I", "SIFT-1M", "Deep1B", "Cohere", "BIGANN", "MS Turing", "MS MARCO"];
 s.addChart(pres.charts.BAR, [{ name: "Speed-up", labels: sp, values: [1.37, 1.24, 1.20, 1.18, 1.11, 1.08, 1.03] }], {
   x: 4.7, y: 1.35, w: 8.05, h: 4.4, barDir: "bar", chartColors: [HEX.ours], showLegend: false,
@@ -302,6 +361,7 @@ s.addNotes("Left: each score at both probe lengths. On non-Gaussian data PercEF 
 
 // ================================================================= 13. combined idea (tested, not adopted)
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Results" });
+s.hidden = true;                                           // tested and not adopted: skipped when presenting
 s.addText("Tested: our score + Ada-ef's table", { placeholder: "title" });
 s.addText("Idea: if Ada-ef's better tail on Gaussian data came from its ef table, PercEF's score with that table should match it.",
   { x: 0.6, y: 1.3, w: 12.1, h: 0.7, fontSize: 17, color: C.text1, margin: 0, isTextBox: true, objectName: "Combo intro" });
