@@ -203,3 +203,26 @@ ef at the same mean recall (`analysis/rescore_scorecard.js`, `paper_out_20261006
 5. Changed numbers in the paper, plan, deck, poster and video script: 14/18 → 23/34 faster;
    33/34 → 31/34 tail at least the fixed ef's; 16/16 → 15/16 tail at least Ada-ef's; speed-up over
    Ada-ef 1.03–1.37x → up to 1.78x; iNaturalist p1 +0.040 → +0.034, GIST −0.006 → −0.009.
+
+## 9. Latency fix: the probe score is built while the probe runs
+
+PercEF was slower than the tuned fixed ef in 11 of the 16 non-Gaussian runs (§8), although it does
+less work in 14. The search already continues the same traversal after the probe; nothing restarts.
+The extra time was per-query work the distance count does not see: after the probe, the whole
+result heap was copied and popped item by item just to read the ~100 distances for the score.
+
+- **Fix** (`hnswalg.h`, `ProbeScore`): the score is a mean of per-distance weights, so it does not
+  depend on order. Each distance now adds to a per-bin count as the probe computes it, and the score
+  is read from the counts. No heap copy, no pops. The calibration path uses the same counts, so the
+  ef chosen in search and the ef the table was calibrated with are bit-identical.
+- **Check:** `analysis/test_probe_score.py` (same ef as the calibration path for every query).
+- **Re-run:** `run_retime_probe_score.sh` rebuilds, checks, and re-runs the 8 non-Gaussian datasets.
+  Recall and distance counts should not move; only latency.
+
+## 10. The Ada-ef paper's own metrics (checked against adaptive_EF.pdf)
+
+Its evaluation (§7.2, Fig. 4) reports "three recall statistics: average recall, 1st percentile, and
+5th percentile ... the 1st and 5th percentiles capture performance on the hardest queries", against
+workload time. So p1/p5 are Ada-ef's own headline recall metrics (an earlier note said otherwise; it
+was wrong). Its fixed-ef baseline is swept up to mean recall 0.99, not matched at equal recall, and
+it reports no distance counts. The paper's metrics paragraph now says we use Ada-ef's statistics.

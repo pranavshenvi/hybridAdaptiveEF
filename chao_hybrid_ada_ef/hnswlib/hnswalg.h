@@ -2439,18 +2439,35 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     // (bottom-based branch: ascending bins, score = mean over probes of the
     // weight of the first (smallest) bin threshold each distance falls under).
     // -------------------------------------------------------------------------
-    static float scoreFromDists(const std::vector<dist_t>& dists, const std::vector<float>& bins, const std::vector<float>& weights) {
-        float score = 0;
-        for (dist_t d : dists) {
+    // Running form of the score: counts per bin, so it can be built while the
+    // probe is collected (no heap copy) and the result does not depend on the
+    // order the distances arrive in. Search and calibration both use it, so
+    // their scores are bit-identical.
+    struct ProbeScore {
+        const std::vector<float>& bins;
+        const std::vector<float>& weights;
+        std::vector<size_t> counts;
+        size_t n = 0;
+        ProbeScore(const std::vector<float>& b, const std::vector<float>& w)
+            : bins(b), weights(w), counts(b.size(), 0) {}
+        inline void add(dist_t d) {
+            ++n;
             for (size_t bi = 0; bi < bins.size(); ++bi) {
-                if (d < bins[bi]) {
-                    score += weights[bi];
-                    break;
-                }
+                if (d < bins[bi]) { ++counts[bi]; return; }
             }
         }
-        if (!dists.empty()) score /= (float)dists.size();
-        return score;
+        float value() const {
+            if (n == 0) return 0.0f;
+            float score = 0;
+            for (size_t bi = 0; bi < bins.size(); ++bi) score += (float)counts[bi] * weights[bi];
+            return score / (float)n;
+        }
+    };
+
+    static float scoreFromDists(const std::vector<dist_t>& dists, const std::vector<float>& bins, const std::vector<float>& weights) {
+        ProbeScore ps(bins, weights);
+        for (dist_t d : dists) ps.add(d);
+        return ps.value();
     }
 
     // Same single-pass "score mid-traversal, then continue the same traversal"
@@ -2514,6 +2531,8 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         // search). Never pruning here makes correctness independent of that
         // ratio, for any dataset.
         size_t collected = 1;
+        ProbeScore probe_score(bins, weights);   // built as distances arrive
+        probe_score.add(dist);
         while (!candidate_set.empty() && collected < (size_t)probe_count) {
             std::pair<dist_t, tableint> current_node_pair = candidate_set.top();
             candidate_set.pop();
@@ -2543,6 +2562,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                     dist_t nd = fstdistfunc_(query_data, currObj1, dist_func_param_);
                     candidate_set.emplace(-nd, candidate_id);
                     top_candidates.emplace(nd, candidate_id);
+                    probe_score.add(nd);
                     collected++;
                 }
             }
@@ -2553,13 +2573,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         // best-first search seeded from the full unpruned candidate_set/
         // top_candidates gathered above.
         {
-            std::vector<dist_t> top_dists;
-            auto temp_q = top_candidates;
-            while (!temp_q.empty()) {
-                top_dists.push_back(temp_q.top().first);
-                temp_q.pop();
-            }
-            float score = scoreFromDists(top_dists, bins, weights);
+            float score = probe_score.value();   // same value scoreFromDists gives on the collected distances
             int score_idx = std::max(0, (int)std::round(score));
             if (score_idx < (int)ef_table.size()) {
                 current_ef = ef_table[score_idx];

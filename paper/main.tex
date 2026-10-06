@@ -234,15 +234,17 @@ real queries. Test queries are disjoint from both.
 
 \paragraph{Metrics and the fixed-\ef{} reference.}
 Ada-ef's stated aims are to meet a declared target recall while avoiding both under- and
-over-searching~\cite{zhang2026adaef}. We measure them directly: mean recall against the target;
-tail recall, the 1st and 5th percentile of per-query recall (p1, p5), which shows how far the
-worst-served queries fall short (under-searching); and cost, both as latency per query and as
-distance computations (over-searching); plus offline time and memory. Distance
+over-searching~\cite{zhang2026adaef}. We use the same recall statistics its evaluation reports:
+mean recall, and the 1st and 5th percentile of per-query recall (p1, p5), which ``capture
+performance on the hardest queries'' and so show under-searching~\cite[\S 7.2]{zhang2026adaef}.
+Cost is measured as latency per query, as there, and also as distance computations, which the
+Ada-ef paper does not report; plus offline time and memory. Distance
 computations (DC), including every probe, serve as a hardware-independent measure of cost. As a
 reference we run HNSW at a grid of fixed \ef{} values and, for each method, interpolate the fixed
 \ef{} that reaches the same mean recall. This is the best fixed \ef{} anyone could choose in
-hindsight; no deployment can pick it in advance, so beating it is a demanding test, and it is not a
-claim the Ada-ef paper makes. We interpolate in $\log(1 - \text{recall})$ against $\log$ cost:
+hindsight; no deployment can pick it in advance, so beating it is a demanding test. The Ada-ef
+paper instead sweeps the fixed \ef{} upward until mean recall reaches 0.99 and compares the curves,
+so it does not match the two at equal mean recall. We interpolate in $\log(1 - \text{recall})$ against $\log$ cost:
 interpolating linearly overstates the fixed \ef{}'s cost by 11\% on average in a leave-one-out
 test on our grids (\S\ref{sec:pitfalls}), which would flatter every adaptive method.
 
