@@ -57,10 +57,9 @@ and the true per-query ef:
    So: at equal probe length, the empirical thresholds rank at least as well as the Gaussian ones
    on 5 of 6 datasets.
 3. **Ranking is not the whole tail story.** PercEF with L=1025 ranks GloVe queries better than
-   with L=100 (0.76 against 0.61) but its p1 gain stays at +0.028, while Ada-ef's is +0.073. On
-   near-Gaussian data Ada-ef's better tail comes mostly from how its ef table is built (smallest ef
-   that brings each score group's *average* recall to the target), not from its score.
-   A natural next version: PercEF's score with a group-average table.
+   with L=100 (0.76 against 0.61) but its p1 gain stays at +0.028, while Ada-ef's is +0.073.
+   We guessed Ada-ef's tail edge came mostly from its ef table and tested PercEF's score with that
+   table; it does not (§7): on GloVe Ada-ef's tail needs its own score and its table together.
 4. **A long probe costs latency only on short searches.** PercEF with L=1025 is 26–40% slower
    than the fixed ef on SIFT, DeepImage, SIFT-1B and Deep1B, about 1% on GloVe and MS Turing.
    Probe length could follow the expected search length (future work).
@@ -81,8 +80,8 @@ and Deep1B; if the gap to the DC saving remains, profile the C++ search next.
 ## 4. What changes in the paper
 
 - New paragraph and table: the probe-length ablation (§2), which closes the probe-length caveat.
-- Near-Gaussian section: Ada-ef's ranking edge there comes partly from its probe and its tail edge
-  from its table construction; the limit is stated that way.
+- Near-Gaussian section: Ada-ef's ranking edge there comes partly from its probe; its tail edge
+  needs its score and its table together (§7); the limit is stated that way.
 - Latency paragraph rewritten (§1), with credit to Ada-ef's speedups on its own datasets; the
   non-Gaussian latency numbers wait for the re-timing in §3.
 - Numbers: worst extra cost 2.5% (was 3.1%); Ada-ef as shipped cheaper in 10/34 (was 11).
@@ -144,3 +143,29 @@ log-log interpolation; absolute times are not compared across libraries.
    beat DARTH's tail. The paper presents the three as a trade-off: DARTH for the best tail at a
    time cost, Ada-ef for speed on Gaussian data with long searches, PercEF for tail gains without
    extra cost or training, robust to the data's distribution.
+
+## 7. PercEF's score with Ada-ef's ef table: tested, not adopted
+
+Hypothesis (from §2.3): Ada-ef's tail edge on near-Gaussian data comes from its group-average ef
+table, so PercEF's score with that table might match Ada-ef there and keep PercEF's edge elsewhere.
+`benchmark_unified.py --group-table` (setting R, K = 1) builds the table with the same function
+as Ada-ef's own rows; only the score differs. p1 gain against the tuned fixed ef:
+
+| Dataset (KS) | PercEF | PercEF + Ada-ef table | same + WAE floor (time vs fixed ef) | Ada-ef |
+|---|---|---|---|---|
+| SIFT-1M (0.126) | **+0.028** | +0.024 | +0.023 (−1.5%) | 0.000 |
+| Deep1B (0.067) | **+0.081** | +0.076 | +0.056 (+2.9%) | +0.052 |
+| DeepImage (0.066) | **+0.088** | +0.073 | +0.055 (+3.7%) | +0.048 |
+| SIFT-1B (0.029) | **+0.056** | **+0.056** | +0.030 (+2.7%) | +0.016 |
+| GloVe (0.018) | +0.029 | +0.031 | +0.008 (+3.1%) | **+0.073** |
+| MS Turing (0.010) | **+0.013** | +0.012 | −0.002 (+1.3%) | −0.038 |
+
+1. **The hypothesis does not hold.** On GloVe the table moves PercEF's tail from +0.029 to +0.031,
+   nowhere near Ada-ef's +0.073. With §2.3 (a longer probe does not do it either), Ada-ef's tail
+   edge on GloVe needs its own score, which ranks GloVe queries best (|ρ| 0.80), *and* its table
+   together; neither part alone carries it.
+2. **Plain PercEF stays the default**: best or tied-best tail on 5 of 6 datasets, and the
+   combination is only 0.002 better on the sixth.
+3. The WAE-floored combination is faster than the fixed ef on 5 of 6 (up to 3.7%), but its tail
+   gain falls to about zero on GloVe and MS Turing: not a general improvement, not featured.
+4. In the paper: one sentence in the probe-length paragraph, as a tested and rejected explanation.

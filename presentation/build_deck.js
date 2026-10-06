@@ -300,10 +300,10 @@ table(s, [
 s.addText("DARTH has the best tail but costs time and training; PercEF gets much of the gain at almost no time cost.", { x: 6.95, y: 4.3, w: 5.8, h: 0.9, fontSize: 14, italic: true, color: C.accent2, margin: 0, isTextBox: true, objectName: "DARTH takeaway" });
 s.addNotes("Left: each score at both probe lengths. On non-Gaussian data PercEF ranks better at both, so the thresholds carry the advantage. Right: DARTH, the learned method, wins the worst-case recall but is up to 2.3x slower than a fixed ef and needs minutes of training per dataset.");
 
-// ================================================================= 13. combined idea (in progress)
+// ================================================================= 13. combined idea (tested, not adopted)
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Results" });
-s.addText("In progress: our score + Ada-ef's table", { placeholder: "title" });
-s.addText("On Gaussian data Ada-ef's better tail comes mostly from its ef table, so we test PercEF's score with that table.",
+s.addText("Tested: our score + Ada-ef's table", { placeholder: "title" });
+s.addText("Idea: if Ada-ef's better tail on Gaussian data came from its ef table, PercEF's score with that table should match it.",
   { x: 0.6, y: 1.3, w: 12.1, h: 0.7, fontSize: 17, color: C.text1, margin: 0, isTextBox: true, objectName: "Combo intro" });
 table(s, [
   ["Dataset", "p1 gain: PercEF", "p1 gain: combined", "Combined + WAE: time vs fixed ef", "p1 gain: Ada-ef"],
@@ -311,14 +311,15 @@ table(s, [
   ["Deep1B", "+0.081", "+0.076", "2.9% faster", "+0.052"],
   ["DeepImage", "+0.088", "+0.073", "3.7% faster", "+0.048"],
   ["SIFT-1B", "+0.056", "+0.056", "2.7% faster", "+0.016"],
-  ["GloVe, MS Turing", "running", "running", "running", "—"],
-], 0.6, 2.15, 12.1, [2.4, 2.2, 2.3, 3.0, 2.2], "Combined table", 14);
+  ["GloVe (Gaussian)", "+0.029", "+0.031", "3.1% faster", "+0.073"],
+  ["MS Turing (Gaussian)", "+0.013", "+0.012", "1.3% faster", "−0.038"],
+], 0.6, 2.05, 12.1, [2.4, 2.2, 2.3, 3.0, 2.2], "Combined table", 14);
 s.addText(bullets([
-  "Non-Gaussian data: plain PercEF keeps the best worst-case recall; the table adds nothing there",
-  "Combined + WAE floor works as a speed mode: faster than the fixed ef on 3 of 4",
-  "The deciding runs are GloVe and MS Turing (Gaussian): does the combination reach Ada-ef's tail?",
-], 15), { x: 0.6, y: 5.0, w: 12.1, h: 1.8, color: C.text1, valign: "top", margin: 0, isTextBox: true, objectName: "Combo bullets" });
-s.addNotes("If the combination matches Ada-ef on Gaussian data, PercEF becomes one method for both kinds of data. Results for GloVe and MS Turing are still running.");
+  "Not adopted: on GloVe the table lifts PercEF only from +0.029 to +0.031, far from Ada-ef's +0.073",
+  "Ada-ef's tail edge on Gaussian data needs its own score and its table together",
+  "Plain PercEF keeps the best or tied-best worst-case recall on 5 of 6 datasets",
+], 15), { x: 0.6, y: 5.25, w: 12.1, h: 1.6, color: C.text1, valign: "top", margin: 0, isTextBox: true, objectName: "Combo bullets" });
+s.addNotes("We tested whether Ada-ef's better worst-case recall on Gaussian data came from its ef table. It did not: with that table our score barely improves on GloVe. Plain PercEF stays the default; the result goes in the paper as a tested explanation that did not hold.");
 
 // ================================================================= 14. limits and next steps
 pres.addSection({ title: "Wrap-up" });
@@ -328,7 +329,7 @@ card(s, 0.6, 1.4, 5.95, 3.4, "Limits, stated openly",
   "• Near-Gaussian text embeddings: Ada-ef keeps the better worst-case recall\n• Cross-modal queries (text searching images): neither method adapts\n• One failed KS prediction (SIFT-1B)\n• Cohere and LAION run as subsets (62 GB RAM)",
   { bodySize: 16, fill: "FCE9DF", headColor: C.accent4 });
 card(s, 6.85, 1.4, 5.9, 3.4, "Next steps",
-  "• Finish the combined test (GloVe, MS Turing)\n• Final figures and numbers in the paper\n• Guide review, author list\n• arXiv preprint and code release\n• Submit: PVLDB Experiments, Analysis & Benchmarks track",
+  "• Understand why Ada-ef's score and table together win the tail on GloVe\n• Final figures and numbers in the paper\n• Guide review, author list\n• arXiv preprint and code release\n• Submit: PVLDB Experiments, Analysis & Benchmarks track",
   { bodySize: 16, fill: "DCEFF3" });
 s.addNotes("These limits are in the paper. Reviewers trust a paper that says what does not work.");
 

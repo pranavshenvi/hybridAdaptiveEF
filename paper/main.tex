@@ -338,8 +338,8 @@ margin on these sets (27\% on GloVe, 7\% on MS MARCO, 3--11\% on Cohere and LAIO
 wall-clock time (\S\ref{sec:latency}). Ours stays cheaper than the fixed \ef{} on all of them, but
 gives a smaller tail gain. We therefore do not claim that the empirical score should replace
 Ada-ef's. On text embeddings like those in the Ada-ef paper, Ada-ef is the better choice. The
-ablation below qualifies why: part of its ranking edge there comes from its longer probe, and most
-of its tail edge from the way it builds its \ef{} table.
+ablation below qualifies why: part of its ranking edge there comes from its longer probe, and its
+tail edge needs its own score and its \ef{} table together.
 
 Two datasets on this side behave differently. On SIFT-1B (KS 0.029) our score ranks queries far
 better (0.74 against 0.42) and has the better tail. On MS Turing (KS 0.010) Ada-ef ranks better, as
@@ -378,9 +378,11 @@ advantage. On the near-Gaussian sets the probe matters more than we assumed. A l
 both scores there, and at equal length the empirical thresholds tie the Gaussian ones on GloVe at
 100 distances and beat them on MS Turing at both lengths; only on GloVe at 1025 do the Gaussian
 thresholds rank better (0.80 against 0.76). Better ranking did not carry over to the tail, though:
-with 1025 distances PercEF's p1 gain on GloVe stays at 0.028, against Ada-ef's 0.073. On these
-datasets Ada-ef's tail comes mostly from its table, which sets each score group's \ef{} by the
-group's average recall. A long probe is cheap only when searches are long: with 1025 distances
+with 1025 distances PercEF's p1 gain on GloVe stays at 0.028, against Ada-ef's 0.073. Nor is it
+Ada-ef's table alone: with the table Ada-ef builds (each score group gets the smallest \ef{} at which
+the group's average recall reaches the target), PercEF's p1 gain on GloVe is 0.031. Ada-ef's tail
+on these datasets needs its score and its table together. On the non-Gaussian sets the same table
+lowers PercEF's tail slightly (e.g. DeepImage 0.088 to 0.073), so we keep PercEF's own calibration. A long probe is cheap only when searches are long: with 1025 distances
 PercEF is 26--40\% slower than the fixed \ef{} on SIFT-1M, DeepImage, SIFT-1B and Deep1B, and about
 1\% slower on GloVe and MS Turing.
 
