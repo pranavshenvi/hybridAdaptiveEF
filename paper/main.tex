@@ -106,8 +106,10 @@ failure is visible in the raw vectors, the same KS statistic tells a practitione
 use before building an index; it picks the better one on 18 of 19 datasets. Against DARTH, a
 learned method that checks each query while it runs, PercEF gives a smaller tail gain but almost
 no time penalty (at most 3\% over a fixed \ef{}), where DARTH is up to 2.3 times as slow. We also report what
-does not work: Ada-ef gives larger tail gains on near-Gaussian text embeddings, neither score adapts
-when queries come from a different modality than the database, and one prediction (SIFT-1B) fails.
+does not work: Ada-ef gives larger tail gains on near-Gaussian text embeddings and meets its target
+recall more closely, neither score saves work at $k = 10$ or adapts when queries come from a
+different modality than the database, and one prediction (SIFT-1B) fails. The comparisons hold at
+target recalls of 0.90 and 0.99.
 
 % ------------------------------------------------------------------------------------------------
 \section{Related Work}
@@ -457,6 +459,63 @@ $\mathrm{ef}^*$ (ours, up to 257\,s on MS Turing) and by Ada-ef's per-group sear
 same set). Ada-ef keeps a $d \times d$ covariance (up to 9.4\,MB at $d = 1536$); ours keeps five
 thresholds, the centroid and the table, a few kilobytes.
 
+\paragraph{Other targets and $k$.}\label{sec:sweep}
+All results so far use the Ada-ef paper's protocol ($\tau = 0.95$, $k = 100$ or $1000$). We repeated
+the comparison at $\tau = 0.90$ and $0.99$ and at $k = 10$ on six datasets, four above the band
+(DeepImage, Deep1B, SIFT-1M, Landmark-DINO) and two below it (GloVe, MS Turing), in both settings
+(Table~\ref{tab:sweep}). At both other targets the picture holds. Above the band PercEF does less
+work than the tuned fixed \ef{} in 7 and 6 of the 8 runs (never more than 2.2\% extra), never lowers
+its p1, and is faster than the p1-matched fixed \ef{} in all 8, by a median of 19--20\%; Ada-ef does
+less work in 0 and 2. Below the band PercEF wins on every count in all 4 runs at both targets.
+
+Two weaknesses appear. First, PercEF's mean recall lands further from the target than Ada-ef's:
+at $\tau = 0.90$ it reaches 0.93--0.96 above the band (Ada-ef 0.89--0.95), and at $\tau = 0.99$ it
+falls short on GloVe (0.967--0.970) and MS Turing~P (0.964), where Ada-ef reaches 0.972--0.982. The
+reason is in the calibration: our table maps a score to the average $\mathrm{ef}^*$ of similar
+calibration queries and never checks the mean recall that results, while Ada-ef's table is built to
+meet the target. Every comparison above is made at the method's own recall, so the counts are not
+affected, but a user who needs the target met should not rely on PercEF's table as is.
+\pending{A one-factor rescaling of the table on the calibration queries is being evaluated.} Second,
+at $k = 10$ neither method saves work: PercEF needs up to 19\% more than the tuned fixed \ef{} above
+the band (0 of 8 runs cheaper) and Ada-ef 1--109\% more in all 12 runs. Whole searches there take
+1{,}300--1{,}800 distance computations, so a fixed 100-distance probe is a large share of each, and
+with recall moving in steps of 0.1 per query, each query's $\mathrm{ef}^*$ is too coarse to predict
+well. The p1-matched comparison is not meaningful at $k = 10$ for the same reason.
+\pending{A 30-distance probe for small $k$ is being evaluated.}
+
+\begin{table}[t]
+  \caption{Robustness sweep, six datasets, settings P and R. Counts against the tuned fixed \ef{}:
+  less work at the same mean recall, p1 at least the fixed \ef{}'s, and faster than the p1-matched
+  fixed \ef{} (median time saving). Above: 4 datasets above the band (8 runs); below: 2 below it (4).}
+  \label{tab:sweep}
+  \centering\footnotesize\setlength{\tabcolsep}{3.5pt}
+  \begin{tabular}{lllrrr}
+    \toprule
+    $\tau$, $k$ & Data & Method & Less work & p1 $\geq$ & p1-matched faster \\
+    \midrule
+    0.90, 100 & above & Ours   & 7/8 & 8/8 & 8/8 (19\%) \\
+              &       & Ada-ef & 0/8 & 4/8 & 0/8 \\
+              & below & Ours   & 4/4 & 4/4 & 4/4 (11\%) \\
+              &       & Ada-ef & 0/4 & 2/4 & 1/4 \\
+    \midrule
+    0.95, 100 & above & Ours   & 7/8 & 8/8 & 8/8 (26\%) \\
+              &       & Ada-ef & 2/8 & 5/8 & 1/8 \\
+              & below & Ours   & 4/4 & 4/4 & 4/4 (10\%) \\
+              &       & Ada-ef & 2/4 & 2/4 & 1/4 \\
+    \midrule
+    0.99, 100 & above & Ours   & 6/8 & 8/8 & 8/8 (20\%) \\
+              &       & Ada-ef & 2/8 & 7/8 & 4/8 \\
+              & below & Ours   & 4/4 & 4/4 & 4/4 (11\%) \\
+              &       & Ada-ef & 2/4 & 2/4 & 2/4 \\
+    \midrule
+    0.95, 10  & above & Ours   & 0/8 & 8/8 & -- \\
+              &       & Ada-ef & 0/8 & 5/8 & -- \\
+              & below & Ours   & 2/4 & 3/4 & -- \\
+              &       & Ada-ef & 0/4 & 2/4 & -- \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
 \paragraph{A learned method.}
 DARTH~\cite{chatzakis2026darth} stops each search when a gradient-boosted model, fed with features
 of the search so far, predicts that the target recall has been reached. We ran the authors' code
@@ -537,8 +596,9 @@ at least Ada-ef's tail recall in 15 of 16 runs, at a cost that never exceeds a h
 \ef{} by more than 2.5\%. Matched on worst-case recall, it is faster than that fixed \ef{} in 13 of
 these 16 runs, where Ada-ef is in one. On near-Gaussian data it remains cheaper and faster than the
 fixed \ef{} in every run, while Ada-ef gives larger tail gains. A KS test on the raw vectors tells which score
-to use before an index is built, with one known miss. Neither score adapts when queries come from
-another modality. Code, data pointers and every number in this paper are
+to use before an index is built, with one known miss. The comparisons hold at target recalls of
+0.90 and 0.99. PercEF meets the target less closely than Ada-ef, neither method saves work at
+$k = 10$, and neither adapts when queries come from another modality. Code, data pointers and every number in this paper are
 generated from the released result files. \pending{repository URL}
 
 \bibliographystyle{ACM-Reference-Format}

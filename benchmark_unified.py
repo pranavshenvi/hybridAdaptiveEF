@@ -115,14 +115,19 @@ ap.add_argument("--target-recall", type=float, default=None,
                 help="sweep: target recall other than the frozen 0.95 (own results folder and caches)")
 ap.add_argument("--k", type=int, default=None,
                 help="sweep: number of neighbours other than the dataset's default (own results folder and caches)")
+ap.add_argument("--fixes", action="store_true",
+                help="also run the two candidate fixes (updateAsOf071026.md §6): the ef table scaled to meet the "
+                     "target on the calibration queries, and a shorter probe (--short-probe); own results folder")
+ap.add_argument("--short-probe", type=int, default=30, help="probe length of the shorter-probe variant (--fixes)")
 args = ap.parse_args()
-SWEEP = args.target_recall is not None or args.k is not None
+SWEEP = args.target_recall is not None or args.k is not None or args.fixes
 SETTINGS = [s.strip().upper() for s in args.settings.split(",") if s.strip()]
 assert all(s in ("P", "R") for s in SETTINGS), "--settings takes P and/or R"
 
 TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
-SWEEP_TAG = ((f"_t{args.target_recall:g}" if args.target_recall is not None else "")
+CACHE_TAG = ((f"_t{args.target_recall:g}" if args.target_recall is not None else "")
              + (f"_k{args.k}" if args.k is not None else ""))
+SWEEP_TAG = CACHE_TAG + ("_fixes" if args.fixes else "")
 RESULTS_DIR = (f"results_unified_{args.dataset}{'_smoke' if args.smoke else ''}"
                f"{'_ablation' if (args.ablation or args.group_table) else ''}"
                f"{'_sweep' + SWEEP_TAG if SWEEP else ''}_{TIMESTAMP}")
@@ -639,7 +644,7 @@ def vs_fixed(row, fixed):
 
 
 def load_offline_times(cache):
-    path = os.path.join(cache, f"offline_times{SWEEP_TAG}.json")
+    path = os.path.join(cache, f"offline_times{CACHE_TAG}.json")
     if os.path.exists(path):
         with open(path) as f:
             return json.load(f)
@@ -650,7 +655,7 @@ def save_offline_time(cache, key, secs):
     """Offline steps are cached across runs; their first-run time is kept next to the cache."""
     t = load_offline_times(cache)
     t[key] = secs
-    with open(os.path.join(cache, f"offline_times{SWEEP_TAG}.json"), "w") as f:
+    with open(os.path.join(cache, f"offline_times{CACHE_TAG}.json"), "w") as f:
         json.dump(t, f, indent=1)
 
 
@@ -909,7 +914,7 @@ def main():
         rows, pq_setting = list(fixed_rows), dict(per_query)
         searchers = dict(fixed_searchers)          # what the latency pass times
 
-        mef_path = os.path.join(cache, f"calib_min_ef_{setting}{SWEEP_TAG}.npz")
+        mef_path = os.path.join(cache, f"calib_min_ef_{setting}{CACHE_TAG}.npz")
         if os.path.exists(mef_path):
             z = np.load(mef_path); calib_min_ef, capped = z["min_ef"], z["capped"]
         else:
@@ -926,7 +931,7 @@ def main():
         ada_scores = np.array([idx.adaptive_search_knn_paper(q, K, STATICS_LENGTH, scorer, None)[2] for q in calib_q])
         ada_score_s = time.time() - ta
         rho_ada = finite_or_none(spearmanr(ada_scores, calib_min_ef)[0])
-        tab_path = os.path.join(cache, f"ada_table_{setting}{SWEEP_TAG}.json")
+        tab_path = os.path.join(cache, f"ada_table_{setting}{CACHE_TAG}.json")
         if os.path.exists(tab_path):
             with open(tab_path) as f:
                 z = json.load(f); ada_table, wae = {int(k): v for k, v in z["table"].items()}, z["wae"]
@@ -985,6 +990,64 @@ def main():
                 with open(os.path.join(RESULTS_DIR, f"ef_table_{setting}_k{kc}_{how.lower()}.json"), "w") as f:
                     json.dump(ef_list, f)
 
+        # Candidate fixes (--fixes, updateAsOf071026.md §6). (a) "scaled": the isotonic table maps a score to
+        # the average ef* of similar calibration queries and never checks the mean recall that results;
+        # one factor a multiplies the whole table, the smallest a whose calibration mean recall reaches the
+        # target (bisection on the calibration queries only). (b) "L=<n>": a shorter probe, for small k,
+        # where the 100-distance probe is a large share of a whole search; own scores and isotonic table.
+        if args.fixes:
+            b1 = bins[1][0].tolist()
+
+            def calib_recall(cfg):
+                return float(np.mean([recall_of(idx.search_percef(q, K, cfg)[0], calib_gt[i], K)
+                                      for i, q in enumerate(calib_q)]))
+
+            def scale_table(table, L):
+                sc_t = lambda a: [int(np.clip(round(v * a), K, EF_CAP)) for v in table]
+                cfg_of = lambda a: hnsw.PercEFConfig(b1, BIN_WEIGHTS, sc_t(a), K, EF_CAP, L)
+                lo, hi = 0.25, 4.0
+                if calib_recall(cfg_of(lo)) >= TARGET_RECALL:
+                    return lo, sc_t(lo)
+                if calib_recall(cfg_of(hi)) < TARGET_RECALL:
+                    return hi, sc_t(hi)
+                for _ in range(12):                      # ratio 16 -> about 0.1% resolution
+                    mid = float(np.sqrt(lo * hi))
+                    if calib_recall(cfg_of(mid)) >= TARGET_RECALL:
+                        hi = mid
+                    else:
+                        lo = mid
+                return hi, sc_t(hi)
+
+            iso_default = build_isotonic(np.round(ours_scores_k1).astype(int), calib_min_ef, K)
+            variants = [("Ours (K=1, Isotonic, scaled)", PROBE_COUNT, iso_default, True)]
+            Ls = args.short_probe
+            sc_s = np.array([idx.get_dynamic_probe_score_weighted(q, b1, BIN_WEIGHTS, Ls) for q in calib_q],
+                            dtype=np.float32)
+            iso_s = build_isotonic(np.round(sc_s).astype(int), calib_min_ef, K)
+            rho_short = finite_or_none(spearmanr(sc_s, calib_min_ef)[0])
+            variants += [(f"Ours (K=1, Isotonic, L={Ls})", Ls, iso_s, False),
+                         (f"Ours (K=1, Isotonic, L={Ls}, scaled)", Ls, iso_s, True)]
+            for name, L, table, scale in variants:
+                alpha = None
+                if scale:
+                    tf = time.time()
+                    alpha, table = scale_table(table, L)
+                    save_offline_time(cache, f"fix_scale_{setting}_L{L}_s", time.time() - tf)
+                cfg = hnsw.PercEFConfig(b1, BIN_WEIGHTS, table, K, EF_CAP, L)
+                def fix_search(i, q, cfg=cfg):
+                    labs, _, ef_used = idx.search_percef(q, K, cfg)
+                    return labs, ef_used
+                rec, efs, dcs, lat = run_queries(idx, test_q, test_gt, K, fix_search)
+                row, pq = summarize(name, rec, efs, dcs, 1, lat,
+                                    dict(scale=alpha, probe_len=L, rho=rho_short if L != PROBE_COUNT else None))
+                searchers[name] = fix_search
+                rows.append(row); pq_setting[name] = pq
+                print(f"  {name:<34} R={row['mean_r']:.4f} p1={row['p1']:.3f} DC={row['total_dc']:.0f}"
+                      f"{'' if alpha is None else f'  scale {alpha:.3f}'}"
+                      f"{'' if L == PROBE_COUNT else f'  rho {rho_short}'}", flush=True)
+                with open(os.path.join(RESULTS_DIR, f"ef_table_{setting}_{name.split('(')[1].rstrip(')').replace(', ', '_').replace('=', '')}.json"), "w") as f:
+                    json.dump(table, f)
+
         # Probe-length ablation (--ablation): each score also runs with the other's probe length, so
         # the thresholds are the only difference left (paper, \S3.3). Ada-ef keeps its own code and
         # group-average table; only statics_length changes. Ours keeps its thresholds and isotonic fit.
@@ -993,7 +1056,7 @@ def main():
             L_A, L_O = PROBE_COUNT, STATICS_LENGTH
             a_sc = np.array([idx.adaptive_search_knn_paper(q, K, L_A, scorer, None)[2] for q in calib_q])
             ablation_rho[f"ada_L{L_A}"] = finite_or_none(spearmanr(a_sc, calib_min_ef)[0])
-            tab_l = os.path.join(cache, f"ada_table_{setting}_L{L_A}{SWEEP_TAG}.json")
+            tab_l = os.path.join(cache, f"ada_table_{setting}_L{L_A}{CACHE_TAG}.json")
             if os.path.exists(tab_l):
                 with open(tab_l) as f:
                     z = json.load(f); a_table, a_wae = {int(k): v for k, v in z["table"].items()}, z["wae"]
@@ -1033,7 +1096,7 @@ def main():
         # the same function as Ada-ef's table; WAE floor variant as for Ada-ef. Tests whether Ada-ef's
         # tail edge on near-Gaussian data comes from its table (updateAsOf061026.md \S2).
         if args.group_table:
-            g_path = os.path.join(cache, f"percef_group_table_{setting}{SWEEP_TAG}.json")
+            g_path = os.path.join(cache, f"percef_group_table_{setting}{CACHE_TAG}.json")
             if os.path.exists(g_path):
                 with open(g_path) as f:
                     z = json.load(f); g_table, g_wae = {int(k): v for k, v in z["table"].items()}, z["wae"]
@@ -1100,6 +1163,9 @@ def main():
                            f"Ours (K=1, Isotonic, L={STATICS_LENGTH})"]
         if args.group_table:
             main_names += ["PercEF + group table (as shipped)", "PercEF + group table (WAE floor)"]
+        if args.fixes:
+            main_names += ["Ours (K=1, Isotonic, scaled)", f"Ours (K=1, Isotonic, L={args.short_probe})",
+                           f"Ours (K=1, Isotonic, L={args.short_probe}, scaled)"]
         scorecard = {n: vs_fixed(next(r for r in rows if r["name"] == n), fixed) for n in main_names}
         # Calibration diagnostics (the factors of updateAsOf280926.md §9)
         ada_by_score = np.array([ada_table.get(int(s), wae) for s in np.round(ada_scores).astype(int)])

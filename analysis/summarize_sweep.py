@@ -16,7 +16,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from make_paper_figures import METHODS, KS, BAND_HI, fixed_at, fixed_at_p1   # noqa: E402
 
 root = sys.argv[1] if len(sys.argv) > 1 else "."
-PAT = re.compile(r"results_unified_(.+?)(?:_sweep(?:_t([0-9.]+))?(?:_k(\d+))?)?_(\d{8}_\d{6})$")
+PAT = re.compile(r"results_unified_(.+?)(?:_sweep(?:_t([0-9.]+))?(?:_k(\d+))?(_fixes)?)?_(\d{8}_\d{6})$")
+# --fixes runs (run_fixes.sh): only their extra PercEF variants are read; base methods come from the regular runs
 
 # latest folder per (dataset, target, k); sweep datasets only
 runs, sweep_ds = {}, set()
@@ -31,10 +32,10 @@ for d in sorted(glob.glob(os.path.join(root, "results_unified_*"))):
     ds = m.group(1)
     if "_sweep" in b:
         sweep_ds.add(ds)
-    runs[(ds, round(float(meta["target_recall"]), 4), int(meta["K"]))] = d
+    runs[(ds, round(float(meta["target_recall"]), 4), int(meta["K"]), bool(m.group(4)))] = d
 
 out = []
-for (ds, tgt, k), d in sorted(runs.items()):
+for (ds, tgt, k, fixes), d in sorted(runs.items()):
     if ds not in sweep_ds:
         continue
     for S in ("P", "R"):
@@ -43,7 +44,11 @@ for (ds, tgt, k), d in sorted(runs.items()):
             continue
         rows = json.load(open(f))
         fixed = sorted([r for r in rows if r["name"].startswith("Fixed")], key=lambda r: r["avg_ef"])
-        for full, meth in METHODS.items():
+        names = dict(METHODS)
+        if fixes:
+            names = {n: ("Ours " + n.split("Isotonic, ")[1].rstrip(")").replace("=", "").replace(", ", " "))
+                     for n in (x["name"] for x in rows) if n.startswith("Ours (K=1, Isotonic, ")}
+        for full, meth in names.items():
             r = next((x for x in rows if x["name"] == full), None)
             if r is None:
                 continue
@@ -52,7 +57,8 @@ for (ds, tgt, k), d in sorted(runs.items()):
             f1 = lambda key: fixed_at_p1(fixed, r["p1"], key)
             sv1 = lambda key: None if f1(key) is None or r.get(key) is None else (f1(key) - r[key]) / f1(key) * 100
             out.append(dict(dataset=ds, ks=KS.get(ds), target=tgt, k=k, setting=S, method=meth,
-                            mean_r=r["mean_r"], p1=r["p1"],
+                            mean_r=r["mean_r"], p1=r["p1"], scale=r.get("scale"),
+                            p5_gain=None if fa("p5") is None else r["p5"] - fa("p5"),
                             p1_gain=None if fa("p1") is None else r["p1"] - fa("p1"),
                             save_dc=sv("total_dc"), save_lat=sv("mean_lat_us"),
                             save_dc_p1=sv1("total_dc"), save_lat_p1=sv1("mean_lat_us")))

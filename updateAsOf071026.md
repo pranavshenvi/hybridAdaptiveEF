@@ -55,3 +55,33 @@ has a higher mean recall than PercEF, so the paper reports both comparisons side
 - PercEF vs Ada-ef raw time: still faster in 31/34; 0.99–1.82x in the 18 runs at near-equal recall.
 - Deck: slide 11 stat "13 vs 1", slide 12 stat "31 / 34" and new speed-up values, DARTH table,
   limits, notes. Poster: conclusion a). Video script: slides 11, 12, 14 and the glossary.
+
+## 5. Robustness sweep: target recall 0.90 / 0.99 and k = 10 (`run_sweep.sh`, `analysis/summarize_sweep.py`)
+
+Six datasets (DeepImage, Deep1B, SIFT-1M, Landmark-DINO above the band; GloVe, MS Turing below), P and
+R, PercEF's default recipe; 18 runs, no failures (`sweep_20261007_114821.log`).
+
+| target, k | data | PercEF less work / p1 ≥ fixed / p1-matched faster (median) | Ada-ef less work / p1-matched faster |
+|---|---|---|---|
+| 0.90, 100 | above (8) | 7 / 8 / 8 (19%) | 0 / 0 |
+| | below (4) | 4 / 4 / 4 (11%) | 0 / 1 |
+| 0.99, 100 | above (8) | 6 / 8 / 8 (20%) | 2 / 4 |
+| | below (4) | 4 / 4 / 4 (11%) | 2 / 2 |
+| 0.95, 10 | above (8) | **0** / 8 / (not meaningful) | 0 / – |
+| | below (4) | 2 / 3 / – | 0 / – |
+
+- The paper's comparisons hold at 0.90 and 0.99 (worst extra work 2.2%).
+- **Target accuracy:** PercEF's mean recall overshoots at 0.90 (0.93–0.96 above the band; Ada-ef
+  0.89–0.95) and undershoots at 0.99 on GloVe (0.967–0.970) and MS Turing P (0.964; Ada-ef
+  0.972–0.982). Cause: the isotonic table maps score → average ef* and never checks the mean recall.
+- **k = 10:** neither method saves work (PercEF up to 19% more above the band; Ada-ef 1–109% more in
+  all 12 runs). Searches are 1,300–1,800 DC, so the fixed 100-distance probe is a large share, and
+  per-query recall moves in steps of 0.1, so ef* is coarse; p1 is not meaningful at k = 10.
+
+## 6. Two candidate fixes (`--fixes`, `run_fixes.sh`)
+
+- **scaled:** multiply PercEF's isotonic table by one factor, the smallest whose mean recall on the
+  calibration queries reaches the target (bisection between 0.25 and 4, calibration queries only).
+- **L=30:** a 30-distance probe with its own scores and isotonic table, with and without scaling.
+- Run on the sweep's 6 datasets at k = 10, the paper's point, 0.90 and 0.99; reuses the sweep caches.
+  Default runs and the paper's numbers are unchanged; the paper marks both as \pending.
