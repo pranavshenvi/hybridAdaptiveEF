@@ -14,7 +14,9 @@ Writes paper_out_<ts>/ with CSV + LaTeX (booktabs) tables and PDF + PNG figures:
   table2_ks_survey      KS with 95% interval for every surveyed dataset
   table3_scorecard      each method vs a tuned fixed ef at the same mean recall: DC and latency
                         saving, p1/p5 gain, whether it adapts (one ef for all queries = no)
-  table3b_counts        the counts quoted in the paper (cheaper, faster, p1 >= fixed, ...)
+  table3b_counts        the counts quoted in the paper (cheaper, faster, p1 >= fixed, and against
+                        the fixed ef that matches each method's p1)
+  table3c_query_cost    time per distance of hard vs easy queries under a fixed ef (query_cost.py)
   table4_offline        offline time and memory (runs that recorded them)
   table5_tail_survey    tail-weighted alternatives to KS
   fig1_ks_survey        KS of every surveyed dataset, crossover band shaded
@@ -117,6 +119,22 @@ def fixed_at(fixed, r, key):
     return None
 
 
+def fixed_at_p1(fixed, p1, key):
+    """Cheapest fixed ef reaching worst-1% recall p1: walk the grid in order of cost, keep the best p1 so far,
+    interpolate log cost linearly in p1. None if no grid point reaches p1 (updateAsOf071026.md)."""
+    fx = sorted(fixed, key=lambda q: q["total_dc"])
+    if not fx or any(q.get(key) is None for q in fx):
+        return None
+    best = np.maximum.accumulate([q["p1"] for q in fx])
+    if p1 <= best[0]:
+        return fx[0][key]
+    for i in range(1, len(fx)):
+        if best[i - 1] < p1 <= best[i]:
+            t = (p1 - best[i - 1]) / (best[i] - best[i - 1])
+            return float(np.exp(np.log(fx[i - 1][key]) + t * np.log(fx[i][key] / fx[i - 1][key])))
+    return None
+
+
 def write_table(out, name, headers, rows, fmt=None):
     """CSV with raw values, LaTeX (booktabs) with formatted ones."""
     with open(os.path.join(out, name + ".csv"), "w", newline="", encoding="utf-8") as f:
@@ -194,9 +212,12 @@ def main():
                 f = lambda key: fixed_at(s["fixed"], r["mean_r"], key)
                 sv = lambda key: None if f(key) is None or r.get(key) is None else (f(key) - r[key]) / f(key) * 100
                 gn = lambda key: None if f(key) is None else r[key] - f(key)
+                g1 = lambda key: fixed_at_p1(s["fixed"], r["p1"], key)
+                sv1 = lambda key: None if g1(key) is None or r.get(key) is None else (g1(key) - r[key]) / g1(key) * 100
                 card.append(dict(dataset=ds, setting=S, method=m, ks=ks_of[ds], cross_modal=ds in CROSS_MODAL,
                                  mean_r=r["mean_r"], adapts=None if r.get("distinct_ef") is None else r["distinct_ef"] > 1,
                                  save_dc=sv("total_dc"), save_lat=sv("mean_lat_us"), p1_gain=gn("p1"), p5_gain=gn("p5"),
+                                 save_dc_p1=sv1("total_dc"), save_lat_p1=sv1("mean_lat_us"),
                                  lat_us=r.get("mean_lat_us"), dc=r["total_dc"]))
     write_table(out, "table3_scorecard",
                 ["dataset", "setting", "method", "KS", "mean recall", "DC saving", "latency saving", "p1 gain",
@@ -225,13 +246,34 @@ def main():
                 continue
             worst = min((c["save_dc"] for c in cs if c["save_dc"] is not None), default=None)
             row = [g, m, len(cs), frac(cs, "save_dc", lambda v: v > 0), worst, frac(cs, "save_lat", lambda v: v > 0),
-                   frac(cs, "p1_gain", lambda v: v >= 0)]
+                   frac(cs, "p1_gain", lambda v: v >= 0),
+                   frac(cs, "save_dc_p1", lambda v: v > 0), frac(cs, "save_lat_p1", lambda v: v > 0),
+                   float(np.median([c["save_lat_p1"] for c in cs if c["save_lat_p1"] is not None] or [np.nan]))]
             count_rows.append(row)
             print(f"  {g:<22} {m:<11} runs {len(cs):>2}  cheaper {row[3]:>6} (worst {'n/a' if worst is None else pct(worst)})"
-                  f"  faster {row[5]:>5}  p1>=fixed {row[6]:>6}")
+                  f"  faster {row[5]:>5}  p1>=fixed {row[6]:>6}  | equal p1: cheaper {row[7]:>6} faster {row[8]:>6}"
+                  f" (median {pct(row[9])})")
     write_table(out, "table3b_counts", ["group", "method", "runs", "cheaper than fixed (DC)", "worst DC saving",
-                                        "faster than fixed (latency)", "p1 >= fixed"], count_rows,
-                {"worst DC saving": pct})
+                                        "faster than fixed (latency)", "p1 >= fixed", "cheaper at equal p1",
+                                        "faster at equal p1", "median time saving at equal p1"], count_rows,
+                {"worst DC saving": pct, "median time saving at equal p1": pct})
+
+    # ---- per-query cost: hard queries cost more time per distance (analysis/query_cost.py) --------
+    import query_cost
+    qc_rows = []
+    for ds in order:
+        for S in ("P", "R"):
+            f = os.path.join(data[ds]["dir"], f"per_query_{S}.npz")
+            c = query_cost.run_cost(f) if os.path.exists(f) else None
+            if c:
+                qc_rows.append([NAMES.get(ds, ds), S, ks_of[ds], c["hard"], c["easy"], c["ours"], 100 * c["hard_dc_share"]])
+    write_table(out, "table3c_query_cost", ["dataset", "setting", "KS", "hard / fixed-ef time at same DC",
+                                            "easy / fixed-ef time at same DC", "PercEF / fixed-ef time at same DC",
+                                            "PercEF DC on hard queries (%)"], qc_rows,
+                {"KS": lambda v: f"{v:.3f}", "hard / fixed-ef time at same DC": lambda v: f"{v:.3f}",
+                 "easy / fixed-ef time at same DC": lambda v: f"{v:.3f}",
+                 "PercEF / fixed-ef time at same DC": lambda v: f"{v:.3f}",
+                 "PercEF DC on hard queries (%)": lambda v: f"{v:.1f}"})
 
     # ---- table 1: datasets ----------------------------------------------------------------
     t1 = []

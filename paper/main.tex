@@ -36,10 +36,12 @@ query the same \ef{}. Our method, PercEF, replaces the Gaussian with the data's 
 distance percentiles and keeps the rest of the mechanism. On the 8 non-Gaussian datasets we
 benchmark end to end, PercEF ranks queries better in all 16 runs and gives at least Ada-ef's tail
 recall in 15, at the same mean recall. Across 17 datasets it never costs more than 2.5\% over a
-tuned fixed \ef{} and is cheaper in 32 of 34 runs, while Ada-ef is cheaper in 10; it is faster than
-Ada-ef in 31 of 34. A Kolmogorov--Smirnov test on the raw vectors, which takes seconds and needs no
-index, predicts the better score on 18 of 19 datasets. On near-Gaussian data PercEF is still cheaper
-and faster than a tuned fixed \ef{} in every run, while Ada-ef gives larger tail gains.
+tuned fixed \ef{} at the same mean recall and is cheaper in 32 of 34 runs, while Ada-ef is cheaper
+in 10. Matched instead on the recall of the worst 1\% of queries, PercEF is faster than the tuned
+fixed \ef{} in 31 of 34 runs, by a median of 15\%; Ada-ef is faster in 11. A Kolmogorov--Smirnov test
+on the raw vectors, which takes seconds and needs no index, predicts the better score on 18 of 19
+datasets. On near-Gaussian data PercEF is cheaper and faster than a tuned fixed \ef{} in every run,
+while Ada-ef gives larger tail gains.
 \end{abstract}
 
 \maketitle
@@ -98,7 +100,8 @@ come from the data's own distance percentiles instead of from the fitted Gaussia
 result PercEF. It ranks queries better than Ada-ef's on all 8 non-Gaussian datasets we benchmark end to end
 and gives better or equal tail recall in 15 of 16 runs (Fig.~\ref{fig:teaser}). It also has a floor
 that Ada-ef lacks: across 17 datasets it never costs more than 2.5\% over the best fixed \ef{} at
-the same recall, a fixed \ef{} chosen with hindsight on the test queries. Finally, because the
+the same recall, a fixed \ef{} chosen with hindsight on the test queries; matched on worst-case
+recall instead, it is faster than that fixed \ef{} in 31 of 34 runs. Finally, because the
 failure is visible in the raw vectors, the same KS statistic tells a practitioner which score to
 use before building an index; it picks the better one on 18 of 19 datasets. Against DARTH, a
 learned method that checks each query while it runs, PercEF gives a smaller tail gain but almost
@@ -289,6 +292,13 @@ near zero). The gains are often large: p1 rises by 0.085 over the fixed \ef{} on
 fixed \ef{} in 14 of these 16 runs; ours costs less in 14, and the two exceptions are small
 (DeepImage P, 2.5\% more; GIST R, 0.8\% more).
 
+Matching the fixed \ef{} on mean recall credits PercEF with the work it saves but not with the tail
+it buys: on DeepImage it spends most of its savings raising p1 by 0.085. Matched instead on p1,
+that is, against the cheapest fixed \ef{} that serves the worst 1\% of queries as well, PercEF needs
+less work and less time in 13 of the 16 runs, a median of 14\% less time (24--31\% on DeepImage and
+Deep1B). The exceptions are GIST and Yambda P, where PercEF does not raise p1. Ada-ef is faster than
+the fixed \ef{} matched on its own p1 in one of the 16 runs. We report both comparisons throughout.
+
 On SIFT-1M and Yambda, Ada-ef's score collapses: every query lands in the same group and gets the
 same \ef{}. Ada-ef then behaves as a fixed \ef{} that also pays for a 1025-distance probe. Ours
 still separates queries, with rank correlations of 0.33 to 0.45 against $\mathrm{ef}^*$. The gains
@@ -298,28 +308,31 @@ any adaptive method.
 
 \begin{table}[t]
   \caption{Runs in which each method is cheaper than the fixed \ef{} at the same mean recall (DC),
-  faster (latency, every run timed), and has at least its p1 tail recall. Same
-  modality unless marked. Worst: the largest extra cost.}
+  faster (latency, every run timed), and has at least its p1 tail recall; and runs in which it is
+  faster than the fixed \ef{} with the same p1 (p1-matched). Same modality unless marked. Worst:
+  the largest extra cost.}
   \label{tab:counts}
-  \centering\footnotesize
-  \begin{tabular}{llrrrr}
+  \centering\footnotesize\setlength{\tabcolsep}{3.5pt}
+  \begin{tabular}{llrrrrr}
     \toprule
-    Datasets & Method & Cheaper & Worst & Faster & p1 $\geq$ \\
+    & & \multicolumn{4}{c}{same mean recall} & p1-matched \\
+    \cmidrule(lr){3-6}\cmidrule(lr){7-7}
+    Datasets & Method & Cheaper & Worst & Faster & p1 $\geq$ & Faster \\
     \midrule
-    All (34 runs)        & Ours        & 32/34 & $-$2.5\%  & 23/34 & 31/34 \\
-                         & Ada-ef      & 10/34 & $-$24.6\% &  3/34 & 22/34 \\
-                         & Ada-ef WAE  & 17/34 & $-$24.6\% &  8/34 & 23/34 \\
+    All (34 runs)        & Ours        & 32/34 & $-$2.5\%  & 26/34 & 31/34 & 31/34 \\
+                         & Ada-ef      & 10/34 & $-$24.6\% &  3/34 & 22/34 & 11/34 \\
+                         & Ada-ef WAE  & 17/34 & $-$24.6\% &  8/34 & 23/34 & 14/34 \\
     \midrule
-    KS $\geq$ 0.066 (16) & Ours        & 14/16 & $-$2.5\%  &  5/16 & 13/16 \\
-                         & Ada-ef      &  2/16 & $-$24.6\% &  0/16 &  6/16 \\
-    Band (8)             & Ours        &   8/8 & $+$3.4\%  &   8/8 &   8/8 \\
-                         & Ada-ef      &   4/8 & $-$7.4\%  &   2/8 &   8/8 \\
-    KS $<$ 0.044 (10)    & Ours        & 10/10 & $+$1.9\%  & 10/10 & 10/10 \\
-                         & Ada-ef      &  4/10 & $-$12.4\% &  1/10 &  8/10 \\
-                         & Ada-ef WAE  &  8/10 & $-$2.1\%  &  5/10 &  8/10 \\
+    KS $\geq$ 0.066 (16) & Ours        & 14/16 & $-$2.5\%  &  8/16 & 13/16 & 13/16 \\
+                         & Ada-ef      &  2/16 & $-$24.6\% &  0/16 &  6/16 &  1/16 \\
+    Band (8)             & Ours        &   8/8 & $+$3.4\%  &   8/8 &   8/8 &   8/8 \\
+                         & Ada-ef      &   4/8 & $-$7.4\%  &   2/8 &   8/8 &   6/8 \\
+    KS $<$ 0.044 (10)    & Ours        & 10/10 & $+$1.9\%  & 10/10 & 10/10 & 10/10 \\
+                         & Ada-ef      &  4/10 & $-$12.4\% &  1/10 &  8/10 &  4/10 \\
+                         & Ada-ef WAE  &  8/10 & $-$2.1\%  &  5/10 &  8/10 &  6/10 \\
     \midrule
-    Cross-modal (6)      & Ours        &   1/6 & $-$1.0\%  &   0/6 &   5/6 \\
-                         & Ada-ef      &   0/6 & $-$10.3\% &   0/6 &   4/6 \\
+    Cross-modal (6)      & Ours        &   1/6 & $-$1.0\%  &   0/6 &   5/6 &   4/6 \\
+                         & Ada-ef      &   0/6 & $-$10.3\% &   0/6 &   4/6 &   0/6 \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -341,7 +354,9 @@ them and faster in 3. But Ada-ef's tail gains are larger in 11 of the 18, most c
 MS MARCO and Cohere: p1 gains of 0.058, 0.063 and 0.098 over the fixed \ef{}, against our 0.032,
 0.026 and 0.013. With its WAE floor Ada-ef is also cheaper than the fixed \ef{} by a wide margin on
 these sets (27\% on GloVe, 7\% on MS MARCO, 3--11\% on Cohere and LAION), and faster in
-wall-clock time (\S\ref{sec:latency}). We therefore do not claim that the empirical score should
+wall-clock time (\S\ref{sec:latency}). Matched on p1, Ada-ef's larger tail gain pays off inside
+the band, where it is faster than the p1-matched fixed \ef{} in 6 of 8 runs, but less below it (4
+of 10); PercEF is faster than its own p1-matched fixed \ef{} in all 18, by a median of 15\%. We therefore do not claim that the empirical score should
 replace Ada-ef's everywhere: on text embeddings like those in the Ada-ef paper, Ada-ef is the better
 choice when the worst-served queries matter most, and PercEF when a predictable cost does. The
 ablation below qualifies why: part of Ada-ef's ranking edge there comes from its longer probe, and
@@ -417,13 +432,25 @@ Ada-ef's wall-clock cost depends on how long the searches are. Its probe is a fi
 on searches of several milliseconds that is a small share, and there the WAE variant is faster than
 the fixed \ef{} at the same recall: by 21\% on GloVe and by up to 4--5\% on MS MARCO, Cohere and
 LAION, all datasets of the Ada-ef paper or stand-ins for them. On short searches the probe dominates:
-Ada-ef is 10--90\% slower than the fixed \ef{} on the non-Gaussian datasets and 87\% slower on
-Last.fm, where a whole search takes 0.13\,ms. PercEF is faster than the fixed \ef{} in 23 of 34
-runs: all 18 on datasets in or below the band (by 0.3\% to 6\%) and 5 of the 16 non-Gaussian runs.
-On the other 11 it is slower, by at most 3\% in 9 of them and by 3.7 and 8.6\% on DeepImage. These
-searches take well under a millisecond, and PercEF's fixed per-query overhead (the unpruned probe
-phase and the scoring) is not repaid by the distance computations it saves. Against Ada-ef directly,
-PercEF is faster in 31 of 34 runs, by 0.99 to 1.78 times in the 18 runs where both reach nearly the
+Ada-ef is 8--103\% slower than the fixed \ef{} on the non-Gaussian datasets and 87\% slower on
+Last.fm, where a whole search takes 0.13\,ms. At the same mean recall, PercEF is faster than the
+fixed \ef{} in 26 of 34 runs: all 18 on datasets in or below the band (by 0.3\% to 6\%) and 8 of
+the 16 non-Gaussian runs. In the other 8 it is slower by at most 2.4\%, except on DeepImage (7.1
+and 8.9\%). Above the band these counts are fragile: timing the same searches twice moved PercEF's
+saving by up to 3.4 points and Ada-ef's by up to 16, so 8 of 16 is not a stable figure.
+
+Why does the time PercEF saves lag the work it saves? Not every distance computation costs the
+same. Under a plain fixed \ef{}, the queries PercEF classifies as hard (top 20\% of its \ef{}) take a
+median 8\% more time than fixed-\ef{} queries with the same distance count, and the queries it calls
+easy 11\% less (Table~\ref{tab:querycost}), probably because hard queries wander through less cached
+parts of the graph. PercEF moves work from easy queries to hard ones, so it saves cheap distance
+computations and spends dearer ones: its time per distance computation is a median 2\% above the
+fixed \ef{}'s, about the same above and below the band. Below the band it saves enough work at equal
+mean recall (median 5\%) to cover this; above it, where its savings go into the tail, it saves less
+(median 2.5\%). Matched on p1 the saving is larger, and so is the time saved (Table~\ref{tab:counts}).
+The only per-query overhead we found in the code, a copy of the result heap used for scoring, is now
+removed; results were identical and the time did not change measurably. Against Ada-ef directly,
+PercEF is faster in 31 of 34 runs, by 0.99 to 1.82 times in the 18 runs where both reach nearly the
 same mean recall. Offline, both
 methods need seconds for their statistics. Calibration time is dominated by measuring
 $\mathrm{ef}^*$ (ours, up to 257\,s on MS Turing) and by Ada-ef's per-group search (206\,s on the
@@ -464,10 +491,10 @@ percent of the fixed \ef{} in both work and time on every dataset, with no train
               & PercEF & +0.010 & +1.9\% & \textbf{+0.9\%} \\
     SIFT-1M   & DARTH  & \textbf{+0.048} & $-$2.8\% & $-$126\% \\
               & Ada-ef & 0.000 & $-$0.2\% & $-$25.7\% \\
-              & PercEF & +0.028 & \textbf{+2.7\%} & \textbf{$-$0.5\%} \\
+              & PercEF & +0.028 & \textbf{+2.7\%} & \textbf{+0.4\%} \\
     Deep1B    & DARTH  & \textbf{+0.098} & $-$9.4\% & $-$92\% \\
               & Ada-ef & +0.052 & +0.2\% & $-$23.6\% \\
-              & PercEF & +0.081 & \textbf{+3.7\%} & \textbf{$-$1.5\%} \\
+              & PercEF & +0.081 & \textbf{+3.7\%} & \textbf{$-$2.4\%} \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -495,7 +522,9 @@ once, in sequence, made latency vary by 24\% between identical runs; we time in 
 the method order rotated and take per-query medians. KS from 30 queries was noisy by as much as the
 width of the band. Probe cost must be counted: Ada-ef's fixed probe is a large share of a short
 search. And about 2\% of LAION queries cannot reach the target at any \ef{} up to the cap, which
-limits every method's p1 there; we report LAION's tail at p5.
+limits every method's p1 there; we report LAION's tail at p5. Finally, matching on mean recall
+alone hides what a method buys in the tail, and matching on p1 alone hides what it costs on average;
+an adaptive method moves work between queries, so both are needed.
 
 % ------------------------------------------------------------------------------------------------
 \section{Conclusion}
@@ -505,8 +534,9 @@ measured that model on 41 datasets and found it holds for most modern text embed
 nine, which cannot be told apart by data type. Where it fails, PercEF, which replaces the Gaussian
 thresholds with the data's own percentiles, restores the score's ability to rank queries and gives
 at least Ada-ef's tail recall in 15 of 16 runs, at a cost that never exceeds a hindsight-tuned fixed
-\ef{} by more than 2.5\%. On near-Gaussian data it remains cheaper and faster than that fixed \ef{}
-in every run, while Ada-ef gives larger tail gains. A KS test on the raw vectors tells which score
+\ef{} by more than 2.5\%. Matched on worst-case recall, it is faster than that fixed \ef{} in 13 of
+these 16 runs, where Ada-ef is in one. On near-Gaussian data it remains cheaper and faster than the
+fixed \ef{} in every run, while Ada-ef gives larger tail gains. A KS test on the raw vectors tells which score
 to use before an index is built, with one known miss. Neither score adapts when queries come from
 another modality. Code, data pointers and every number in this paper are
 generated from the released result files. \pending{repository URL}
@@ -533,6 +563,16 @@ generated from the released result files. \pending{repository URL}
   time on easy queries and more on hard ones; a fixed \ef{} spends about the same on all.}
   \label{fig:cdf}
 \end{figure}
+
+\begin{table*}[t]
+  \caption{Time per distance computation, relative to fixed-\ef{} queries with the same distance count
+  (setting P and R). Hard and easy: the 20\% of queries PercEF gives the largest and smallest \ef{},
+  timed under the fixed \ef{} closest to PercEF's mean recall. Last column: PercEF's share of its
+  distance computations spent on its hard queries.}
+  \label{tab:querycost}
+  \centering\footnotesize
+  \resizebox{\linewidth}{!}{\input{tables/table3c_query_cost.tex}}
+\end{table*}
 
 \begin{table*}[h]
   \caption{Tail-weighted alternatives to KS on the raw vectors. Tail $z$: distance of the

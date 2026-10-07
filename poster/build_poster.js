@@ -191,8 +191,8 @@ y += resH + GAP;
 
 y = header(X[2], y, "CONCLUSIONS AND FUTURE WORK", C.teal, "Conclusions");
 body(X[2], y, 9.05 - y, [
-  { label: "a)", text: "Ada-ef's Gaussian model fails on 9 of 41 datasets (6 learned embeddings); there PercEF gives better tail recall, at most 2.5% over the best fixed ef." },
-  { label: "b)", text: "DARTH (learned): best tail, up to 2.3x slower. Next: the SIFT-1B miss, cross-modal queries." },
+  { label: "a)", text: "Ada-ef's Gaussian model fails on 9 of 41 datasets (6 learned embeddings); there PercEF gives better tail recall, at most 2.5% over the best fixed ef, and beats a fixed ef with the same worst case on time in 31 of 34 runs." },
+  { label: "b)", text: "DARTH (learned): best tail, up to 2.3x slower. Next: SIFT-1B, cross-modal." },
 ], "Conclusions", 12);
 
 // ---------------------------------------------------------------- members and guide

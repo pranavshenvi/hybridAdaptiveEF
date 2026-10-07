@@ -16,10 +16,10 @@ speaker notes.
 | 8 | KS test | "A KS test on the raw vectors, which takes seconds, tells you which method to use. It picked the right one on 18 of 19 datasets, with every prediction written down before the run." | 0:08 |
 | 9 | Novelty | "So we contribute the first test of this assumption, a distribution-free score, a cost floor, and an offline test." | 0:08 |
 | 10 | Setup | "We followed Ada-ef's own protocol on 20 datasets and compared everything against the best fixed ef." | 0:05 |
-| 11 | Non-Gaussian results | "Each pair of bars is a dataset; longer to the right is better. On the non-Gaussian datasets PercEF ranks queries better in every run and beats Ada-ef's worst case in 15 of 16: on DeepImage by 8.5 recall points, against 4.3." | 0:10 |
-| 12 | Cost | "PercEF does less work than the best fixed ef in 32 of 34 runs, never more than 2.5 percent extra, and is up to 1.8 times faster than Ada-ef. On bell-shaped data it is cheaper and faster than the fixed ef in every run; Ada-ef's advantage there is a larger worst-case gain." | 0:10 |
+| 11 | Non-Gaussian results | "Each pair of bars is a dataset; longer to the right is better. On the non-Gaussian datasets PercEF ranks queries better in every run and beats Ada-ef's worst case in 15 of 16: on DeepImage by 8.5 recall points, against 4.3. To match that worst case, a fixed ef is slower in 13 of 16 runs." | 0:10 |
+| 12 | Cost | "PercEF does less work than the best fixed ef in 32 of 34 runs, never more than 2.5 percent extra. Matched on the worst case, it is faster than the fixed ef in 31 of 34 runs, and up to 1.8 times faster than Ada-ef. On bell-shaped data it is cheaper and faster in every run; Ada-ef's advantage there is a larger worst-case gain." | 0:10 |
 | 13 | Checks | "The gain comes from the thresholds, not the shorter probe. The learned method DARTH has a better worst case, but is up to 2.3 times slower." | 0:08 |
-| 14 | Limits | "On bell-shaped text data Ada-ef gives larger worst-case gains, on short non-Gaussian searches PercEF is slightly slower than the fixed ef, and cross-modal queries remain open." | 0:06 |
+| 14 | Limits | "On bell-shaped text data Ada-ef gives larger worst-case gains, on DeepImage PercEF is a few percent slower than the fixed ef at the same mean recall, and cross-modal queries remain open." | 0:06 |
 | 15 | Conclusion | "In short: measure the distribution, don't assume it. Thank you." | 0:05 |
 
 If you run long, drop slide 10 (setup) and shorten slide 2.
@@ -35,10 +35,10 @@ If you run long, drop slide 10 (setup) and shorten slide 2.
 | **1 miss** | 8 | SIFT-1B: KS predicted Ada-ef, but PercEF ranked better |
 | **16** | 11 | 8 non-Gaussian benchmarked datasets x 2 calibration settings (200 corpus points, or real queries). The 9th non-Gaussian set, Last.fm, has cross-modal queries, where no method adapts, so it is counted separately |
 | **16 / 16, 15 / 16** | 11 | Runs where PercEF ranks queries better than Ada-ef / has at least Ada-ef's worst-case gain (the 16th is a tie near zero) |
-| **14 vs 2** | 11 | Of the same 16 runs, how often each method does less work than the best fixed ef |
+| **13 vs 1** | 11 | Of the same 16 runs, how often each method is faster than the fixed ef that gives the same worst-case recall |
 | **34** | 12 | 17 datasets x 2 settings: the 20 benchmarked minus the 3 cross-modal ones |
 | **32 / 34** | 12 | Runs where PercEF does less work than the best fixed ef (Ada-ef: 10 / 34) |
 | **2.5%** | 12 | PercEF's worst extra cost over the best fixed ef, in any of the 34 runs |
-| **23 / 34** | 12 | Runs where PercEF is faster than the best fixed ef (time measured on all 34; Ada-ef: 3 / 34) |
+| **31 / 34** | 12 | Runs where PercEF is faster than the fixed ef that gives the same worst-case (p1) recall (Ada-ef: 11 / 34). At the same mean recall instead: 26 / 34, a count that moves by a few runs between timings |
 | **18 / 18** | 12 | Near-Gaussian and borderline runs where PercEF is both cheaper and faster than the best fixed ef |
-| **up to 1.78x** | 12 | PercEF's speed-up over Ada-ef on 13 datasets where both reach about the same recall |
+| **up to 1.82x** | 12 | PercEF's speed-up over Ada-ef on 13 datasets where both reach about the same recall |

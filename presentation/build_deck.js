@@ -314,30 +314,30 @@ s.addChart(pres.charts.BAR, [
   showValue: true, dataLabelFontSize: 10, dataLabelColor: HEX.ink, dataLabelFormatCode: "0.0", objectName: "p1 gain chart" });
 stat(s, 9.2, 1.45, 3.5, "16 / 16", "runs where PercEF ranks queries better than Ada-ef");
 stat(s, 9.2, 3.15, 3.5, "15 / 16", "runs where PercEF's worst-case gain is at least Ada-ef's (the 16th: a tie near zero)");
-stat(s, 9.2, 4.85, 3.5, "14 vs 2", "runs cheaper than the fixed ef: PercEF vs Ada-ef (of 16)", C.accent2);
+stat(s, 9.2, 4.85, 3.5, "13 vs 1", "runs faster than a fixed ef with the same worst case: PercEF vs Ada-ef (of 16)", C.accent2);
 s.addText("16 runs = the 8 non-Gaussian datasets x 2 calibration settings", { x: 9.2, y: 6.35, w: 3.55, h: 0.5, fontSize: 11,
   italic: true, color: C.accent6, margin: 0, isTextBox: true, objectName: "Runs definition" });
-s.addNotes("(0:10) Each pair of bars is a dataset; longer to the right is better. On the non-Gaussian datasets PercEF ranks queries better in every run and beats Ada-ef's worst case in 15 of 16: on DeepImage by 8.5 recall points, against 4.3.");
+s.addNotes("(0:10) Each pair of bars is a dataset; longer to the right is better. On the non-Gaussian datasets PercEF ranks queries better in every run and beats Ada-ef's worst case in 15 of 16: on DeepImage by 8.5 recall points, against 4.3. To match that worst case, a fixed ef is slower in 13 of 16 runs.");
 
 // ================================================================= 11. cost and speed
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Results" });
 s.addText("Within 2.5% of a tuned fixed ef's cost", { placeholder: "title" });
 stat(s, 0.6, 1.45, 3.7, "32 / 34", "runs where PercEF does less work than the tuned fixed ef (Ada-ef: 10 / 34)");
-stat(s, 0.6, 3.15, 3.7, "23 / 34", "runs where PercEF is faster than the tuned fixed ef (Ada-ef: 3 / 34)");
+stat(s, 0.6, 3.15, 3.7, "31 / 34", "runs where PercEF is faster than a fixed ef with the same worst-case recall (Ada-ef: 11 / 34)");
 stat(s, 0.6, 4.85, 3.7, "18 / 18", "near-Gaussian runs where PercEF is both cheaper and faster than the fixed ef", C.accent2);
 s.addText("34 runs = 17 benchmarked datasets x 2 settings (3 cross-modal sets left out); work and time measured on all 34",
   { x: 0.6, y: 6.3, w: 3.9, h: 0.6, fontSize: 11, italic: true, color: C.accent6, margin: 0, isTextBox: true, objectName: "Runs definition" });
 const sp = ["Fashion-MNIST", "DBpedia", "COCO-I2I", "LAION", "Yambda", "SIFT-1M", "Yahoo-MiniLM", "Deep1B", "Cohere", "BIGANN", "GIST", "MS Turing", "MS MARCO"];
-s.addChart(pres.charts.BAR, [{ name: "Speed-up", labels: sp, values: [1.78, 1.38, 1.37, 1.34, 1.31, 1.24, 1.22, 1.20, 1.18, 1.11, 1.10, 1.08, 1.03] }], {
+s.addChart(pres.charts.BAR, [{ name: "Speed-up", labels: sp, values: [1.82, 1.38, 1.37, 1.34, 1.33, 1.25, 1.22, 1.19, 1.18, 1.11, 1.10, 1.08, 1.03] }], {
   x: 4.7, y: 1.35, w: 8.05, h: 4.4, barDir: "bar", chartColors: [HEX.ours], showLegend: false,
   showTitle: true, title: "PercEF speed-up over Ada-ef at about the same recall (x, setting R)", titleFontSize: 14, titleColor: HEX.ink,
   titleFontFace: "+mn-lt", catAxisLabelColor: HEX.muted, valAxisLabelColor: HEX.muted, catAxisLabelFontSize: 12,
   valAxisLabelFontSize: 11, catAxisLabelFontFace: "+mn-lt", valAxisLabelFontFace: "+mn-lt", catAxisOrientation: "maxMin",
   valAxisMinVal: 0, valGridLine: { color: HEX.grid, size: 0.75 }, catGridLine: { style: "none" },
   showValue: true, dataLabelFontSize: 11, dataLabelColor: HEX.ink, dataLabelFormatCode: "0.00", objectName: "Speed-up chart" });
-s.addText("On short non-Gaussian searches PercEF is slightly slower than the fixed ef (within 3% in most runs). Ada-ef with its WAE floor is fastest on its own long-search data (21% on GloVe).",
+s.addText("At the same mean recall on non-Gaussian data, PercEF's time is within 2.4% of the fixed ef's except DeepImage (7-9% slower): it spends saved work on hard queries, which cost more per distance.",
   { x: 4.7, y: 5.95, w: 8.05, h: 0.75, fontSize: 14, italic: true, color: C.accent2, margin: 0, isTextBox: true, objectName: "Speed note" });
-s.addNotes("(0:10) PercEF does less work than the best fixed ef in 32 of 34 runs, never more than 2.5 percent extra, and is up to 1.8 times faster than Ada-ef. On bell-shaped data it is cheaper and faster than the fixed ef in every run; Ada-ef's advantage there is a larger worst-case gain.");
+s.addNotes("(0:10) PercEF does less work than the best fixed ef in 32 of 34 runs, never more than 2.5 percent extra. Matched on the worst case, it is faster than the fixed ef in 31 of 34 runs, and up to 1.8 times faster than Ada-ef. On bell-shaped data it is cheaper and faster in every run; Ada-ef's advantage there is a larger worst-case gain.");
 
 // ================================================================= 12. checks
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Results" });
@@ -358,8 +358,8 @@ table(s, [
   ["Dataset", "p1 gain DARTH", "p1 gain PercEF", "Time vs fixed DARTH", "Time vs fixed PercEF"],
   ["GloVe", "+0.080", "+0.029", "6% slower", "1% faster"],
   ["MS Turing", "+0.044", "+0.010", "42% slower", "1% faster"],
-  ["SIFT-1M", "+0.048", "+0.028", "2.3x slower", "0.5% slower"],
-  ["Deep1B", "+0.098", "+0.081", "1.9x slower", "1.5% slower"],
+  ["SIFT-1M", "+0.048", "+0.028", "2.3x slower", "0.4% faster"],
+  ["Deep1B", "+0.098", "+0.081", "1.9x slower", "2.4% slower"],
 ], 6.95, 1.75, 5.8, [1.2, 1.1, 1.1, 1.2, 1.2], "DARTH table", 12);
 s.addText("DARTH has the best tail but costs time and training; PercEF gets much of the gain at almost no time cost.", { x: 6.95, y: 4.3, w: 5.8, h: 0.9, fontSize: 14, italic: true, color: C.accent2, margin: 0, isTextBox: true, objectName: "DARTH takeaway" });
 s.addNotes("(0:08) The gain comes from the thresholds, not the shorter probe. The learned method DARTH has a better worst case, but is up to 2.3 times slower.");
@@ -391,12 +391,12 @@ pres.addSection({ title: "Wrap-up" });
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Wrap-up" });
 s.addText("Limits and next steps", { placeholder: "title" });
 card(s, 0.6, 1.4, 5.95, 3.4, "Limits, stated openly",
-  "• Near-Gaussian text: Ada-ef gives larger worst-case gains (PercEF still cheaper and faster than the fixed ef)\n• Short non-Gaussian searches: PercEF slightly slower than the fixed ef\n• Cross-modal queries (text searching images): neither method adapts\n• One failed KS prediction (SIFT-1B)\n• Cohere and LAION run as subsets (62 GB RAM)",
+  "• Near-Gaussian text: Ada-ef gives larger worst-case gains (PercEF still cheaper and faster than the fixed ef)\n• Non-Gaussian, same mean recall: PercEF up to 2.4% slower than the fixed ef (DeepImage 7-9%)\n• Cross-modal queries (text searching images): neither method adapts\n• One failed KS prediction (SIFT-1B)\n• Cohere and LAION run as subsets (62 GB RAM)",
   { bodySize: 16, fill: "FCE9DF", headColor: C.accent4 });
 card(s, 6.85, 1.4, 5.9, 3.4, "Next steps",
   "• Understand why Ada-ef's score and table together win the tail on GloVe\n• Final figures and numbers in the paper\n• Guide review, author list\n• arXiv preprint and code release\n• Submit: PVLDB Experiments, Analysis & Benchmarks track",
   { bodySize: 16, fill: "DCEFF3" });
-s.addNotes("(0:06) On bell-shaped text data Ada-ef gives larger worst-case gains, on short non-Gaussian searches PercEF is slightly slower than the fixed ef, and cross-modal queries remain open.");
+s.addNotes("(0:06) On bell-shaped text data Ada-ef gives larger worst-case gains, on DeepImage PercEF is a few percent slower than the fixed ef at the same mean recall, and cross-modal queries remain open.");
 
 // ================================================================= 15. conclusion
 s = pres.addSlide({ masterName: "DARK", sectionTitle: "Wrap-up" });
