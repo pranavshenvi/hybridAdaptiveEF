@@ -1,0 +1,70 @@
+\documentclass[sigconf,anonymous]{acmart}
+\settopmatter{printacmref=false}
+\setcopyright{none}
+\renewcommand\footnotetextcopyrightpermission[1]{}
+\pagestyle{plain}
+
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\newcommand{\pending}[1]{\textcolor{red}{[#1]}}
+\newcommand{\ef}{\textit{ef}}
+\newcommand{\KS}{\mathrm{KS}}
+
+\usepackage{xr}
+\externaldocument{main_anon}
+\renewcommand{\thetable}{A\arabic{table}}
+\renewcommand{\thefigure}{A\arabic{figure}}
+\begin{document}
+\title{Supplementary appendix to: PercEF: Exploiting Empirical Percentiles for Adaptive HNSW Search Beyond the Gaussian Assumption: [Experiments \& Analysis]}
+\author{Anonymous Author(s)}
+\affiliation{\institution{Anonymous}\country{}}
+\maketitle
+\appendix
+
+\section{Additional results}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\linewidth]{figures/fig4_controlled.pdf}
+  \caption{Ranking advantage of the empirical score against KS for the real datasets and for
+  synthetic data with controlled anisotropy (B) and cluster separation (D).}
+  \label{fig:controlled}
+\end{figure}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\linewidth]{figures/fig3c_latency_cdf.pdf}
+  \caption{Per-query latency on Deep1B and MS Turing (setting R). The empirical score spends less
+  time on easy queries and more on hard ones; a fixed \ef{} spends about the same on all.}
+  \label{fig:cdf}
+\end{figure}
+
+\begin{table*}[t]
+  \caption{Time per distance computation, relative to fixed-\ef{} queries with the same distance count
+  (setting P and R). Hard and easy: the 20\% of queries PercEF gives the largest and smallest \ef{},
+  timed under the fixed \ef{} closest to PercEF's mean recall. Last column: PercEF's share of its
+  distance computations spent on its hard queries.}
+  \label{tab:querycost}
+  \centering\footnotesize
+  \resizebox{\linewidth}{!}{\input{tables/table3c_query_cost.tex}}
+\end{table*}
+
+\begin{table*}[h]
+  \caption{Tail-weighted alternatives to KS on the raw vectors. Tail $z$: distance of the
+  empirical upper quantile from the Normal's, in standard deviations. Tail mass: $\log_{10}$ of
+  the observed over the expected share beyond the Normal's 99.9\% point. Margin:
+  $|\rho_{\text{ours}}| - |\rho_{\text{Ada-ef}}|$, mean over P and R.}
+  \label{tab:tail}
+  \centering\footnotesize
+  \input{tables/table5_tail_survey.tex}
+\end{table*}
+
+\begin{table*}[h]
+  \caption{Offline cost, round-2 datasets.}
+  \centering\footnotesize
+  \input{tables/table4_offline.tex}
+\end{table*}
+
+
+\end{document}

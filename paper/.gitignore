@@ -4,3 +4,11 @@ main.blg
 main.log
 main.out
 main.pdf
+sigmod/*.aux
+sigmod/*.log
+sigmod/*.out
+sigmod/*.blg
+sigmod/*.bbl
+sigmod/figures/
+sigmod/tables/
+sigmod/refs.bib
