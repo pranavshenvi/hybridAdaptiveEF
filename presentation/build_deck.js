@@ -10,7 +10,7 @@ const { applyTheme } = require(process.env.PPTX_SKILL ||
 const OUT = process.argv[2] || "PercEF_review.pptx";
 // team names live in ../team.json so that rebuilding the deck never loses them
 const TEAM = JSON.parse(require("fs").readFileSync(path.join(__dirname, "..", "team.json"), "utf8"));
-const FIG = path.join(__dirname, "..", "server_results", "paper_out_20261006_203218");
+const FIG = path.join(__dirname, "..", "server_results", "paper_out_20261007_112616");
 const LOGO = path.join(__dirname, "..", "poster", "assets", "logo_pes.png");
 
 // PES template colours, shared with the poster; method colours as in the paper's figures
