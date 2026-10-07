@@ -34,8 +34,8 @@ If you run long, drop slide 10 (setup) and shorten slide 2.
 | **18 / 19** | 8 | Of the 20 benchmarked, 19 had a clear winner on ranking (one was a near tie); KS picked that winner for 18 |
 | **1 miss** | 8 | SIFT-1B: KS predicted Ada-ef, but PercEF ranked better |
 | **16** | 11 | 8 non-Gaussian benchmarked datasets x 2 calibration settings (200 corpus points, or real queries). The 9th non-Gaussian set, Last.fm, has cross-modal queries, where no method adapts, so it is counted separately |
-| **16 / 16, 15 / 16** | 11 | Runs where PercEF ranks queries better than Ada-ef / has at least Ada-ef's worst-case gain (the 16th is a tie near zero) |
-| **13 vs 1** | 11 | Of the same 16 runs, how often each method is faster than the fixed ef that gives the same worst-case recall |
+| **16 / 16, 15 / 16** | 11 | Runs where PercEF's score orders queries by true difficulty better than Ada-ef's (Spearman rank correlation between score and each calibration query's minimum ef for 95% recall; one per run) / has at least Ada-ef's worst-case gain (the 16th is a tie near zero). Fashion-MNIST P is a near-tie in ranking (0.22 vs 0.20) |
+| **13 / 16** | 11 | Runs where PercEF is faster than the fixed ef that gives the same worst-case recall. Ada-ef: 1 / 16. Two separate counts, not a split of 16 |
 | **34** | 12 | 17 datasets x 2 settings: the 20 benchmarked minus the 3 cross-modal ones |
 | **32 / 34** | 12 | Runs where PercEF does less work than the best fixed ef (Ada-ef: 10 / 34) |
 | **2.5%** | 12 | PercEF's worst extra cost over the best fixed ef, in any of the 34 runs |

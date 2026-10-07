@@ -312,9 +312,9 @@ s.addChart(pres.charts.BAR, [
   catAxisLabelFontFace: "+mn-lt", valAxisLabelFontFace: "+mn-lt", catAxisOrientation: "maxMin", catAxisLabelPos: "low",
   valGridLine: { color: HEX.grid, size: 0.75 }, catGridLine: { style: "none" },
   showValue: true, dataLabelFontSize: 10, dataLabelColor: HEX.ink, dataLabelFormatCode: "0.0", objectName: "p1 gain chart" });
-stat(s, 9.2, 1.45, 3.5, "16 / 16", "runs where PercEF ranks queries better than Ada-ef");
+stat(s, 9.2, 1.45, 3.5, "16 / 16", "runs where PercEF's score orders queries by true difficulty better than Ada-ef's (rank correlation)");
 stat(s, 9.2, 3.15, 3.5, "15 / 16", "runs where PercEF's worst-case gain is at least Ada-ef's (the 16th: a tie near zero)");
-stat(s, 9.2, 4.85, 3.5, "13 vs 1", "runs faster than a fixed ef with the same worst case: PercEF vs Ada-ef (of 16)", C.accent2);
+stat(s, 9.2, 4.85, 3.5, "13 / 16", "runs where PercEF is faster than a fixed ef with the same worst case (Ada-ef: 1 / 16)", C.accent2);
 s.addText("16 runs = the 8 non-Gaussian datasets x 2 calibration settings", { x: 9.2, y: 6.35, w: 3.55, h: 0.5, fontSize: 11,
   italic: true, color: C.accent6, margin: 0, isTextBox: true, objectName: "Runs definition" });
 s.addNotes("(0:10) Each pair of bars is a dataset; longer to the right is better. On the non-Gaussian datasets PercEF ranks queries better in every run and beats Ada-ef's worst case in 15 of 16: on DeepImage by 8.5 recall points, against 4.3. To match that worst case, a fixed ef is slower in 13 of 16 runs.");
