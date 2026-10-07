@@ -53,7 +53,7 @@ moment does not land on one method. It is still only comparable within one run: 
 at a time on an otherwise idle machine.
 """
 
-import os, sys, json, time, gzip, glob, pickle, struct, argparse, subprocess
+import os, re, sys, json, time, gzip, glob, pickle, struct, argparse, subprocess
 from datetime import datetime
 
 import numpy as np
@@ -111,13 +111,21 @@ ap.add_argument("--group-table", action="store_true",
                 help="also run PercEF's score with Ada-ef's group-average ef table (own results folder)")
 ap.add_argument("--export-darth", metavar="DIR", default=None,
                 help="write this dataset in DARTH's file layout under DIR and exit (needs an earlier run's caches)")
+ap.add_argument("--target-recall", type=float, default=None,
+                help="sweep: target recall other than the frozen 0.95 (own results folder and caches)")
+ap.add_argument("--k", type=int, default=None,
+                help="sweep: number of neighbours other than the dataset's default (own results folder and caches)")
 args = ap.parse_args()
+SWEEP = args.target_recall is not None or args.k is not None
 SETTINGS = [s.strip().upper() for s in args.settings.split(",") if s.strip()]
 assert all(s in ("P", "R") for s in SETTINGS), "--settings takes P and/or R"
 
 TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
+SWEEP_TAG = ((f"_t{args.target_recall:g}" if args.target_recall is not None else "")
+             + (f"_k{args.k}" if args.k is not None else ""))
 RESULTS_DIR = (f"results_unified_{args.dataset}{'_smoke' if args.smoke else ''}"
-               f"{'_ablation' if (args.ablation or args.group_table) else ''}_{TIMESTAMP}")
+               f"{'_ablation' if (args.ablation or args.group_table) else ''}"
+               f"{'_sweep' + SWEEP_TAG if SWEEP else ''}_{TIMESTAMP}")
 if not args.export_darth:
     os.makedirs(RESULTS_DIR, exist_ok=True)
 sys.stdout.reconfigure(encoding='utf-8')
@@ -148,7 +156,7 @@ import chao_hybrid_ada_ef_cpp as hnsw
 # ═══════════════════════════════════════════════════════════════════════
 SEED = 42
 M, EF_CONSTRUCTION = 16, 500
-TARGET_RECALL = 0.95
+TARGET_RECALL = 0.95 if args.target_recall is None else args.target_recall
 EF_CAP = 5000
 PROBE_COUNT, NUM_BINS, QUANTILE_STEP, STATICS_LENGTH = 100, 5, 1e-3, 1025
 BIN_WEIGHTS = [float(100.0 * np.exp(-i)) for i in range(NUM_BINS)]
@@ -165,12 +173,16 @@ VERIFY_MAX_BYTES = 7e9          # build Ada-ef's estimator the original way too,
 
 
 def ef_grid(k):
+    if k < 100:                     # sweep only (k = 10): 5-step up to 100, then the usual 50-step
+        return list(range(k, 100, 5)) + list(range(100, EF_CAP + 1, 50))
     return list(range(k, EF_CAP + 1, 50 if k <= 100 else 100))
 
 
 def fixed_efs(k):
     # Dense where the methods land (updateAsOf290926.md: the fixed-ef reference is interpolated
     # between grid points, so closer points leave less to interpolation).
+    if k < 100:                     # sweep only
+        return [k, 15, 20, 25, 30, 40, 50, 60, 70, 80, 100, 125, 150, 200, 250, 300, 400, 500, 800, 1000, 2000]
     if k <= 100:
         return [100, 125, 150, 175, 200, 250, 300, 350, 400, 500, 600, 700, 800, 1000, 1250, 1500, 2000, 3000, 5000]
     return [1000, 1125, 1250, 1375, 1500, 1750, 2000, 2250, 2500, 3000, 4000, 5000]
@@ -627,7 +639,7 @@ def vs_fixed(row, fixed):
 
 
 def load_offline_times(cache):
-    path = os.path.join(cache, "offline_times.json")
+    path = os.path.join(cache, f"offline_times{SWEEP_TAG}.json")
     if os.path.exists(path):
         with open(path) as f:
             return json.load(f)
@@ -638,7 +650,7 @@ def save_offline_time(cache, key, secs):
     """Offline steps are cached across runs; their first-run time is kept next to the cache."""
     t = load_offline_times(cache)
     t[key] = secs
-    with open(os.path.join(cache, "offline_times.json"), "w") as f:
+    with open(os.path.join(cache, f"offline_times{SWEEP_TAG}.json"), "w") as f:
         json.dump(t, f, indent=1)
 
 
@@ -727,6 +739,8 @@ def main():
     print(f"  Unified benchmark: {args.dataset}{'  [SMOKE]' if args.smoke else ''}   settings={SETTINGS}")
     print("═" * 90)
     spec = load_dataset(args.dataset)
+    if args.k is not None:
+        spec["k"] = args.k
     corpus, K = spec["corpus"], spec["k"]
     test_q, calib_r = spec["test_q"], spec["calib_r"]
     if args.smoke:
@@ -765,9 +779,16 @@ def main():
     # 2. ground truth for test, R-calibration and P-calibration queries (one pass)
     t0 = time.time()
     gt_path = os.path.join(cache, f"gt_k{K}.npz")
+    bigger = sorted((int(re.search(r"gt_k(\d+)\.npz$", f).group(1)), f)
+                    for f in glob.glob(os.path.join(cache, "gt_k*.npz")) if re.search(r"gt_k(\d+)\.npz$", f))
+    bigger = [f for kk, f in bigger if kk > K]
     if os.path.exists(gt_path):
         g = np.load(gt_path)
         test_gt, r_gt, p_gt = g["test"], g["r"], g["p"]
+    elif bigger:
+        g = np.load(bigger[0])
+        test_gt, r_gt, p_gt = g["test"][:, :K], g["r"][:, :K], g["p"][:, :K]
+        print(f"  ground truth: top-{K} taken from {os.path.basename(bigger[0])}")
     else:
         print(f"\n[2] streaming ground truth, top-{K} for {len(test_q) + len(calib_r) + len(calib_p)} queries ...", flush=True)
         allq = np.concatenate([test_q, calib_r, calib_p])
@@ -888,7 +909,7 @@ def main():
         rows, pq_setting = list(fixed_rows), dict(per_query)
         searchers = dict(fixed_searchers)          # what the latency pass times
 
-        mef_path = os.path.join(cache, f"calib_min_ef_{setting}.npz")
+        mef_path = os.path.join(cache, f"calib_min_ef_{setting}{SWEEP_TAG}.npz")
         if os.path.exists(mef_path):
             z = np.load(mef_path); calib_min_ef, capped = z["min_ef"], z["capped"]
         else:
@@ -905,7 +926,7 @@ def main():
         ada_scores = np.array([idx.adaptive_search_knn_paper(q, K, STATICS_LENGTH, scorer, None)[2] for q in calib_q])
         ada_score_s = time.time() - ta
         rho_ada = finite_or_none(spearmanr(ada_scores, calib_min_ef)[0])
-        tab_path = os.path.join(cache, f"ada_table_{setting}.json")
+        tab_path = os.path.join(cache, f"ada_table_{setting}{SWEEP_TAG}.json")
         if os.path.exists(tab_path):
             with open(tab_path) as f:
                 z = json.load(f); ada_table, wae = {int(k): v for k, v in z["table"].items()}, z["wae"]
@@ -972,7 +993,7 @@ def main():
             L_A, L_O = PROBE_COUNT, STATICS_LENGTH
             a_sc = np.array([idx.adaptive_search_knn_paper(q, K, L_A, scorer, None)[2] for q in calib_q])
             ablation_rho[f"ada_L{L_A}"] = finite_or_none(spearmanr(a_sc, calib_min_ef)[0])
-            tab_l = os.path.join(cache, f"ada_table_{setting}_L{L_A}.json")
+            tab_l = os.path.join(cache, f"ada_table_{setting}_L{L_A}{SWEEP_TAG}.json")
             if os.path.exists(tab_l):
                 with open(tab_l) as f:
                     z = json.load(f); a_table, a_wae = {int(k): v for k, v in z["table"].items()}, z["wae"]
@@ -1012,7 +1033,7 @@ def main():
         # the same function as Ada-ef's table; WAE floor variant as for Ada-ef. Tests whether Ada-ef's
         # tail edge on near-Gaussian data comes from its table (updateAsOf061026.md \S2).
         if args.group_table:
-            g_path = os.path.join(cache, f"percef_group_table_{setting}.json")
+            g_path = os.path.join(cache, f"percef_group_table_{setting}{SWEEP_TAG}.json")
             if os.path.exists(g_path):
                 with open(g_path) as f:
                     z = json.load(f); g_table, g_wae = {int(k): v for k, v in z["table"].items()}, z["wae"]

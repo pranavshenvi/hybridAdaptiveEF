@@ -45,7 +45,7 @@ function fixedAt(fixed, r, key, mode) {
 
 function latestRuns() {
   const byDs = {};
-  for (const d of fs.readdirSync(root).filter(d => d.startsWith("results_unified_") && !d.includes("smoke") && !d.includes("ablation"))) {
+  for (const d of fs.readdirSync(root).filter(d => d.startsWith("results_unified_") && !d.includes("smoke") && !d.includes("ablation") && !d.includes("_sweep"))) {
     const ds = d.replace("results_unified_", "").replace(/_\d{8}_\d{6}$/, "");
     if (!byDs[ds] || d > byDs[ds]) byDs[ds] = d;
   }

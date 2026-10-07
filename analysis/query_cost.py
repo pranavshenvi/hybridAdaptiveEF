@@ -51,7 +51,7 @@ def latest_runs(root):
     latest = {}
     for d in sorted(glob.glob(os.path.join(root, "results_unified_*"))):
         b = os.path.basename(d)
-        if "smoke" in b or "ablation" in b:
+        if "smoke" in b or "ablation" in b or "_sweep" in b:
             continue
         m = re.match(r"results_unified_(.+)_(\d{8}_\d{6})$", b)
         if m and os.path.exists(os.path.join(d, "rows_R.json")):
