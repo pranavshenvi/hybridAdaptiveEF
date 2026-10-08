@@ -23,22 +23,23 @@
 \begin{abstract}
 HNSW indexes search every query with the same breadth, \ef{}, although some queries need far more
 of it than others. Ada-ef (SIGMOD 2026) assigns \ef{} per query from a difficulty score built on a
-Gaussian model of the similarities between a query and the database, a central-limit assumption its
-paper does not test. Its aim is to meet a target recall while avoiding over-searching, which wastes
-work, and under-searching, which hurts the worst-served queries. We test the assumption on 41 public
-embedding datasets: it holds for most modern text embeddings but fails clearly on 9, including SIFT,
-GIST and Fashion-MNIST, and the failures cannot be predicted from the type of data. On these
-datasets Ada-ef misses its own aims: against a hindsight-tuned fixed \ef{} at the same mean recall,
-it does more work in 14 of 16 runs and lowers the recall of the worst 1\% of queries in 10. We
-propose PercEF, which keeps Ada-ef's mechanism but replaces the Gaussian thresholds with the data's
-own empirical distance percentiles. On the same 16 runs, PercEF ranks queries by difficulty better
-than Ada-ef in all 16, does less work than the tuned fixed \ef{} in 14 and never more than 2.5\%
-extra, and raises worst-case recall over it at least as much as Ada-ef does in 15. Against the fixed
-\ef{} that gives the same worst-case recall, PercEF is faster in 13 of 16 runs and Ada-ef in 1. On
-near-Gaussian data PercEF is cheaper and faster than the tuned fixed \ef{} in all 18 runs without
-lowering worst-case recall, while Ada-ef raises worst-case recall more in 11 of them. A
-Kolmogorov--Smirnov test on the raw vectors, which takes seconds and needs no index, predicts which
-score ranks queries better on 18 of 19 datasets.
+Gaussian model of the similarities between a query and the database. The model follows from the
+central limit theorem, and the Ada-ef paper supports its assumptions on two text-embedding
+datasets. Its aim is to meet a target recall while avoiding over-searching, which wastes work, and
+under-searching, which hurts the worst-served queries. We measure how well the Gaussian fits on 41
+public embedding datasets: it fits most modern text embeddings closely but departs from the data on
+9, including SIFT, GIST and Fashion-MNIST, and these cases cannot be recognised from the type of
+data alone. On these datasets Ada-ef's advantage over a hindsight-tuned fixed \ef{} at the same mean
+recall largely disappears: it does more work in 14 of 16 runs, and the recall of the worst 1\% of
+queries is lower in 10. We propose PercEF, which keeps Ada-ef's mechanism but takes the thresholds
+from the data's own empirical distance percentiles instead of the Gaussian. On the same 16 runs,
+PercEF ranks queries by difficulty better in all 16, does less work than the tuned fixed \ef{} in 14
+and never more than 2.5\% extra, and improves worst-case recall over it at least as much as Ada-ef
+in 15. Against the fixed \ef{} that gives the same worst-case recall, PercEF is faster in 13 of 16
+runs and Ada-ef in 1. On near-Gaussian data PercEF is cheaper and faster than the tuned fixed \ef{}
+in all 18 runs without lowering worst-case recall, while Ada-ef achieves larger worst-case gains in
+11 of them. A Kolmogorov--Smirnov test on the raw vectors, which takes seconds and needs no index,
+indicates which score ranks queries better on 18 of 19 datasets.
 \end{abstract}
 
 \maketitle
@@ -75,9 +76,11 @@ becomes a difficulty score that maps to an \ef{}. The method is simple and cheap
 OpenAI and Cohere embeddings used in its evaluation it reaches its target recall with up to
 4$\times$ lower latency than learned approaches.
 
-The central limit argument, however, is an approximation whose quality depends on the data, and
-the Ada-ef paper does not measure it. Neither, as far as we can tell, does any other paper on
-nearest-neighbor search: query-hardness measures in the literature
+The central limit argument, however, is an approximation whose quality depends on the data. The
+Ada-ef paper derives the Gaussian under an assumption on the individual dimensions, supports that
+assumption on GloVe and MS MARCO, and discusses in its appendix when it may not hold; what it does
+not report is how closely the resulting distribution of a query's similarities fits, dataset by
+dataset. As far as we can tell, no other paper on nearest-neighbor search reports this either: query-hardness measures in the literature
 \cite{he2012difficulty,aumuller2019lid,wang2024steiner} either assume such a model or avoid it. We
 measured it on 41 datasets from ann-benchmarks, Big-ANN, VIBE and the Ada-ef paper's own sources,
 with a Kolmogorov--Smirnov (KS) statistic between each query's actual similarities and the
@@ -86,7 +89,7 @@ datasets do not, and they are not exotic: SIFT, GIST, Fashion-MNIST, DeepImage a
 among them. The Ada-ef paper presents its model for high-dimensional learned embeddings, and SIFT,
 GIST and Fashion-MNIST (hand-crafted descriptors and pixels) lie outside that scope; but the other
 six are learned embeddings (CNN features in DeepImage and Deep1B, DINO and ResNet image models,
-an audio model in Yambda, a factorisation model in Last.fm), so the model also fails inside it.
+an audio model in Yambda, a factorisation model in Last.fm), so the model also departs from the data inside it.
 Nor does the data type give it away: SIFT-1M is the least Gaussian image dataset we measured,
 while SIFT-1B is close to Gaussian, and MNIST fits much better than Fashion-MNIST.
 
@@ -99,7 +102,7 @@ and gives better or equal tail recall in 15 of 16 runs (Fig.~\ref{fig:teaser}). 
 that Ada-ef lacks: across 17 datasets it never costs more than 2.5\% over the best fixed \ef{} at
 the same recall, a fixed \ef{} chosen with hindsight on the test queries; matched on worst-case
 recall instead, it is faster than that fixed \ef{} in 31 of 34 runs. Finally, because the
-failure is visible in the raw vectors, the same KS statistic tells a practitioner which score to
+departure is visible in the raw vectors, the same KS statistic tells a practitioner which score to
 use before building an index; it picks the better one on 18 of 19 datasets. Against DARTH, a
 learned method that checks each query while it runs, PercEF gives a smaller tail gain but almost
 no time penalty (at most 3\% over a fixed \ef{}), where DARTH is up to 2.3 times as slow. We also report what
@@ -601,8 +604,8 @@ an adaptive method moves work between queries, so both are needed.
 \section{Conclusion}
 
 Ada-ef chooses the search breadth of each HNSW query from a Gaussian model of its similarities. We
-measured that model on 41 datasets and found it holds for most modern text embeddings and fails on
-nine, which cannot be told apart by data type. Where it fails, PercEF, which replaces the Gaussian
+measured that model on 41 datasets and found it fits most modern text embeddings closely and departs from
+the data on nine, which cannot be told apart by data type. There, PercEF, which replaces the Gaussian
 thresholds with the data's own percentiles, restores the score's ability to rank queries and gives
 at least Ada-ef's tail recall in 15 of 16 runs, at a cost that never exceeds a hindsight-tuned fixed
 \ef{} by more than 2.5\%. Matched on worst-case recall, it is faster than that fixed \ef{} in 13 of
