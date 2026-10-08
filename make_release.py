@@ -95,8 +95,11 @@ for d in glob.glob(os.path.join(RES, "results_darth_*")):
     for f in os.listdir(d):
         if f.endswith(".json") or f in ("offline_time.txt", "run.log", "laet.log"):
             copy(os.path.join(d, f), os.path.join(R, os.path.basename(d), f))
-for pat in ("results_controlled_summary_*", "results_ks_survey_*", "results_tail_survey_*"):
+for pat in ("results_controlled_summary_*", "results_tail_survey_*"):    # the scripts read the latest
     for d in sorted(glob.glob(os.path.join(RES, pat)))[-1:]:
+        copy(d, os.path.join(R, os.path.basename(d)))
+for d in sorted(glob.glob(os.path.join(RES, "results_ks_survey_*"))):     # all: each survey adds datasets
+    if os.listdir(d):
         copy(d, os.path.join(R, os.path.basename(d)))
 for f in ("sweep_summary.csv", "sweep_counts.csv"):
     if os.path.exists(os.path.join(RES, f)):
