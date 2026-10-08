@@ -106,10 +106,10 @@ failure is visible in the raw vectors, the same KS statistic tells a practitione
 use before building an index; it picks the better one on 18 of 19 datasets. Against DARTH, a
 learned method that checks each query while it runs, PercEF gives a smaller tail gain but almost
 no time penalty (at most 3\% over a fixed \ef{}), where DARTH is up to 2.3 times as slow. We also report what
-does not work: Ada-ef gives larger tail gains on near-Gaussian text embeddings and meets its target
-recall more closely, neither score saves work at $k = 10$ or adapts when queries come from a
-different modality than the database, and one prediction (SIFT-1B) fails. The comparisons hold at
-target recalls of 0.90 and 0.99.
+does not work: Ada-ef gives larger tail gains on near-Gaussian text embeddings, neither score saves
+work at $k = 10$ or adapts when queries come from a different modality than the database, and one
+prediction (SIFT-1B) fails. The comparisons hold at target recalls of 0.90 and 0.99, and with one
+offline rescaling of its table PercEF meets the target recall at least as often as Ada-ef.
 
 % ------------------------------------------------------------------------------------------------
 \section{Related Work}
@@ -192,9 +192,16 @@ find the nearest centroid, probe the first $L = 100$ distances, and evaluate~\eq
 these thresholds and the same weights. The thresholds thus describe what ``unusually close'' means
 in this particular database, whatever the shape of its distance distribution.
 
+Unlike Ada-ef's, these thresholds do not depend on the query: they turn Ada-ef's per-query
+quantiles into fixed radii measured on the database, and the score counts how many of the probe's
+points fall within them. Nothing has to be computed per query beyond the probe itself, where Ada-ef
+needs $q^\top\Sigma q$, a $d^2$ computation. A per-query empirical version, which would estimate each
+query's own quantiles from a sample, is a natural alternative that we leave to future work.
+
 For calibration we measure $\mathrm{ef}^*(q)$ for every calibration query and fit an isotonic
 regression~\cite{barlow1972isotonic} of $\mathrm{ef}^*$ on the rounded score, letting the fit
-choose the direction, and clip the result to $[k, 5000]$. The search does not restart after the
+choose the direction, and clip the result to $[k, 5000]$. Optionally, the table is then multiplied by
+one factor so that the mean recall on the calibration queries meets the target (\S\ref{sec:sweep}). The search does not restart after the
 probe: it continues the same traversal with the chosen \ef{}, so the probe's distance computations
 are part of the search, not an addition to it. Our default, fixed before the end-to-end runs, is
 $C = 1$ with isotonic calibration; we also ran $C \in \{8, 50\}$ and three bucket recipes and treat
@@ -474,14 +481,22 @@ falls short on GloVe (0.967--0.970) and MS Turing~P (0.964), where Ada-ef reache
 reason is in the calibration: our table maps a score to the average $\mathrm{ef}^*$ of similar
 calibration queries and never checks the mean recall that results, while Ada-ef's table is built to
 meet the target. Every comparison above is made at the method's own recall, so the counts are not
-affected, but a user who needs the target met should not rely on PercEF's table as is.
-\pending{A one-factor rescaling of the table on the calibration queries is being evaluated.} Second,
-at $k = 10$ neither method saves work: PercEF needs up to 19\% more than the tuned fixed \ef{} above
-the band (0 of 8 runs cheaper) and Ada-ef 1--109\% more in all 12 runs. Whole searches there take
-1{,}300--1{,}800 distance computations, so a fixed 100-distance probe is a large share of each, and
-with recall moving in steps of 0.1 per query, each query's $\mathrm{ef}^*$ is too coarse to predict
-well. The p1-matched comparison is not meaningful at $k = 10$ for the same reason.
-\pending{A 30-distance probe for small $k$ is being evaluated.}
+affected. The gap closes with one offline step: we multiply the whole table by a single factor, the
+smallest whose mean recall on the calibration queries reaches $\tau$ (found by bisection; nothing
+changes per query). With it, PercEF's mean recall lands within 0.01 of the target in 7 of the 8 runs
+above the band at $\tau = 0.95$ (Ada-ef 3) and in all 8 at $\tau = 0.99$ (Ada-ef 8), and in 3 of the 4
+below the band at each target (Ada-ef 2). Its advantage over the fixed \ef{} survives: above the
+band it still does less work in 6 and 7 of the 8 runs (at most 4.5\% extra) and is faster than the
+p1-matched fixed \ef{} in all 8, by a median of 17--19\%. At $\tau = 0.90$ even $\mathit{ef} = k$
+exceeds the target on SIFT-1M, Landmark-DINO and Deep1B, and the scaled table correctly gives every
+query $\mathit{ef} = k$.
+
+Second, at $k = 10$ neither method saves work: PercEF needs up to 19\% more than the tuned fixed
+\ef{} above the band (0 of 8 runs cheaper) and Ada-ef 1--109\% more in all 12 runs. The probe is not
+the cause: with a 30-distance probe PercEF is still cheaper in none of the 8 runs. A likely reason is
+that with recall moving in steps of 0.1 per query, each query's $\mathrm{ef}^*$ is too coarse for any
+score to predict; we leave small $k$ open. The p1-matched comparison is not meaningful at $k = 10$
+for the same reason.
 
 \begin{table}[t]
   \caption{Robustness sweep, six datasets, settings P and R. Counts against the tuned fixed \ef{}:
@@ -597,8 +612,9 @@ at least Ada-ef's tail recall in 15 of 16 runs, at a cost that never exceeds a h
 these 16 runs, where Ada-ef is in one. On near-Gaussian data it remains cheaper and faster than the
 fixed \ef{} in every run, while Ada-ef gives larger tail gains. A KS test on the raw vectors tells which score
 to use before an index is built, with one known miss. The comparisons hold at target recalls of
-0.90 and 0.99. PercEF meets the target less closely than Ada-ef, neither method saves work at
-$k = 10$, and neither adapts when queries come from another modality. Code, data pointers and every number in this paper are
+0.90 and 0.99, and a one-factor rescaling of the table makes PercEF meet the target recall at least
+as often as Ada-ef. Neither method saves work at $k = 10$, and neither adapts when queries come from
+another modality. Code, data pointers and every number in this paper are
 generated from the released result files. \pending{repository URL}
 
 \bibliographystyle{ACM-Reference-Format}

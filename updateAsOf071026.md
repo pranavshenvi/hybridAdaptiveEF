@@ -85,3 +85,28 @@ R, PercEF's default recipe; 18 runs, no failures (`sweep_20261007_114821.log`).
 - **L=30:** a 30-distance probe with its own scores and isotonic table, with and without scaling.
 - Run on the sweep's 6 datasets at k = 10, the paper's point, 0.90 and 0.99; reuses the sweep caches.
   Default runs and the paper's numbers are unchanged; the paper marks both as \pending.
+
+## 7. Results of the two fixes (`fixes_20261007_205000.log`, 24 runs, all complete)
+
+Mean recall within 0.01 of the target (runs), and the counts against the tuned fixed ef:
+
+| target, k | data | Ada-ef hits | PercEF hits | PercEF scaled hits | scaled: less work / p1-matched faster (median) |
+|---|---|---|---|---|---|
+| 0.95, 100 | above (8) | 3 | 3 | **7** | 6 (worst −4.5%) / 8 (17%) |
+| | below (4) | 2 | 3 | 3 | 4 / 4 (10%) |
+| 0.99, 100 | above (8) | 8 | 8 | **8** | 7 (worst −0.1%) / 8 (19%) |
+| | below (4) | 2 | 0 | **3** | 4 / 4 (10%) |
+| 0.90, 100 | above (8) | 1 | 0 | 3 | see below |
+| | below (4) | 2 | 0 | 3 | 4 / 4 (11%) |
+
+- **Scaling works**: with one factor fitted on the calibration queries, PercEF meets the target at
+  least as often as Ada-ef at every operating point, and keeps its advantage over the fixed ef.
+- At 0.90, ef = k = 100 already exceeds the target on SIFT-1M, Landmark-DINO and Deep1B: the factor
+  falls to its floor and every query gets ef = 100, i.e. the method becomes the fixed ef = 100 (the
+  correct answer; the summary shows n/a because it sits exactly on the lowest grid point).
+- **The 30-distance probe does not rescue k = 10** (0/8 runs cheaper above the band, worst −19.4%), so
+  the probe's length is not the cause; the paper now says so and leaves small k open. At k = 100
+  the 30-distance probe is about as good as 100 (0.95: 7/8 less work, p1-matched faster 8/8).
+- Paper: both `\pending` notes replaced; method gains the rescaling option and the sentence that the
+  thresholds do not depend on the query; introduction and conclusion no longer list target accuracy
+  as a limit. Default results (all 34 runs) are unchanged: they use the unscaled table.
