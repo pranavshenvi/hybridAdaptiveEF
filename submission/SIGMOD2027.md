@@ -46,7 +46,8 @@ not a conflict unless you have worked with them.
 
 - [x] No names or affiliations in the PDF or its metadata (`make_sigmod.py` checks)
 - [x] No funding or people in the acknowledgements; only the AI-use disclosure (ACM policy)
-- [ ] Code through an **anonymous** repository: clean release repo → https://anonymous.4open.science
+- [x] Code through an **anonymous** repository: https://anonymous.4open.science/r/PercEF-SIGMOD27 (CMT artifact field; build with `python make_sigmod.py --repo-url https://anonymous.4open.science/r/PercEF-SIGMOD27`)
+- [ ] (was:) Code through an **anonymous** repository: clean release repo → https://anonymous.4open.science
       (mirrors a GitHub repo with names removed; not indexed) → `python make_sigmod.py --repo-url <link>`
 - [ ] Do not post the paper on arXiv or publicise it until the decision
 - [x] Body ≤ 12 pages (now 7 + references); appendix as a separate PDF
