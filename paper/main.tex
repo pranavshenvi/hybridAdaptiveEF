@@ -30,20 +30,23 @@ of it than others. Ada-ef (SIGMOD 2026) assigns \ef{} per query from a difficult
 Gaussian model of the similarities between a query and the database. The model follows from the
 central limit theorem, and the Ada-ef paper supports its assumptions on two text-embedding
 datasets. Its aim is to meet a target recall while avoiding over-searching, which wastes work, and
-under-searching, which hurts the worst-served queries. We measure how well the Gaussian fits on 41
-public embedding datasets: it fits most modern text embeddings closely but departs from the data on
-9, including SIFT, GIST and Fashion-MNIST, and these cases cannot be recognised from the type of
-data alone. On these datasets Ada-ef's advantage over a hindsight-tuned fixed \ef{} at the same mean
-recall largely disappears: it does more work in 14 of 16 runs, and the recall of the worst 1\% of
-queries is lower in 10. We propose PercEF, which keeps Ada-ef's mechanism but takes the thresholds
-from the data's own empirical distance percentiles instead of the Gaussian. On the same 16 runs,
-PercEF ranks queries by difficulty better in all 16, does less work than the tuned fixed \ef{} in 14
-and never more than 2.5\% extra, and improves worst-case recall over it at least as much as Ada-ef
-in 15. Against the fixed \ef{} that gives the same worst-case recall, PercEF is faster in 13 of 16
-runs and Ada-ef in 1. On near-Gaussian data PercEF is cheaper and faster than the tuned fixed \ef{}
-in all 18 runs without lowering worst-case recall, while Ada-ef achieves larger worst-case gains in
-11 of them. A Kolmogorov--Smirnov test on the raw vectors, which takes seconds and needs no index,
-indicates which score ranks queries better on 18 of 19 datasets.
+under-searching, which hurts the worst-served queries. We measure how well the Gaussian fits with a
+Kolmogorov--Smirnov (KS) statistic between each query's similarities and the Gaussian, on 41 public
+embedding datasets: it fits most modern text embeddings closely but departs from the data on 9,
+including SIFT, GIST and Fashion-MNIST, and these cases cannot be recognised from the type of data
+alone. We then benchmark 17 datasets end to end, each with two calibration sets: 8 on which the
+Gaussian departs (16 runs) and 9 on which it fits (18 runs). On the 16 runs where it departs,
+Ada-ef's advantage over a hindsight-tuned fixed \ef{} at the same mean recall largely disappears: it
+does more work in 14, and the recall of the worst 1\% of queries is lower in 10. We propose PercEF,
+which keeps Ada-ef's mechanism but takes the thresholds from the data's own empirical distance
+percentiles instead of the Gaussian. On the same 16 runs, PercEF ranks queries by difficulty better
+in all 16, does less work than the tuned fixed \ef{} in 14 and never more than 2.5\% extra, and
+improves worst-case recall over it at least as much as Ada-ef in 15. Against the fixed \ef{} that
+gives the same worst-case recall, PercEF is faster in 13 of 16 runs and Ada-ef in 1. On the 18
+near-Gaussian runs, PercEF is cheaper and faster than the tuned fixed \ef{} in all 18 without
+lowering worst-case recall, while Ada-ef achieves larger worst-case gains in 11 of them. The same KS
+statistic, computed on the raw vectors in seconds and without an index, indicates which of the two
+scores ranks queries better on 18 of 19 datasets.
 \end{abstract}
 
 \maketitle
