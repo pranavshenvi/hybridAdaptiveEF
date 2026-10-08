@@ -84,7 +84,7 @@ let y = COL_Y;
 y = header(X[0], y, "PROBLEM STATEMENT", C.teal, "Problem");
 y = body(X[0], y, 1.72, [
   { label: "a)", text: "Vector search engines answer every query with the same search breadth (ef) in HNSW. Easy queries waste work; hard queries miss neighbours." },
-  { label: "b)", text: "Ada-ef (SIGMOD 2026) sets ef per query by assuming each query's similarities to the data are Gaussian. The assumption was never tested. We test it, and fix the method where it fails." },
+  { label: "b)", text: "Ada-ef (SIGMOD 2026) sets ef per query by modelling each query's similarities to the data as Gaussian. We measure how well that fits on 41 datasets, and fix the method where it does not." },
 ], "Problem") + GAP;
 y = header(X[0], y, "OBJECTIVES", C.teal, "Objectives");
 y = body(X[0], y, 1.5, [
@@ -170,7 +170,7 @@ s.addText("Tail-recall gain over the best fixed ef, 20 datasets sorted by KS (to
   x: X[2] + 0.1, y: y + 0.12 + figH, w: figW, h: 0.42, fontFace: FONT, fontSize: 10, italic: true, color: C.muted,
   margin: 0, valign: "top", isTextBox: true, objectName: "Results figure caption" });
 const stats = [
-  ["15/16", "runs on non-Gaussian data: PercEF's tail recall at least Ada-ef's"],
+  ["13/16", "non-Gaussian runs where PercEF's worst case is at or above a tuned fixed ef's (Ada-ef: 6/16)"],
   ["32/34", "runs cheaper than the best fixed ef (Ada-ef: 10/34); never over +2.5%"],
   ["18/19", "datasets where the KS test picks the better method"],
 ];
@@ -184,14 +184,14 @@ stats.forEach(([big, small], i) => {
 });
 s.addText([
   { text: "Limits: ", options: { bold: true } },
-  { text: "on near-Gaussian text embeddings Ada-ef keeps the better tail; neither method adapts when queries come from another modality (text searching images)." },
+  { text: "on near-Gaussian text embeddings Ada-ef gains more worst-case recall; neither method adapts when queries come from another modality (text searching images)." },
 ], { x: X[2] + 0.1, y: y + resH - 0.62, w: COL_W - 0.2, h: 0.56, fontFace: FONT, fontSize: 11.5, color: C.ink,
   margin: 0, valign: "top", isTextBox: true, objectName: "Results limits" });
 y += resH + GAP;
 
 y = header(X[2], y, "CONCLUSIONS AND FUTURE WORK", C.teal, "Conclusions");
 body(X[2], y, 9.05 - y, [
-  { label: "a)", text: "Ada-ef's Gaussian model fails on 9 of 41 datasets (6 learned embeddings); there PercEF gives better tail recall, at most 2.5% over the best fixed ef, and beats a fixed ef with the same worst case on time in 31 of 34 runs." },
+  { label: "a)", text: "Ada-ef's Gaussian model departs from the data on 9 of 41 datasets (6 learned embeddings); there PercEF keeps the worst case at or above a tuned fixed ef in 13 of 16 runs, at most 2.5% over its cost." },
   { label: "b)", text: "DARTH (learned): best tail, up to 2.3x slower. Next: SIFT-1B, cross-modal." },
 ], "Conclusions", 12);
 

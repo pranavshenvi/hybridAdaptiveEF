@@ -200,14 +200,14 @@ box(s, fx[4], fy, fw, fh, "Score → ef from a calibrated table", "plain", "tabl
 for (let i = 0; i < 4; i++) arrow(s, fx[i] + fw, fy + fh / 2, fx[i + 1], fy + fh / 2, `ada ${i}`);
 s.addText("The thresholds come from the bell curve. If the real similarities are not bell-shaped, they sit in the wrong place, and the score can no longer tell easy queries from hard ones.",
   { x: 0.6, y: 3.45, w: 12.1, h: 0.9, fontSize: 18, color: C.text1, margin: 0, isTextBox: true, objectName: "Ada-ef weakness" });
-card(s, 0.6, 4.55, 12.15, 1.7, "The gap", "Ada-ef's paper states this assumption but never measures it on data. Neither does any other ANN paper we found.",
+card(s, 0.6, 4.55, 12.15, 1.7, "The gap", "Ada-ef's paper derives it from the central limit theorem and supports it on GloVe and MS MARCO, but does not report how well it fits each dataset. Nor does any other ANN paper we found.",
   { fill: "FCE9DF", headColor: C.accent4, bodySize: 16 });
 s.addNotes("(0:08) Ada-ef places its difficulty thresholds using that bell curve. Nobody had checked whether real data is bell-shaped.");
 
 // ================================================================= 5. the diagnosis
 pres.addSection({ title: "Our method" });
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Our method" });
-s.addText("The assumption fails on 9 of 41 datasets", { placeholder: "title" });
+s.addText("The model departs from the data on 9 of 41 datasets", { placeholder: "title" });
 s.addImage({ path: path.join(FIG, "fig1_ks_survey.png"), x: 0.6, y: 1.3, w: 5.4 * 1040 / 1089, h: 5.4, objectName: "KS survey figure" });
 s.addText(bullets([
   { text: "KS statistic: how far each query's similarities are from Ada-ef's bell curve (0 = perfect fit)", bold: false },
@@ -267,7 +267,7 @@ pres.addSection({ title: "Novelty" });
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Novelty" });
 s.addText("What is new", { placeholder: "title" });
 const nv = [
-  ["1  First test of the assumption", "Ada-ef's Gaussian model measured on 41 datasets; fails on 9, including 6 learned embeddings."],
+  ["1  The fit, dataset by dataset", "Ada-ef's Gaussian model measured on 41 datasets; it departs from the data on 9, including 6 learned embeddings."],
   ["2  A distribution-free score", "PercEF: thresholds from the data's own percentiles. No covariance, no training."],
   ["3  A cost floor", "Never more than 2.5% costlier than the best fixed ef in hindsight; Ada-ef has no such floor."],
   ["4  An offline test", "KS on raw vectors predicts the better method on 18 of 19 datasets, before any index exists."],
@@ -275,7 +275,7 @@ const nv = [
 nv.forEach(([h, b], i) => card(s, 0.6 + (i % 2) * 6.15, 1.4 + Math.floor(i / 2) * 2.1, 5.95, 1.85, h, b, { bodySize: 16, fill: i % 2 ? C.background2 : "DCEFF3" }));
 s.addText("Also: an evaluation guide for adaptive search (interpolation bias, timing noise, probe cost), from errors we caught in our own runs.",
   { x: 0.6, y: 5.65, w: 12.1, h: 0.5, fontSize: 14, italic: true, color: C.accent2, margin: 0, isTextBox: true, objectName: "Novelty footnote" });
-s.addNotes("(0:08) So we contribute the first test of this assumption, a distribution-free score, a cost floor, and an offline test.");
+s.addNotes("(0:08) So we contribute the first dataset-by-dataset measurement of this assumption, a distribution-free score, a cost floor, and an offline test.");
 
 // ================================================================= 9. setup and metrics
 pres.addSection({ title: "Results" });
@@ -306,18 +306,18 @@ s.addChart(pres.charts.BAR, [
   { name: "PercEF", labels: ds, values: [8.5, 7.9, 3.8, 3.4, 2.8, 1.1, 0.7, -0.9] },
   { name: "Ada-ef", labels: ds, values: [4.3, 4.3, 0.7, 0.1, 0.0, -1.1, -0.1, -3.0] },
 ], { x: 0.6, y: 1.35, w: 8.2, h: 5.4, barDir: "bar", barGrouping: "clustered", chartColors: [HEX.ours, HEX.ada],
-  showTitle: true, title: "p1 recall gain over the tuned fixed ef (percentage points)", titleFontSize: 14, titleColor: HEX.ink,
+  showTitle: true, title: "p1 recall gain over the tuned fixed ef (percentage points, mean of settings P and R)", titleFontSize: 14, titleColor: HEX.ink,
   titleFontFace: "+mn-lt", showLegend: true, legendPos: "b", legendFontSize: 12, legendFontFace: "+mn-lt",
   catAxisLabelColor: HEX.muted, valAxisLabelColor: HEX.muted, catAxisLabelFontSize: 12, valAxisLabelFontSize: 11,
   catAxisLabelFontFace: "+mn-lt", valAxisLabelFontFace: "+mn-lt", catAxisOrientation: "maxMin", catAxisLabelPos: "low",
   valGridLine: { color: HEX.grid, size: 0.75 }, catGridLine: { style: "none" },
   showValue: true, dataLabelFontSize: 10, dataLabelColor: HEX.ink, dataLabelFormatCode: "0.0", objectName: "p1 gain chart" });
 stat(s, 9.2, 1.45, 3.5, "16 / 16", "runs where PercEF's score orders queries by true difficulty better than Ada-ef's (rank correlation)");
-stat(s, 9.2, 3.15, 3.5, "15 / 16", "runs where PercEF's worst-case gain is at least Ada-ef's (the 16th: a tie near zero)");
+stat(s, 9.2, 3.15, 3.5, "13 / 16", "runs where PercEF's worst case is at or above the fixed ef's (Ada-ef: 6 / 16)");
 stat(s, 9.2, 4.85, 3.5, "13 / 16", "runs where PercEF is faster than a fixed ef with the same worst case (Ada-ef: 1 / 16)", C.accent2);
 s.addText("16 runs = the 8 non-Gaussian datasets x 2 calibration settings", { x: 9.2, y: 6.35, w: 3.55, h: 0.5, fontSize: 11,
   italic: true, color: C.accent6, margin: 0, isTextBox: true, objectName: "Runs definition" });
-s.addNotes("(0:10) Each pair of bars is a dataset; longer to the right is better. On the non-Gaussian datasets PercEF ranks queries better in every run and beats Ada-ef's worst case in 15 of 16: on DeepImage by 8.5 recall points, against 4.3. To match that worst case, a fixed ef is slower in 13 of 16 runs.");
+s.addNotes("(0:10) Each pair of bars is a dataset; longer to the right is better. On the non-Gaussian datasets PercEF ranks queries better in every run, and keeps the worst case at or above the fixed ef in 13 of 16 runs, against 6 for Ada-ef: on DeepImage it gains 8.5 recall points, against 4.3. On GIST both lose a little, PercEF less. To match that worst case, a fixed ef is slower in 13 of 16 runs.");
 
 // ================================================================= 11. cost and speed
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Results" });
@@ -402,7 +402,7 @@ s.addNotes("(0:06) On bell-shaped text data Ada-ef gives larger worst-case gains
 s = pres.addSlide({ masterName: "DARK", sectionTitle: "Wrap-up" });
 s.addText("Measure, don't assume", { placeholder: "title" });
 s.addText([
-  { text: "Ada-ef's bell-curve assumption fails on 9 of 41 datasets. PercEF measures the thresholds instead: better worst-case recall where the assumption fails, never meaningfully costlier than a tuned fixed ef, and a seconds-long test that says which method to use.", options: { breakLine: true } },
+  { text: "Ada-ef's bell-curve model departs from the data on 9 of 41 datasets. PercEF measures the thresholds instead: better worst-case recall where it departs, never meaningfully costlier than a tuned fixed ef, and a seconds-long test that says which method to use.", options: { breakLine: true } },
   { text: "Thank you. Questions?", options: { bold: true } },
 ], { placeholder: "body" });
 s.addNotes("(0:05) In short: measure the distribution, don't assume it. Thank you.");
