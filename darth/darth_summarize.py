@@ -59,6 +59,10 @@ for p in glob.glob(os.path.join(run, "fixed_ef*.csv")):
 fixed.sort(key=lambda r: r["avg_ef"])
 darth = row("DARTH", *per_query(os.path.join(run, "darth_test.csv")))
 darth["scorecard"] = vs_fixed(darth, fixed)
+laet = None                                              # darth/run_laet.sh adds LAET to the same run
+if os.path.exists(os.path.join(run, "laet_test.csv")):
+    laet = row("LAET", *per_query(os.path.join(run, "laet_test.csv")))
+    laet["scorecard"] = vs_fixed(laet, fixed)
 
 fp = lambda v, f="{:+.1f}%": "n/a" if v is None else f.format(v)
 print(f"\n  {'method':<34} {'meanR':>7} {'p1':>6} {'hit%':>6} {'DC':>8} {'lat us':>8} {'save DC':>8} {'save lat':>9} {'p1 gain':>8}")
@@ -68,6 +72,11 @@ sc = darth["scorecard"]
 print(f"  {'DARTH (FAISS)':<34} {darth['mean_r']:>7.4f} {darth['p1']:>6.3f} {darth['pct_target']:>6.1f} "
       f"{darth['total_dc']:>8.0f} {darth['mean_lat_us']:>8.0f} {fp(sc['saving_dc_pct']):>8} {fp(sc['saving_lat_pct']):>9} "
       f"{fp(sc['p1_gain'], '{:+.3f}'):>8}")
+if laet:
+    sc = laet["scorecard"]
+    print(f"  {'LAET (FAISS)':<34} {laet['mean_r']:>7.4f} {laet['p1']:>6.3f} {laet['pct_target']:>6.1f} "
+          f"{laet['total_dc']:>8.0f} {laet['mean_lat_us']:>8.0f} {fp(sc['saving_dc_pct']):>8} {fp(sc['saving_lat_pct']):>9} "
+          f"{fp(sc['p1_gain'], '{:+.3f}'):>8}")
 
 ours = None
 if len(sys.argv) > 2:                                   # our HNSWlib run on the same dataset, setting R
@@ -88,5 +97,5 @@ if len(sys.argv) > 2:                                   # our HNSWlib run on the
               f"{lat:>8} {fp(c['saving_dc_pct']):>8} {fp(c['saving_lat_pct']):>9} {fp(c['p1_gain'], '{:+.3f}'):>8}")
 
 with open(os.path.join(run, "summary.json"), "w") as f:
-    json.dump(dict(darth=darth, faiss_fixed=fixed, hnswlib_setting_R=ours), f, indent=1)
+    json.dump(dict(darth=darth, laet=laet, faiss_fixed=fixed, hnswlib_setting_R=ours), f, indent=1)
 print(f"\n  wrote {run}/summary.json")
