@@ -163,8 +163,8 @@ curve reach the same recall with less work.}
 \item \textbf{Meeting the target recall:} one offline factor on PercEF's table (fitted on calibration
   queries) makes it land within 0.01 of the target at least as often as Ada-ef.
 \item \textbf{Probe length ablation:} the gain comes from the thresholds, not the shorter probe.
-\item \textbf{DARTH} (learned early termination, SIGMOD 2026) on 4 datasets: best tail, but 1.9--2.3$\times$
-  slower than a fixed \ef{}; PercEF within 3\%.
+\item \textbf{Learned methods} DARTH (SIGMOD 2026) and LAET (SIGMOD 2020) on 7 datasets: best tail, but
+  slower than a fixed \ef{} on 6 of 7 (up to 2.8$\times$) and more work on 5; PercEF less work on all 7, within 7\% in time.
 \item \textbf{Why time lags work on non-Gaussian data:} hard queries cost about 8\% more time per distance
   even under a fixed \ef{}, and PercEF moves work to them.
 \end{itemize}

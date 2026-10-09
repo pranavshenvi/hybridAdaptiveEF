@@ -341,7 +341,7 @@ s.addNotes("(0:10) PercEF does less work than the best fixed ef in 32 of 34 runs
 
 // ================================================================= 12. checks
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Results" });
-s.addText("Two checks: probe length and DARTH", { placeholder: "title" });
+s.addText("Two checks: probe length and learned methods", { placeholder: "title" });
 s.addText("Ranking quality |ρ| with matched probe lengths", { x: 0.6, y: 1.3, w: 6, h: 0.4, fontSize: 15, bold: true, color: C.text2, margin: 0, isTextBox: true, objectName: "Ablation caption" });
 table(s, [
   ["Dataset", "Ada-ef 1,025", "Ada-ef 100", "PercEF 100", "PercEF 1,025"],
@@ -353,16 +353,19 @@ table(s, [
   ["MS Turing", "0.48", "0.21", "0.40", "0.58"],
 ], 0.6, 1.75, 6.0, [1.4, 1.15, 1.15, 1.15, 1.15], "Ablation table", 12);
 s.addText("The advantage comes from the thresholds, not the shorter probe.", { x: 0.6, y: 4.3, w: 6.0, h: 0.9, fontSize: 14, italic: true, color: C.accent2, margin: 0, isTextBox: true, objectName: "Ablation takeaway" });
-s.addText("DARTH (learned) vs PercEF, setting R", { x: 6.95, y: 1.3, w: 5.8, h: 0.4, fontSize: 15, bold: true, color: C.text2, margin: 0, isTextBox: true, objectName: "DARTH caption" });
+s.addText("Learned methods (DARTH, LAET) vs PercEF, setting R", { x: 6.95, y: 1.3, w: 5.8, h: 0.4, fontSize: 15, bold: true, color: C.text2, margin: 0, isTextBox: true, objectName: "DARTH caption" });
 table(s, [
-  ["Dataset", "p1 gain DARTH", "p1 gain PercEF", "Time vs fixed DARTH", "Time vs fixed PercEF"],
-  ["GloVe", "+0.080", "+0.029", "6% slower", "1% faster"],
-  ["MS Turing", "+0.044", "+0.010", "42% slower", "1% faster"],
-  ["SIFT-1M", "+0.048", "+0.028", "2.3x slower", "0.4% faster"],
-  ["Deep1B", "+0.098", "+0.081", "1.9x slower", "2.4% slower"],
-], 6.95, 1.75, 5.8, [1.2, 1.1, 1.1, 1.2, 1.2], "DARTH table", 12);
-s.addText("DARTH has the best tail but costs time and training; PercEF gets much of the gain at almost no time cost.", { x: 6.95, y: 4.3, w: 5.8, h: 0.9, fontSize: 14, italic: true, color: C.accent2, margin: 0, isTextBox: true, objectName: "DARTH takeaway" });
-s.addNotes("(0:08) The gain comes from the thresholds, not the shorter probe. The learned method DARTH has a better worst case, but is up to 2.3 times slower.");
+  ["Dataset", "p1 DARTH", "p1 PercEF", "Time DARTH", "Time LAET", "Time PercEF"],
+  ["GloVe", "+0.080", "+0.029", "6% slower", "1% faster", "1% faster"],
+  ["MS Turing", "+0.044", "+0.010", "42% slower", "16% slower", "0.9% faster"],
+  ["DBpedia", "+0.067", "+0.034", "1.6x slower", "1.6x slower", "2% faster"],
+  ["DeepImage", "+0.119", "+0.088", "2.1x slower", "2.1x slower", "7% slower"],
+  ["Deep1B", "+0.098", "+0.081", "1.9x slower", "1.6x slower", "2% slower"],
+  ["Landmark-DINO", "+0.078", "+0.039", "2.8x slower", "2.6x slower", "2% faster"],
+  ["SIFT-1M", "+0.048", "+0.028", "2.3x slower", "1.8x slower", "0.4% faster"],
+], 6.95, 1.75, 5.8, [1.25, 0.85, 0.85, 0.95, 0.95, 0.95], "DARTH table", 10);
+s.addText("Time = against a tuned fixed ef of the same library. Learned methods have the best tail but are up to 2.8x slower and need training; PercEF is within 7% with none.", { x: 6.95, y: 4.75, w: 5.8, h: 0.9, fontSize: 12, italic: true, color: C.accent2, margin: 0, isTextBox: true, objectName: "DARTH takeaway" });
+s.addNotes("(0:08) The gain comes from the thresholds, not the shorter probe. The learned methods DARTH and LAET have a better worst case, but are up to 2.8 times slower.");
 
 // ================================================================= 13. combined idea (tested, not adopted)
 s = pres.addSlide({ masterName: "CONTENT", sectionTitle: "Results" });

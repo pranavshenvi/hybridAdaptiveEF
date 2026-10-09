@@ -109,9 +109,9 @@ that Ada-ef lacks: across 17 datasets it never costs more than 2.5\% over the be
 the same recall, a fixed \ef{} chosen with hindsight on the test queries; matched on worst-case
 recall instead, it is faster than that fixed \ef{} in 31 of 34 runs. Finally, because the
 departure is visible in the raw vectors, the same KS statistic tells a practitioner which score to
-use before building an index; it picks the better one on 18 of 19 datasets. Against DARTH, a
-learned method that checks each query while it runs, PercEF gives a smaller tail gain but almost
-no time penalty (at most 3\% over a fixed \ef{}), where DARTH is up to 2.3 times as slow. We also report what
+use before building an index; it picks the better one on 18 of 19 datasets. Against two learned methods, DARTH and LAET, PercEF gives
+smaller tail gains but stays within 7\% of a fixed \ef{}'s time on seven datasets, where they are up
+to 2.8 times as slow. We also report what
 does not work: Ada-ef gives larger tail gains on near-Gaussian text embeddings, neither score saves
 work at $k = 10$ or adapts when queries come from a different modality than the database, and one
 prediction (SIFT-1B) fails. The comparisons hold at target recalls of 0.90 and 0.99, and with one
@@ -539,44 +539,75 @@ for the same reason.
   \end{tabular}
 \end{table}
 
-\paragraph{A learned method.}
+\paragraph{Learned methods.}
 DARTH~\cite{chatzakis2026darth} stops each search when a gradient-boosted model, fed with features
-of the search so far, predicts that the target recall has been reached. We ran the authors' code
-(their FAISS fork, unchanged apart from a build path and a data loader) on four datasets with the
-same test queries and ground truth, $M = 16$, $\mathit{ef}_{\mathrm{construction}} = 500$, one
-thread, a model trained on 1,500 calibration queries (its paper uses 10,000) and its prediction
-intervals tuned on the other 500, as in its authors' scripts. Each method is compared with a fixed
-\ef{} of its own library, because the two HNSW implementations build different graphs and time
-queries differently (Table~\ref{tab:darth}). DARTH has the best tail on all four datasets and
-reaches the target on all of them. It pays for this in time: it is slower than its fixed \ef{} on
-every dataset, by 6\% on GloVe and by about a factor of two on SIFT-1M and Deep1B, where a search
-takes under a millisecond and the repeated model calls dominate. This agrees with the Ada-ef
-paper's finding that Ada-ef is much faster than learned methods. It also needs 3 to 10 minutes of
-training per dataset and gigabytes of search traces. PercEF does not reach DARTH's tail, but it
-comes close on Deep1B (0.081 against 0.098) at about half the time, and it stays within a few
-percent of the fixed \ef{} in both work and time on every dataset, with no training.
+of the search so far, predicts that the target recall has been reached; LAET~\cite{li2020laet}
+predicts once, after a fixed number of distance computations, how many the query needs in total.
+We ran both through DARTH's authors' FAISS fork, which contains LAET's search, unchanged apart from
+a build path and a data loader, on seven datasets: GloVe, MS Turing and DBpedia below the band and
+DeepImage, Deep1B, Landmark-DINO and SIFT-1M above it. They use the same test queries and ground
+truth, $M = 16$, $\mathit{ef}_{\mathrm{construction}} = 500$ and one thread, are trained on 1,500
+calibration queries (DARTH's paper uses 10,000) and tuned on the other 500: DARTH's prediction
+intervals as in its authors' scripts, LAET's prediction point and multiplier so that validation
+recall meets the target. Each method is compared with a fixed \ef{} of its own library, because the
+two HNSW implementations build different graphs and time queries differently (Table~\ref{tab:darth}).
+
+Both learned methods buy large tail gains: DARTH has the best p1 gain on six of the seven datasets,
+LAET on the seventh. They pay for it in time. Both are slower than their fixed \ef{} on every
+dataset but one (LAET on GloVe, 1.3\% faster), by up to 2.8 times where a search takes about a
+millisecond and the model calls dominate, and both do less work than the fixed \ef{} only on the
+two long-search datasets, GloVe and MS Turing (by 7--18\%), and 3--20\% more on the other five. This
+agrees with the Ada-ef paper's finding that Ada-ef is much faster than learned methods. Each also
+needs 2 to 10 minutes of training and tuning per dataset and gigabytes of search traces. PercEF is
+the only method that does less work than its fixed \ef{} on all seven datasets (0.5--5.9\%); it is
+faster on five and at most 7\% slower on the others, with no training. Its tail gain is smaller than
+DARTH's but comes close on Deep1B (0.081 against 0.098).
 
 \begin{table}[t]
-  \caption{DARTH, Ada-ef (as shipped) and PercEF against a tuned fixed \ef{} of their own library at
-  the same mean recall (setting R). Positive savings: cheaper or faster than the fixed \ef{}.}
+  \caption{Learned methods (DARTH, LAET; FAISS), Ada-ef (as shipped) and PercEF (HNSWlib) against a
+  tuned fixed \ef{} of their own library at the same mean recall (setting R). Positive savings:
+  cheaper or faster than the fixed \ef{}. Bold: best per dataset. GloVe, MS Turing, DBpedia: below
+  the band; the rest above it.}
   \label{tab:darth}
   \centering\footnotesize
   \begin{tabular}{llrrr}
     \toprule
     Dataset & Method & p1 gain & DC saving & Latency saving \\
     \midrule
-    GloVe     & DARTH  & \textbf{+0.080} & \textbf{+15.5\%} & $-$6.3\% \\
-              & Ada-ef & +0.073 & +11.5\% & 0.0\% \\
-              & PercEF & +0.029 & +5.9\%  & \textbf{+1.4\%} \\
-    MS Turing & DARTH  & \textbf{+0.044} & \textbf{+6.7\%} & $-$41.9\% \\
-              & Ada-ef & $-$0.041 & +0.1\% & $-$1.2\% \\
-              & PercEF & +0.010 & +1.9\% & \textbf{+0.9\%} \\
-    SIFT-1M   & DARTH  & \textbf{+0.048} & $-$2.8\% & $-$126\% \\
-              & Ada-ef & 0.000 & $-$0.2\% & $-$25.7\% \\
-              & PercEF & +0.028 & \textbf{+2.7\%} & \textbf{+0.4\%} \\
-    Deep1B    & DARTH  & \textbf{+0.098} & $-$9.4\% & $-$92\% \\
-              & Ada-ef & +0.052 & +0.2\% & $-$23.6\% \\
-              & PercEF & +0.081 & \textbf{+3.7\%} & \textbf{$-$2.4\%} \\
+    GloVe         & DARTH  & \textbf{+0.080} & +15.5\% & $-$6.3\% \\
+                  & LAET   & +0.041 & \textbf{+17.6\%} & +1.3\% \\
+                  & Ada-ef & +0.073 & +11.5\% & +0.0\% \\
+                  & PercEF & +0.029 & +5.9\% & \textbf{+1.4\%} \\
+    \midrule
+    MS Turing     & DARTH  & +0.044 & +6.7\% & $-$41.9\% \\
+                  & LAET   & \textbf{+0.051} & \textbf{+16.4\%} & $-$16.2\% \\
+                  & Ada-ef & $-$0.041 & +0.1\% & $-$1.2\% \\
+                  & PercEF & +0.010 & +1.9\% & \textbf{+0.9\%} \\
+    \midrule
+    DBpedia       & DARTH  & \textbf{+0.067} & $-$20.3\% & $-$62.9\% \\
+                  & LAET   & +0.057 & $-$8.4\% & $-$60.0\% \\
+                  & Ada-ef & +0.033 & $-$0.5\% & $-$45.5\% \\
+                  & PercEF & +0.034 & \textbf{+5.3\%} & \textbf{+2.0\%} \\
+    \midrule
+    DeepImage     & DARTH  & \textbf{+0.119} & $-$10.4\% & $-$112\% \\
+                  & LAET   & +0.097 & $-$5.0\% & $-$115\% \\
+                  & Ada-ef & +0.048 & \textbf{+1.2\%} & $-$11.5\% \\
+                  & PercEF & +0.088 & +0.5\% & \textbf{$-$7.1\%} \\
+    \midrule
+    Deep1B        & DARTH  & \textbf{+0.098} & $-$9.4\% & $-$92.1\% \\
+                  & LAET   & +0.090 & $-$10.4\% & $-$55.8\% \\
+                  & Ada-ef & +0.052 & +0.3\% & $-$23.1\% \\
+                  & PercEF & +0.081 & \textbf{+3.7\%} & \textbf{$-$2.4\%} \\
+    \midrule
+    Landmark-DINO & DARTH  & \textbf{+0.078} & $-$12.0\% & $-$179\% \\
+                  & LAET   & +0.034 & $-$11.5\% & $-$157\% \\
+                  & Ada-ef & $-$0.001 & $-$6.2\% & $-$36.5\% \\
+                  & PercEF & +0.039 & \textbf{+4.0\%} & \textbf{+1.8\%} \\
+    \midrule
+    SIFT-1M       & DARTH  & \textbf{+0.048} & $-$2.8\% & $-$126\% \\
+                  & LAET   & +0.031 & $-$8.1\% & $-$78.2\% \\
+                  & Ada-ef & $-$0.000 & $-$0.2\% & $-$25.2\% \\
+                  & PercEF & +0.028 & \textbf{+2.7\%} & \textbf{+0.4\%} \\
     \bottomrule
   \end{tabular}
 \end{table}

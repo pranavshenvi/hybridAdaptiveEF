@@ -192,7 +192,7 @@ y += resH + GAP;
 y = header(X[2], y, "CONCLUSIONS AND FUTURE WORK", C.teal, "Conclusions");
 body(X[2], y, 9.05 - y, [
   { label: "a)", text: "Ada-ef's Gaussian model departs from the data on 9 of 41 datasets (6 learned embeddings); there PercEF keeps the worst case at or above a tuned fixed ef in 13 of 16 runs, at most 2.5% over its cost." },
-  { label: "b)", text: "DARTH (learned): best tail, up to 2.3x slower. Next: SIFT-1B, cross-modal." },
+  { label: "b)", text: "Learned DARTH, LAET: best tail, up to 2.8x slower. Next: SIFT-1B, cross-modal." },
 ], "Conclusions", 12);
 
 // ---------------------------------------------------------------- members and guide

@@ -18,7 +18,7 @@ speaker notes.
 | 10 | Setup | "We followed Ada-ef's own protocol on 20 datasets and compared everything against the best fixed ef." | 0:05 |
 | 11 | Non-Gaussian results | "Each pair of bars is a dataset; longer to the right is better. On the non-Gaussian datasets PercEF ranks queries better in every run, and keeps the worst case at or above the fixed ef in 13 of 16 runs, against 6 for Ada-ef: on DeepImage it gains 8.5 recall points, against 4.3. On GIST both lose a little, PercEF less. To match that worst case, a fixed ef is slower in 13 of 16 runs." | 0:10 |
 | 12 | Cost | "PercEF does less work than the best fixed ef in 32 of 34 runs, never more than 2.5 percent extra. Matched on the worst case, it is faster than the fixed ef in 31 of 34 runs, and up to 1.8 times faster than Ada-ef. On bell-shaped data it is cheaper and faster in every run; Ada-ef's advantage there is a larger worst-case gain." | 0:10 |
-| 13 | Checks | "The gain comes from the thresholds, not the shorter probe. The learned method DARTH has a better worst case, but is up to 2.3 times slower." | 0:08 |
+| 13 | Checks | "The gain comes from the thresholds, not the shorter probe. The learned methods DARTH and LAET have a better worst case, but are up to 2.8 times slower." | 0:08 |
 | 14 | Limits | "On bell-shaped text data Ada-ef gives larger worst-case gains, on DeepImage PercEF is a few percent slower than the fixed ef at the same mean recall, and cross-modal queries remain open." | 0:06 |
 | 15 | Conclusion | "In short: measure the distribution, don't assume it. Thank you." | 0:05 |
 
