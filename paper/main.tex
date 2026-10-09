@@ -257,7 +257,9 @@ mean recall, and the 1st and 5th percentile of per-query recall (p1, p5), which 
 performance on the hardest queries'' and so show under-searching~\cite[\S 7.2]{zhang2026adaef}.
 Cost is measured as latency per query, as there, and also as distance computations, which the
 Ada-ef paper does not report; plus offline time and memory. Distance
-computations (DC), including every probe, serve as a hardware-independent measure of cost. As a
+computations (DC), including every probe, serve as a hardware-independent measure of cost. We count
+them as HNSWlib does, as every neighbor-list entry a search examines, visited or not; all methods
+run in HNSWlib are counted the same way. As a
 reference we run HNSW at a grid of fixed \ef{} values and, for each method, interpolate the fixed
 \ef{} that reaches the same mean recall. This is the best fixed \ef{} anyone could choose in
 hindsight; no deployment can pick it in advance, so beating it is a demanding test. The Ada-ef
@@ -550,7 +552,9 @@ truth, $M = 16$, $\mathit{ef}_{\mathrm{construction}} = 500$ and one thread, are
 calibration queries (DARTH's paper uses 10,000) and tuned on the other 500: DARTH's prediction
 intervals as in its authors' scripts, LAET's prediction point and multiplier so that validation
 recall meets the target. Each method is compared with a fixed \ef{} of its own library, because the
-two HNSW implementations build different graphs and time queries differently (Table~\ref{tab:darth}).
+two HNSW implementations build different graphs, time queries differently and count work
+differently: FAISS counts only the distances it computes, and at the same recall its fixed \ef{}
+reports 0.59 to 0.71 times HNSWlib's count on these datasets (Table~\ref{tab:darth}).
 
 Both learned methods buy large tail gains: DARTH has the best p1 gain on six of the seven datasets,
 LAET on the seventh. They pay for it in time. Both are slower than their fixed \ef{} on every
