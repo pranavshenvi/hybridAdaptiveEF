@@ -68,7 +68,7 @@ title = re.search(r"\\title\{(.*?)\}\n", body_main).group(1)
 main_tex = pre + xr_main + "\\begin{document}" + body_main + "\\end{document}\n"
 app_tex = (pre + xr_app + "\\begin{document}\n\\title{Supplementary appendix to: " + title + "}\n"
            "\\author{Anonymous Author(s)}\n\\affiliation{\\institution{Anonymous}\\country{}}\n"
-           "\\maketitle\n\\appendix\n" + body_app +
+           "\\maketitle\n\\pagestyle{plain}\n\\appendix\n" + body_app +
            ("\n\\bibliographystyle{ACM-Reference-Format}\n\\bibliography{refs}\n" if "\\cite" in body_app else "")
            + "\\end{document}\n")
 for name, text in (("main_anon.tex", main_tex), ("appendix_anon.tex", app_tex)):
