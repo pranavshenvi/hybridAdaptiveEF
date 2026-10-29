@@ -921,17 +921,29 @@ public:
     std::shared_ptr<hnswdis::Estimator> estimator;
     std::shared_ptr<hnswdis::ApproximatedScoreCalculator> score_cal;
 
-    AdaEfPaperScorer(py::array_t<float, py::array::c_style | py::array::forcecast> corpus, float quantile_step) {
+    AdaEfPaperScorer(py::array_t<float, py::array::c_style | py::array::forcecast> corpus, float quantile_step,
+                     const std::string &units) {
         auto buf = corpus.request();
         if (buf.ndim != 2) throw std::runtime_error("Expected 2-D corpus array (n, dim)");
         size_t n = buf.shape[0], d = buf.shape[1];
         hnswdis::MatrixXf data(n, d);
         std::memcpy(data.data(), buf.ptr, n * d * sizeof(float));
-        // CosineDistanceEstimator: matches the paper's msmarco config
-        // (metric="cd"), and requires unit-normalized vectors, which our
-        // corpus/queries already are (verified separately).
-        estimator = std::make_shared<hnswdis::CosineDistanceEstimator>(data);
+        // The paper's msmarco config (metric="cd") runs CosineDistanceEstimator on an inner-product
+        // index. Our indexes are L2 over unit vectors, whose distances are twice the cosine
+        // distance, so units="l2" (default) uses the same Gaussian rescaled to those units.
+        // Both need unit-normalized vectors.
+        if (units == "l2") estimator = std::make_shared<hnswdis::UnitL2DistanceEstimator>(data);
+        else if (units == "cd") estimator = std::make_shared<hnswdis::CosineDistanceEstimator>(data);
+        else throw std::runtime_error("units must be \"l2\" (L2 index) or \"cd\" (inner-product index)");
         score_cal = std::make_shared<hnswdis::ApproximatedScoreCalculator>(estimator, quantile_step);
+    }
+
+    // Ada-ef's score of a list of distances already collected (in the index's units), for
+    // indexes that only expose a search call (benchmark_unified.py --graph).
+    float scoreDistances(py::array_t<float, py::array::c_style | py::array::forcecast> query,
+                         py::array_t<float, py::array::c_style | py::array::forcecast> dists) const {
+        auto qb = query.request(), db = dists.request();
+        return score_cal->compute_score(qb.ptr, (size_t)qb.shape[0], db.ptr, (size_t)db.shape[0]);
     }
 
     // Same estimator, loaded from dataset statistics (mean, covariance,
@@ -987,19 +999,28 @@ PYBIND11_PLUGIN(chao_hybrid_ada_ef_cpp) {
         py::module m("chao_hybrid_ada_ef_cpp");
 
         py::class_<AdaEfPaperScorer, std::shared_ptr<AdaEfPaperScorer>>(m, "AdaEfPaperScorer")
-        .def(py::init<py::array_t<float, py::array::c_style | py::array::forcecast>, float>(),
-             py::arg("corpus"), py::arg("quantile_step"))
+        .def(py::init<py::array_t<float, py::array::c_style | py::array::forcecast>, float, const std::string &>(),
+             py::arg("corpus"), py::arg("quantile_step"), py::arg("units") = "l2")
         .def_static("from_stats_file", &AdaEfPaperScorer::fromStatsFile,
-                    py::arg("path"), py::arg("quantile_step"));
+                    py::arg("path"), py::arg("quantile_step"))
+        .def("score_distances", &AdaEfPaperScorer::scoreDistances, py::arg("query"), py::arg("dists"));
 
         py::class_<AdaEfPaperSketch, std::shared_ptr<AdaEfPaperSketch>>(m, "AdaEfPaperSketch")
         .def(py::init<std::vector<std::pair<int, std::vector<std::pair<int, float>>>>, float>(),
-             py::arg("ef_recall_estimators"), py::arg("expected_recall"));
+             py::arg("ef_recall_estimators"), py::arg("expected_recall"))
+        .def("estimate_ef", [](const AdaEfPaperSketch &s, float score) { return (int)s.sketch->estimate_ef2(score); },
+             py::arg("score"));
 
         py::class_<PercEFConfig, std::shared_ptr<PercEFConfig>>(m, "PercEFConfig")
         .def(py::init<std::vector<float>, std::vector<float>, std::vector<int>, int, int, int>(),
              py::arg("bins"), py::arg("weights"), py::arg("ef_table"), py::arg("min_ef"), py::arg("max_ef"),
-             py::arg("probe_count"));
+             py::arg("probe_count"))
+        .def_readonly("bins", &PercEFConfig::bins)
+        .def_readonly("weights", &PercEFConfig::weights)
+        .def_readonly("ef_table", &PercEFConfig::ef_table)
+        .def_readonly("min_ef", &PercEFConfig::min_ef)
+        .def_readonly("max_ef", &PercEFConfig::max_ef)
+        .def_readonly("probe_count", &PercEFConfig::probe_count);
 
         py::class_<Index<float>>(m, "Index")
         .def(py::init(&Index<float>::createFromParams), py::arg("params"))
@@ -1170,6 +1191,32 @@ PYBIND11_PLUGIN(chao_hybrid_ada_ef_cpp) {
             }
             return py::make_tuple(labels, dists, ef_used);
         }, py::arg("query"), py::arg("k"), py::arg("config"))
+        .def("search_pip", [](Index<float>& self, py::array_t<float, py::array::c_style> query, int k, int ef,
+                              float saturation, int patience) {
+            // Patience in Proximity, as vendored by Ada-ef (HierarchicalNSW::searchKnnWithPatienceInProximity,
+            // the baseline of its paper): beam search with the given ef that stops once the top-k has
+            // overlapped the previous step's by >= saturation for `patience` consecutive steps.
+            auto buf = query.request();
+            if (buf.ndim != 1) throw std::runtime_error("Expected 1-D query vector");
+            self.appr_alg->setEf(ef);
+            auto res = self.appr_alg->searchKnnWithPatienceInProximity(static_cast<const float*>(buf.ptr), k,
+                                                                       saturation, patience);
+            py::array_t<hnswlib::labeltype> labels(k);
+            py::array_t<float> dists(k);
+            auto lb = labels.mutable_unchecked<1>();
+            auto db = dists.mutable_unchecked<1>();
+            for (int j = k - 1; j >= 0; j--) {
+                if (!res.empty()) {
+                    lb(j) = res.top().second;
+                    db(j) = res.top().first;
+                    res.pop();
+                } else {
+                    lb(j) = -1;
+                    db(j) = 1e30f;
+                }
+            }
+            return py::make_tuple(labels, dists);
+        }, py::arg("query"), py::arg("k"), py::arg("ef"), py::arg("saturation") = 0.95f, py::arg("patience") = 30)
         .def("get_dynamic_probe_score_weighted", [](Index<float>& self, py::array_t<float, py::array::c_style> query, std::vector<float> bins, std::vector<float> weights, int probe_count) {
             auto buf = query.request();
             if (buf.ndim != 1) throw std::runtime_error("Expected 1-D query vector");

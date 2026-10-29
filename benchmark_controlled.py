@@ -330,8 +330,10 @@ ada_scores_int = np.round(ada_calib_scores).astype(int)
 rho_ada, p_ada = spearmanr(ada_calib_scores, calib_min_ef)
 print(f"  Ada-ef score vs true min-EF: Spearman rho = {rho_ada:.4f} (p={p_ada:.2e})")
 
+# ada2_: tables built after the Ada-ef quantile/units fix (updateAsOf281026.md); the older
+# cache_target_recall_ada_paper_ctrl_* files came from the wrong thresholds and are never read
 ada_table_exact, WAE = load_or_build_target_recall_table(
-    f"cache_target_recall_ada_paper_ctrl_{CACHE_TAG}.json", ada_scores_int, calib_q, calib_gt)
+    f"cache_target_recall_ada2_paper_ctrl_{CACHE_TAG}.json", ada_scores_int, calib_q, calib_gt)
 print(f"  Calculated WAE for Ada-ef: {WAE} ({time.time() - t0:.1f}s)")
 with open(os.path.join(RESULTS_DIR, "ef_table_ada_exact.json"), "w") as f_json:
     json.dump(ada_table_exact, f_json, indent=4)

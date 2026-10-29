@@ -122,16 +122,36 @@ ap.add_argument("--short-probe", type=int, default=30, help="probe length of the
 ap.add_argument("--seed", type=int, default=None,
                 help="seed repeat: another random draw of the R/test split, the P calibration points and the KS "
                      "sample (default 42); same index; own results folder and caches")
+ap.add_argument("--pip", action="store_true",
+                help="also run Patience in Proximity (the early-termination baseline of the Ada-ef paper): at the "
+                     "Ada-ef paper's setting and tuned on the calibration queries")
+ap.add_argument("--M", type=int, default=16, help="sweep: HNSW M other than the frozen 16 (own index, caches, folder)")
+ap.add_argument("--metric", choices=["cosine", "l2"], default="cosine",
+                help="l2: native Euclidean on the raw (not normalized) vectors, for the L2 datasets (SIFT, GIST, "
+                     "Fashion-MNIST, Big-ANN). Ada-ef is not run: its estimators model inner products of unit "
+                     "vectors only. Own index, caches and folder")
+ap.add_argument("--graph", choices=["faiss_hnsw", "nsg", "vamana"], default=None,
+                help="another graph index (FAISS HNSW, FAISS NSG, DiskANN Vamana) behind a search(q, k, L) call: "
+                     "the probe is a search at L = max(k, 100) whose result distances both scores read, and the "
+                     "search is redone at the looked-up L only when that is larger. Own index, caches, folder")
 args = ap.parse_args()
-SWEEP = args.target_recall is not None or args.k is not None or args.fixes or args.seed is not None
+if args.metric == "l2" and args.ablation:
+    ap.error("--ablation runs Ada-ef, which --metric l2 does not")
+if args.graph and (args.pip or args.ablation or args.fixes or args.group_table or args.M != 16):
+    ap.error("--graph runs the headline methods only (no --pip/--ablation/--fixes/--group-table/--M)")
+NATIVE_L2 = args.metric == "l2"
+HAS_ADA = not NATIVE_L2           # Ada-ef's estimators model inner products of unit vectors only
+SWEEP = (args.target_recall is not None or args.k is not None or args.fixes or args.seed is not None
+         or args.M != 16 or NATIVE_L2 or args.graph is not None)
 SETTINGS = [s.strip().upper() for s in args.settings.split(",") if s.strip()]
 assert all(s in ("P", "R") for s in SETTINGS), "--settings takes P and/or R"
 
 TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 SEED_TAG = f"_s{args.seed}" if args.seed is not None else ""
 CACHE_TAG = ((f"_t{args.target_recall:g}" if args.target_recall is not None else "")
-             + (f"_k{args.k}" if args.k is not None else "") + SEED_TAG)
-SWEEP_TAG = CACHE_TAG + ("_fixes" if args.fixes else "")
+             + (f"_k{args.k}" if args.k is not None else "") + SEED_TAG
+             + (f"_M{args.M}" if args.M != 16 else "") + (f"_{args.graph}" if args.graph else ""))
+SWEEP_TAG = CACHE_TAG + ("_fixes" if args.fixes else "") + ("_l2native" if NATIVE_L2 else "")
 RESULTS_DIR = (f"results_unified_{args.dataset}{'_smoke' if args.smoke else ''}"
                f"{'_ablation' if (args.ablation or args.group_table) else ''}"
                f"{'_sweep' + SWEEP_TAG if SWEEP else ''}_{TIMESTAMP}")
@@ -164,7 +184,7 @@ import chao_hybrid_ada_ef_cpp as hnsw
 #  Frozen protocol
 # ═══════════════════════════════════════════════════════════════════════
 SEED = 42 if args.seed is None else args.seed
-M, EF_CONSTRUCTION = 16, 500
+M, EF_CONSTRUCTION = args.M, 500
 TARGET_RECALL = 0.95 if args.target_recall is None else args.target_recall
 EF_CAP = 5000
 PROBE_COUNT, NUM_BINS, QUANTILE_STEP, STATICS_LENGTH = 100, 5, 1e-3, 1025
@@ -199,6 +219,8 @@ def fixed_efs(k):
 
 def normalize(x):
     x = np.asarray(x, dtype=np.float32)
+    if NATIVE_L2:                   # --metric l2: raw vectors everywhere (corpus, queries, ground truth)
+        return x
     n = np.linalg.norm(x, axis=1, keepdims=True)
     n[n == 0] = 1.0
     return x / n
@@ -417,8 +439,10 @@ def stats_pass(corpus, pool_ids, p_ids):
 
 
 def write_ada_stats(path, mean, cov):
-    """Ada-ef's own Estimator::serialize layout, read back by hnswdis::load_estimator_from_file."""
-    name = b"CosineDistanceEstimator"
+    """Ada-ef's own Estimator::serialize layout, read back by hnswdis::load_estimator_from_file.
+    UnitL2DistanceEstimator: its cosine-distance Gaussian in the units of our L2 index (distances
+    2 (1 - cos)); CosineDistanceEstimator would compare those distances with thresholds half as large."""
+    name = b"UnitL2DistanceEstimator"
     c = np.asarray(cov, dtype="<f4")
     with open(path, "wb") as f:
         f.write(struct.pack("<Q", len(name))); f.write(name)
@@ -428,14 +452,18 @@ def write_ada_stats(path, mean, cov):
 
 
 def ground_truth_pass(corpus, queries, k, qbatch=1024):
-    """Exact top-k by inner product on normalized vectors, streamed over the corpus."""
+    """Exact top-k by inner product on normalized vectors, streamed over the corpus. --metric l2:
+    by L2 distance on the raw vectors (largest 2 q.x - |x|^2, the same order)."""
     m = len(queries)
     best_s = np.full((m, k), -np.inf, dtype=np.float32)
     best_i = np.full((m, k), -1, dtype=np.int64)
     for ids, x in corpus.chunks():
+        sq = (x.astype(np.float64) ** 2).sum(axis=1).astype(np.float32) if NATIVE_L2 else None
         for a in range(0, m, qbatch):
             b = min(a + qbatch, m)
             sims = queries[a:b] @ x.T
+            if NATIVE_L2:
+                sims = 2 * sims - sq
             if sims.shape[1] > k:
                 top = np.argpartition(-sims, k - 1, axis=1)[:, :k]
                 s_top, i_top = np.take_along_axis(sims, top, axis=1), ids[top]
@@ -685,6 +713,174 @@ def dc_at_quality(rows, metric, goal):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+#  Patience in Proximity (--pip)
+# ═══════════════════════════════════════════════════════════════════════
+PIP_SATURATION = 0.95
+PIP_PATIENCE = [10, 30, 100]
+PIP_TUNE_QUERIES = 500            # PiP copies its top-k every step, so tuning on all 2,000 is slow
+
+
+def tune_pip(idx, calib_q, calib_gt, k):
+    """Cheapest (ef, patience) whose mean recall over the calibration queries reaches the target.
+    Recall grows with ef at a given patience, so each patience stops at its first ef that does.
+    Falls back to the highest-recall setting if none does."""
+    qs, gts = calib_q[:PIP_TUNE_QUERIES], calib_gt[:PIP_TUNE_QUERIES]
+    best, fallback = None, None
+    for pat in PIP_PATIENCE:
+        for ef in fixed_efs(k):
+            rec, dc = [], 0
+            for i, q in enumerate(qs):
+                idx.reset_dist_count()
+                rec.append(recall_of(idx.search_pip(q, k, ef, PIP_SATURATION, pat)[0], gts[i], k))
+                dc += idx.get_dist_count()
+            r, dc = float(np.mean(rec)), dc / len(qs)
+            if fallback is None or r > fallback[0]:
+                fallback = (r, ef, pat)
+            if r >= TARGET_RECALL:
+                if best is None or dc < best[0]:
+                    best = (dc, ef, pat)
+                break
+    ef, pat = (best[1], best[2]) if best else (fallback[1], fallback[2])
+    print(f"  PiP tuned on {len(qs)} calibration queries: ef={ef}, patience={pat}"
+          f"{'' if best else ' (target not reached: highest-recall setting)'}", flush=True)
+    return ef, pat
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Other graph indexes (--graph): the methods behind a plain search(q, k, L) call
+# ═══════════════════════════════════════════════════════════════════════
+class GraphIndex:
+    """FAISS HNSW, FAISS NSG or DiskANN Vamana, exposing the calls this script makes on the HNSWlib
+    index. Only a search with a search-list size L is available, so both adaptive methods work as a
+    wrapper: the probe is a search at L0 = max(k, PROBE_COUNT) that returns its L0 best candidates;
+    PercEF's and Ada-ef's scores are computed from those distances (the same list for both, so only
+    the thresholds differ); the search is redone at the looked-up L only when it exceeds L0, else
+    the probe's top k is the answer. The looked-up L is first snapped to the nearest point of the
+    calibration grid, where every query's true minimum was measured: an isotonic value such as 103
+    means "the floor, sometimes the next step", and redoing a whole search for 3 extra would double
+    the cost of the easiest queries. Cost: FAISS HNSW counts distance computations; NSG and Vamana
+    do not expose them, so their DC column is the summed L of the searches made (a proxy, flagged
+    in the summary) and latency is the measure that counts. Graph parameters: degree 32 (= 2M,
+    HNSW's layer-0 degree), build list 500 (= efConstruction), Vamana alpha 1.2."""
+    entry_point, max_level = 0, 0
+    DEGREE, BUILD_L = 32, 500
+
+    def __init__(self, kind, corpus, path, k):
+        self.kind, self.k = kind, k
+        self.labels = corpus.kept_ids()                       # index position -> global row id
+        self.dist_count, self.counts_dc = 0, kind == "faiss_hnsw"
+        self.L0 = max(k, PROBE_COUNT)
+        self.grid = np.asarray(ef_grid(k))
+        os.makedirs(path, exist_ok=True)
+        t0 = time.time()
+        if kind in ("faiss_hnsw", "nsg"):
+            import faiss
+            self.faiss = faiss
+            f = os.path.join(path, "index.faiss")
+            if os.path.exists(f):
+                self.index = faiss.read_index(f)
+            else:
+                print(f"\n[5] building {kind} index (degree {self.DEGREE}, build list {self.BUILD_L}) ...", flush=True)
+                faiss.omp_set_num_threads(os.cpu_count())
+                if kind == "faiss_hnsw":
+                    self.index = faiss.IndexHNSWFlat(corpus.dim, self.DEGREE // 2)
+                    self.index.hnsw.efConstruction = self.BUILD_L
+                    for _, x in corpus.chunks():
+                        self.index.add(x)
+                else:                                          # NSG needs all vectors at once
+                    self.index = faiss.IndexNSGFlat(corpus.dim, self.DEGREE)
+                    self.index.build_type = 1                  # NN-descent kNN graph, not brute force
+                    self.index.add(np.concatenate([x for _, x in corpus.chunks()]))
+                faiss.write_index(self.index, f)
+            faiss.omp_set_num_threads(1)
+        else:
+            import diskannpy
+            self.dk = diskannpy
+            if not os.path.exists(os.path.join(path, "ann")):
+                print(f"\n[5] building Vamana index (R {self.DEGREE}, L {self.BUILD_L}, alpha 1.2) ...", flush=True)
+                binf = os.path.join(path, "base.bin")
+                with open(binf, "wb") as fo:                   # DiskANN .bin: int32 n, int32 dim, float32 rows
+                    fo.write(struct.pack("<ii", corpus.n, corpus.dim))
+                    for _, x in corpus.chunks():
+                        fo.write(np.ascontiguousarray(x, dtype=np.float32).tobytes())
+                diskannpy.build_memory_index(data=binf, distance_metric="l2", vector_dtype=np.float32,
+                                             index_directory=path, complexity=self.BUILD_L,
+                                             graph_degree=self.DEGREE, num_threads=os.cpu_count(), alpha=1.2,
+                                             index_prefix="ann")
+                os.remove(binf)
+            self.index = diskannpy.StaticMemoryIndex(index_directory=path, num_threads=1,
+                                                     initial_search_complexity=EF_CAP, index_prefix="ann")
+        self.element_count, self.M, self.ef_construction = corpus.n, self.DEGREE // 2, self.BUILD_L
+        print(f"  {kind} index ready ({time.time() - t0:.0f}s)", flush=True)
+
+    def _search(self, q, n, L):
+        """(global ids, squared L2 distances) of the n best of a search with list size L >= n."""
+        if self.kind == "vamana":
+            ids, d = self.index.search(q, k_neighbors=n, complexity=max(L, n))
+        else:
+            if self.kind == "faiss_hnsw":
+                self.faiss.cvar.hnsw_stats.reset()
+                params = self.faiss.SearchParametersHNSW(efSearch=max(L, n))
+                d, ids = self.index.search(q[None, :], n, params=params)
+                self.dist_count += self.faiss.cvar.hnsw_stats.ndis
+            else:
+                self.index.nsg.search_L = max(L, n)
+                d, ids = self.index.search(q[None, :], n)
+            ids, d = ids[0], d[0]
+        if not self.counts_dc:
+            self.dist_count += max(L, n)
+        ok = ids >= 0
+        return self.labels[ids[ok]], d[ok].astype(np.float32)
+
+    def reset_dist_count(self):
+        self.dist_count = 0
+
+    def get_dist_count(self):
+        return self.dist_count
+
+    def search_knn_adaptive(self, q, k, _ep, _level, ef):
+        return self._search(q, k, ef)
+
+    def _probe(self, q):
+        return self._search(q, self.L0, self.L0)
+
+    @staticmethod
+    def _percef_score(d, bins, weights):
+        """searchKnnDynamicWeighted's score: mean over the distances of the weight of the first
+        (smallest) threshold each falls under."""
+        hit = np.searchsorted(np.asarray(bins, dtype=np.float32), d, side="right")
+        w = np.append(np.asarray(weights, dtype=np.float64), 0.0)
+        return float(w[hit].mean()) if len(d) else 0.0
+
+    def _finish(self, q, k, ids, ef):
+        ef = int(self.grid[np.argmin(np.abs(self.grid - ef))])
+        if ef <= self.L0:
+            return ids[:k], self.L0
+        return self._search(q, k, ef)[0], ef
+
+    def get_dynamic_probe_score_weighted(self, q, bins, weights, _probe_count):
+        return self._percef_score(self._probe(q)[1], bins, weights)
+
+    def search_percef(self, q, k, cfg):
+        ids, d = self._probe(q)
+        si = max(0, int(round(self._percef_score(d, cfg.bins, cfg.weights))))
+        tab = cfg.ef_table
+        ef = tab[si] if si < len(tab) else (tab[-1] if tab else cfg.max_ef)
+        ef = max(cfg.min_ef, min(cfg.max_ef, ef))
+        labs, used = self._finish(q, k, ids, ef)
+        return labs, None, used
+
+    def adaptive_search_knn_paper(self, q, k, _statics_length, scorer, sketch):
+        ids, d = self._probe(q)
+        score = scorer.score_distances(q, d)
+        if sketch is None:
+            return ids[:k], None, score, k
+        ef = max(sketch.estimate_ef(score), k)
+        labs, used = self._finish(q, k, ids, ef)
+        return labs, None, score, used
+
+
+# ═══════════════════════════════════════════════════════════════════════
 #  Main
 # ═══════════════════════════════════════════════════════════════════════
 def write_vecs(f, x, dtype):
@@ -754,6 +950,12 @@ def main():
     spec = load_dataset(args.dataset)
     if args.k is not None:
         spec["k"] = args.k
+    if NATIVE_L2:                  # raw vectors: statistics, ground truth, bins and index all differ
+        spec["tag"] += "_l2native"
+        spec["notes"] += "; native L2 on raw vectors (no normalization), Ada-ef not applicable"
+    if NATIVE_L2 or M != 16 or args.graph:
+        name = f"{args.graph}_index" if args.graph else f"index_m{M}_efc{EF_CONSTRUCTION}.index"
+        spec["index_path"], spec["reuse"] = os.path.join("unified_cache", spec["tag"], name), False
     corpus, K = spec["corpus"], spec["k"]
     test_q, calib_r = spec["test_q"], spec["calib_r"]
     if args.smoke:
@@ -785,10 +987,13 @@ def main():
         # Ada-ef's offline statistics (mean + covariance); the same pass samples the KS pool, a small extra
         save_offline_time(cache, "ada_statistics_s", time.time() - t0)
     assert n_seen == corpus.n, f"stats saw {n_seen} rows, corpus has {corpus.n}"
-    write_ada_stats(stats_bin, mean, cov)
     timings["stats"] = time.time() - t0
-    ks_mean, ks_vals = ks_fit(pool, mean, cov, test_q, np.random.default_rng(SEED + 2))
-    print(f"  KS (score vs Ada-ef's CLT Normal, {len(ks_vals)} test queries): {ks_mean:.4f}")
+    if HAS_ADA:
+        write_ada_stats(stats_bin, mean, cov)
+        ks_mean, ks_vals = ks_fit(pool, mean, cov, test_q, np.random.default_rng(SEED + 2))
+        print(f"  KS (score vs Ada-ef's CLT Normal, {len(ks_vals)} test queries): {ks_mean:.4f}")
+    else:
+        ks_mean, ks_vals = None, []        # the KS of the cosine run applies; its model is of unit vectors
 
     # 2. ground truth for test, R-calibration and P-calibration queries (one pass)
     t0 = time.time()
@@ -842,9 +1047,13 @@ def main():
         sys.exit("The C++ extension predates AdaEfPaperScorer.from_stats_file. Rebuild it cleanly:\n"
                  "  cd chao_hybrid_ada_ef && rm -rf build chao_hybrid_ada_ef_cpp*.so && "
                  "python3 setup.py build_ext --inplace && cd ..")
-    scorer = hnsw.AdaEfPaperScorer.from_stats_file(stats_bin, QUANTILE_STEP)
+    if not hasattr(hnsw.AdaEfPaperScorer, "score_distances"):
+        sys.exit("The C++ extension predates the Ada-ef quantile fix (updateAsOf281026.md). Rebuild it cleanly:\n"
+                 "  cd chao_hybrid_ada_ef && rm -rf build chao_hybrid_ada_ef_cpp*.so && "
+                 "python3 setup.py build_ext --inplace && cd ..")
+    scorer = hnsw.AdaEfPaperScorer.from_stats_file(stats_bin, QUANTILE_STEP) if HAS_ADA else None
     scorer_full = None
-    if corpus.n * corpus.dim * 4 <= VERIFY_MAX_BYTES:
+    if HAS_ADA and not args.graph and corpus.n * corpus.dim * 4 <= VERIFY_MAX_BYTES:
         print("\n[4] building Ada-ef's estimator the original way too (corpus fits in RAM) ...", flush=True)
         full = np.concatenate([x for _, x in corpus.chunks()])
         scorer_full = hnsw.AdaEfPaperScorer(full, QUANTILE_STEP)
@@ -853,7 +1062,9 @@ def main():
     # 5. index: reuse (verified) or build chunk by chunk
     t0 = time.time()
     idx = hnsw.Index(space="l2", dim=corpus.dim)
-    if os.path.exists(spec["index_path"]):
+    if args.graph:
+        idx = GraphIndex(args.graph, corpus, spec["index_path"], K)
+    elif os.path.exists(spec["index_path"]):
         print(f"\n[5] loading index {spec['index_path']} ...", flush=True)
         idx.load_index(spec["index_path"], max_elements=corpus.n)
         ok = (idx.element_count == corpus.n and idx.M == M and idx.ef_construction == EF_CONSTRUCTION)
@@ -935,33 +1146,37 @@ def main():
         print(f"  calib min-ef: median {np.median(calib_min_ef):.0f}, P90 {np.percentile(calib_min_ef, 90):.0f}, "
               f"capped {capped.mean() * 100:.1f}%")
 
-        # Ada-ef
-        ta = time.time()
-        ada_scores = np.array([idx.adaptive_search_knn_paper(q, K, STATICS_LENGTH, scorer, None)[2] for q in calib_q])
-        ada_score_s = time.time() - ta
-        rho_ada = finite_or_none(spearmanr(ada_scores, calib_min_ef)[0])
-        tab_path = os.path.join(cache, f"ada_table_{setting}{CACHE_TAG}.json")
-        if os.path.exists(tab_path):
-            with open(tab_path) as f:
-                z = json.load(f); ada_table, wae = {int(k): v for k, v in z["table"].items()}, z["wae"]
-        else:
-            print("  Ada-ef ef-estimation table (group-average probing) ...", flush=True)
+        # Ada-ef (not with --metric l2: its estimators model unit vectors only)
+        ada_scores, rho_ada, ada_table, wae, ada_score_s = None, None, {}, None, None
+        if HAS_ADA:
             ta = time.time()
-            ada_table, wae = ada_target_recall_table(idx, np.round(ada_scores).astype(int), calib_q, calib_gt, K, grid)
-            save_offline_time(cache, f"ada_table_{setting}_s", time.time() - ta)
-            with open(tab_path, "w") as f:
-                json.dump(dict(table=ada_table, wae=wae), f, indent=1)
-        for variant, table in (("as shipped", ada_table), ("WAE floor", {s: max(e, wae) for s, e in ada_table.items()})):
-            sketch = hnsw.AdaEfPaperSketch([(s, [(e, float(TARGET_RECALL))]) for s, e in table.items()], TARGET_RECALL)
-            def ada_search(i, q, sketch=sketch):
-                labs, _, _, ef_used = idx.adaptive_search_knn_paper(q, K, STATICS_LENGTH, scorer, sketch)
-                return labs, ef_used
-            rec, efs, dcs, lat = run_queries(idx, test_q, test_gt, K, ada_search)
-            row, pq = summarize(f"Ada-ef ({variant})", rec, efs, dcs, 0, lat, dict(wae=wae))
-            searchers[row["name"]] = ada_search
-            rows.append(row); pq_setting[row["name"]] = pq
-            print(f"  {row['name']:<24} R={row['mean_r']:.4f} p1={row['p1']:.3f} hit={row['pct_target']:.1f}% "
-                  f"DC={row['total_dc']:.0f} lat={row['mean_lat_us']:.0f}us", flush=True)
+            ada_scores = np.array([idx.adaptive_search_knn_paper(q, K, STATICS_LENGTH, scorer, None)[2] for q in calib_q])
+            ada_score_s = time.time() - ta
+            rho_ada = finite_or_none(spearmanr(ada_scores, calib_min_ef)[0])
+            # ada2_: built after the quantile/units fix (updateAsOf281026.md); ada_table_* files hold
+            # tables from the wrong thresholds and are never read
+            tab_path = os.path.join(cache, f"ada2_table_{setting}{CACHE_TAG}.json")
+            if os.path.exists(tab_path):
+                with open(tab_path) as f:
+                    z = json.load(f); ada_table, wae = {int(k): v for k, v in z["table"].items()}, z["wae"]
+            else:
+                print("  Ada-ef ef-estimation table (group-average probing) ...", flush=True)
+                ta = time.time()
+                ada_table, wae = ada_target_recall_table(idx, np.round(ada_scores).astype(int), calib_q, calib_gt, K, grid)
+                save_offline_time(cache, f"ada_table_{setting}_s", time.time() - ta)
+                with open(tab_path, "w") as f:
+                    json.dump(dict(table=ada_table, wae=wae), f, indent=1)
+            for variant, table in (("as shipped", ada_table), ("WAE floor", {s: max(e, wae) for s, e in ada_table.items()})):
+                sketch = hnsw.AdaEfPaperSketch([(s, [(e, float(TARGET_RECALL))]) for s, e in table.items()], TARGET_RECALL)
+                def ada_search(i, q, sketch=sketch):
+                    labs, _, _, ef_used = idx.adaptive_search_knn_paper(q, K, STATICS_LENGTH, scorer, sketch)
+                    return labs, ef_used
+                rec, efs, dcs, lat = run_queries(idx, test_q, test_gt, K, ada_search)
+                row, pq = summarize(f"Ada-ef ({variant})", rec, efs, dcs, 0, lat, dict(wae=wae))
+                searchers[row["name"]] = ada_search
+                rows.append(row); pq_setting[row["name"]] = pq
+                print(f"  {row['name']:<24} R={row['mean_r']:.4f} p1={row['p1']:.3f} hit={row['pct_target']:.1f}% "
+                      f"DC={row['total_dc']:.0f} lat={row['mean_lat_us']:.0f}us", flush=True)
 
         # Ours
         rho_ours, ours_calib_s, ours_scores_k1, ours_table_len = {}, {}, None, {}
@@ -1065,7 +1280,7 @@ def main():
             L_A, L_O = PROBE_COUNT, STATICS_LENGTH
             a_sc = np.array([idx.adaptive_search_knn_paper(q, K, L_A, scorer, None)[2] for q in calib_q])
             ablation_rho[f"ada_L{L_A}"] = finite_or_none(spearmanr(a_sc, calib_min_ef)[0])
-            tab_l = os.path.join(cache, f"ada_table_{setting}_L{L_A}{CACHE_TAG}.json")
+            tab_l = os.path.join(cache, f"ada2_table_{setting}_L{L_A}{CACHE_TAG}.json")
             if os.path.exists(tab_l):
                 with open(tab_l) as f:
                     z = json.load(f); a_table, a_wae = {int(k): v for k, v in z["table"].items()}, z["wae"]
@@ -1126,6 +1341,23 @@ def main():
                 rows.append(row); pq_setting[row["name"]] = pq
                 print(f"  {row['name']:<34} R={row['mean_r']:.4f} p1={row['p1']:.3f} DC={row['total_dc']:.0f}", flush=True)
 
+        # Patience in Proximity (--pip), the early-termination baseline of the Ada-ef paper, through its
+        # vendored code. "paper setting": as Ada-ef's experiments run it (ef = 3k, 2k for k >= 1000;
+        # saturation 0.95, patience 30). "tuned": the cheapest (ef, patience) whose mean recall on the
+        # calibration queries reaches the target, as our table and Ada-ef's are fit on them.
+        if args.pip:
+            for name, (pef, pat) in (("PiP (paper setting)", (2 * K if K >= 1000 else 3 * K, 30)),
+                                     ("PiP (tuned)", tune_pip(idx, calib_q, calib_gt, K))):
+                def pip_search(i, q, pef=pef, pat=pat):
+                    return idx.search_pip(q, K, pef, PIP_SATURATION, pat)[0], pef
+                rec, efs, dcs, lat = run_queries(idx, test_q, test_gt, K, pip_search)
+                row, pq = summarize(name, rec, efs, dcs, 0, lat, dict(pip_ef=pef, pip_patience=pat))
+                row["distinct_ef"] = 2           # stops per query: adapts, though its ef is fixed
+                searchers[name] = pip_search
+                rows.append(row); pq_setting[name] = pq
+                print(f"  {name:<24} ef={pef} patience={pat} R={row['mean_r']:.4f} p1={row['p1']:.3f} "
+                      f"hit={row['pct_target']:.1f}% DC={row['total_dc']:.0f}", flush=True)
+
         # Latency pass: fixed-ef grid and headline methods; replaces their single-pass latency
         # time only the fixed-ef points that bracket a headline method's recall (all the scorecard needs)
         fx_sorted = sorted(fixed_rows, key=lambda r: r["avg_ef"])
@@ -1149,21 +1381,23 @@ def main():
         # Uses the calibration queries only, so it is a legitimate method; the rows copy the chosen one.
         absr = lambda v: 0.0 if v is None else abs(v)
         chose_ours = absr(rho_ours.get(1)) >= absr(rho_ada)
-        for variant in ("as shipped", "WAE floor"):
+        for variant in (("as shipped", "WAE floor") if HAS_ADA else ()):
             src = DEFAULT_CONFIG if chose_ours else f"Ada-ef ({variant})"
             row = dict(next(r for r in rows if r["name"] == src))
             row.update(name=f"Choice (with Ada-ef {variant})", chosen=src)
             rows.append(row); pq_setting[row["name"]] = pq_setting[src]
 
         # Summary against Ada-ef (as shipped)
-        ada = next(r for r in rows if r["name"] == "Ada-ef (as shipped)")
+        ada = next((r for r in rows if r["name"] == "Ada-ef (as shipped)"), None)
         ours_rows = [r for r in rows if r["name"].startswith("Ours")]
         fixed = [r for r in rows if r["name"].startswith("Fixed")]
         default = next(r for r in rows if r["name"] == DEFAULT_CONFIG)
-        pct = lambda x: None if x is None else (x["dc"] - ada["total_dc"]) / ada["total_dc"] * 100
-        eq_r, eq_t = dc_at_quality(ours_rows, "mean_r", ada["mean_r"]), dc_at_quality(ours_rows, "pct_target", ada["pct_target"])
-        fx_dc = fixed_interp(fixed, ada["mean_r"], "total_dc")
-        fx_r = None if fx_dc is None else dict(dc=fx_dc, bound=False, via="fixed ef, log-log interpolation")
+        pct = lambda x: None if x is None or ada is None else (x["dc"] - ada["total_dc"]) / ada["total_dc"] * 100
+        eq_r = eq_t = fx_r = None
+        if ada is not None:
+            eq_r, eq_t = dc_at_quality(ours_rows, "mean_r", ada["mean_r"]), dc_at_quality(ours_rows, "pct_target", ada["pct_target"])
+            fx_dc = fixed_interp(fixed, ada["mean_r"], "total_dc")
+            fx_r = None if fx_dc is None else dict(dc=fx_dc, bound=False, via="fixed ef, log-log interpolation")
         # Scorecard against a tuned fixed ef at the same mean recall (DC and latency savings, tail gains)
         main_names = ["Ada-ef (as shipped)", "Ada-ef (WAE floor)", DEFAULT_CONFIG,
                       "Choice (with Ada-ef as shipped)", "Choice (with Ada-ef WAE floor)"]
@@ -1175,15 +1409,19 @@ def main():
         if args.fixes:
             main_names += ["Ours (K=1, Isotonic, scaled)", f"Ours (K=1, Isotonic, L={args.short_probe})",
                            f"Ours (K=1, Isotonic, L={args.short_probe}, scaled)"]
-        scorecard = {n: vs_fixed(next(r for r in rows if r["name"] == n), fixed) for n in main_names}
+        if args.pip:
+            main_names += ["PiP (paper setting)", "PiP (tuned)"]
+        names = {r["name"] for r in rows}
+        scorecard = {n: vs_fixed(next(r for r in rows if r["name"] == n), fixed) for n in main_names if n in names}
         # Calibration diagnostics (the factors of updateAsOf280926.md §9)
-        ada_by_score = np.array([ada_table.get(int(s), wae) for s in np.round(ada_scores).astype(int)])
+        ada_by_score = (np.array([ada_table.get(int(s), wae) for s in np.round(ada_scores).astype(int)])
+                        if HAS_ADA else None)
         diagnostics = dict(
             floor_share=float(np.mean(calib_min_ef <= grid[0])), capped_share=float(capped.mean()),
             headroom=float(np.percentile(calib_min_ef, 90) / max(np.mean(np.maximum(calib_min_ef, K)), 1e-9)),
             min_ef_cv=float(np.std(calib_min_ef) / max(np.mean(calib_min_ef), 1e-9)),
-            ada_distinct_scores=int(len(np.unique(np.round(ada_scores)))),
-            ada_distinct_table_efs=int(len(np.unique(ada_by_score))),
+            ada_distinct_scores=int(len(np.unique(np.round(ada_scores)))) if HAS_ADA else None,
+            ada_distinct_table_efs=int(len(np.unique(ada_by_score))) if HAS_ADA else None,
             ours_k1_distinct_scores=None if ours_scores_k1 is None else int(len(np.unique(np.round(ours_scores_k1)))))
         # Offline cost: seconds (first-run times, kept with the cache) and bytes each method keeps
         ot = load_offline_times(cache)
@@ -1191,7 +1429,7 @@ def main():
         offline = dict(
             ada=dict(statistics_s=ot.get("ada_statistics_s"), score_calib_s=ada_score_s,
                      table_s=ot.get(f"ada_table_{setting}_s"),
-                     memory_bytes=int(d * d * 4 + 2 * d * 4 + len(ada_table) * 8)),
+                     memory_bytes=int(d * d * 4 + 2 * d * 4 + len(ada_table) * 8)) if HAS_ADA else None,
             ours={f"K={kc}": dict(bins_s=ot.get(f"ours_bins_K{kc}_s"), min_ef_s=ot.get(f"ours_min_ef_{setting}_s"),
                                   score_fit_s=ours_calib_s[kc],
                                   memory_bytes=int(kc * NUM_BINS * 4 + kc * d * 4 + ours_table_len[kc] * 4))
@@ -1208,8 +1446,10 @@ def main():
                        ours_dc_at_ada_recall=eq_r, ours_dc_at_ada_recall_pct=pct(eq_r),
                        ours_dc_at_ada_target_hit=eq_t, ours_dc_at_ada_target_hit_pct=pct(eq_t),
                        fixed_dc_at_ada_recall=fx_r, fixed_dc_at_ada_recall_pct=pct(fx_r),
-                       fixed_p1_at_ada_recall=fixed_interp(fixed, ada["mean_r"], "p1"),
-                       fixed_p5_at_ada_recall=fixed_interp(fixed, ada["mean_r"], "p5"))
+                       fixed_p1_at_ada_recall=None if ada is None else fixed_interp(fixed, ada["mean_r"], "p1"),
+                       fixed_p5_at_ada_recall=None if ada is None else fixed_interp(fixed, ada["mean_r"], "p5"),
+                       variant=dict(M=M, metric=args.metric, graph=args.graph,
+                                    dc_is_proxy=bool(args.graph) and not idx.counts_dc))
         with open(os.path.join(RESULTS_DIR, f"rows_{setting}.json"), "w") as f:
             json.dump(rows, f, indent=1)
         with open(os.path.join(RESULTS_DIR, f"summary_{setting}.json"), "w") as f:
@@ -1220,15 +1460,16 @@ def main():
 
         print(f"\n  SUMMARY {args.dataset} / setting {setting}   (DC includes our probe; target {TARGET_RECALL})")
         print(f"  {'method':<24} {'meanR':>7} {'p1':>6} {'p5':>6} {'hit%':>6} {'DC':>9} {'avg ef':>7}")
-        for r in [ada, next(r for r in rows if r['name'] == 'Ada-ef (WAE floor)'), default]:
+        for r in [r for r in rows if r['name'] in ('Ada-ef (as shipped)', 'Ada-ef (WAE floor)')] + [default]:
             print(f"  {r['name']:<24} {r['mean_r']:>7.4f} {r['p1']:>6.3f} {r['p5']:>6.3f} {r['pct_target']:>6.1f} "
                   f"{r['total_dc']:>9.0f} {r['avg_ef']:>7.0f}")
         f1 = lambda v: "n/a" if v is None else f"{v:+.1f}%"
         fr = lambda v: "undefined (constant scores)" if v is None else f"{v:+.3f}"
-        print(f"  rho: Ada-ef {fr(rho_ada)} | ours " + ", ".join(f"K={k} {fr(v)}" for k, v in rho_ours.items()))
-        print(f"  at Ada-ef's mean recall {ada['mean_r']:.4f}: ours frontier {f1(pct(eq_r))}"
-              f"{' (bound)' if eq_r and eq_r['bound'] else ''} | fixed ef {f1(pct(fx_r))}"
-              f"{' (bound)' if fx_r and fx_r['bound'] else ''}")
+        print(f"  rho: Ada-ef {fr(rho_ada) if HAS_ADA else 'not run'} | ours " + ", ".join(f"K={k} {fr(v)}" for k, v in rho_ours.items()))
+        if ada is not None:
+            print(f"  at Ada-ef's mean recall {ada['mean_r']:.4f}: ours frontier {f1(pct(eq_r))}"
+                  f"{' (bound)' if eq_r and eq_r['bound'] else ''} | fixed ef {f1(pct(fx_r))}"
+                  f"{' (bound)' if fx_r and fx_r['bound'] else ''}")
         if summary["fixed_p1_at_ada_recall"] is not None:
             print(f"  tail at that recall: Ada-ef p1 {ada['p1']:.3f} / fixed ef p1 {summary['fixed_p1_at_ada_recall']:.3f}")
         fp = lambda v, f="{:+.1f}%": "n/a" if v is None else f.format(v)
@@ -1244,9 +1485,10 @@ def main():
               f"headroom {dg['headroom']:.2f}, Ada-ef distinct scores {dg['ada_distinct_scores']} "
               f"(table efs {dg['ada_distinct_table_efs']}), ours K=1 distinct scores {dg['ours_k1_distinct_scores']}")
         o = offline
-        print(f"  offline: Ada-ef stats {fp(o['ada']['statistics_s'], '{:.0f}s')}, table {fp(o['ada']['table_s'], '{:.0f}s')}, "
-              f"{o['ada']['memory_bytes'] / 1e6:.2f} MB | ours K=1 bins {fp(o['ours']['K=1']['bins_s'], '{:.0f}s')}, "
-              f"min-ef {fp(o['ours']['K=1']['min_ef_s'], '{:.0f}s')}, {o['ours']['K=1']['memory_bytes'] / 1e3:.1f} KB")
+        if o["ada"] is not None:
+            print(f"  offline: Ada-ef stats {fp(o['ada']['statistics_s'], '{:.0f}s')}, table {fp(o['ada']['table_s'], '{:.0f}s')}, "
+                  f"{o['ada']['memory_bytes'] / 1e6:.2f} MB | ours K=1 bins {fp(o['ours']['K=1']['bins_s'], '{:.0f}s')}, "
+                  f"min-ef {fp(o['ours']['K=1']['min_ef_s'], '{:.0f}s')}, {o['ours']['K=1']['memory_bytes'] / 1e3:.1f} KB")
 
     meta["timings_s"] = timings
     meta["total_s"] = time.time() - t_all

@@ -1913,10 +1913,10 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> top_candidates;
         bool bare_bone_search = !num_deleted_ && !isIdAllowed;
         if (bare_bone_search) {
-            top_candidates = searchBaseLayerSTWithPatienceInProximity<true>( // change here to call Patience in Proximity version, ef must be k according to the paper
+            top_candidates = searchBaseLayerSTWithPatienceInProximity<true, true>( // collect_metrics=true: count DC (instrumentation only, as adaptiveSearchKnn); change here to call Patience in Proximity version, ef must be k according to the paper
                     currObj, query_data, std::max(ef_, k), k, saturationThreshold, patience, isIdAllowed);
         } else {
-            top_candidates = searchBaseLayerSTWithPatienceInProximity<false>( // change here to call Patience in Proximity version, ef must be k according to the paper
+            top_candidates = searchBaseLayerSTWithPatienceInProximity<false, true>( // collect_metrics=true: count DC; change here to call Patience in Proximity version, ef must be k according to the paper
                     currObj, query_data, std::max(ef_, k), k, saturationThreshold, patience, isIdAllowed);
         }
 

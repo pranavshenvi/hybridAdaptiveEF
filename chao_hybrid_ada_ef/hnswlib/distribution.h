@@ -4,6 +4,7 @@
 #include <memory>
 #include <thread>
 #include <chrono>
+#include <cmath>
 // #include "boost/math/distributions/normal.hpp"
 #include <iostream>
 #include <fstream>
@@ -348,6 +349,34 @@ namespace hnswdis
         }
     };
 
+    // The same Gaussian in the units of an L2-space index over unit vectors, where the distance
+    // is ||q - x||^2 = 2 (1 - q.x): mean 2 (1 - q.mu), variance 4 q' Cov q. The original runs its
+    // cosine-distance estimator on an inner-product index (distance 1 - q.x); an L2 index hands
+    // the scorer distances twice as large, so with CosineDistanceEstimator the thresholds would
+    // be off by that factor. Exact for unit vectors; not an approximation.
+    class UnitL2DistanceEstimator : public CosineSimilarityEstimator
+    {
+    public:
+        using CosineSimilarityEstimator::CosineSimilarityEstimator;
+        UnitL2DistanceEstimator() = default;
+
+        std::tuple<float, float> get_ideal_distribution(const RowVectorXf &q) const override
+        {
+            auto [ideal_mean, ideal_var] = CosineSimilarityEstimator::get_ideal_distribution(q);
+            return {2 * (1 - ideal_mean), 4 * ideal_var};
+        }
+
+        std::tuple<float, float> get_practical_distribution(const RowVectorXf &q) const override
+        {
+            auto [practical_mean, practical_var] = CosineSimilarityEstimator::get_practical_distribution(q);
+            return {2 * (1 - practical_mean), 4 * practical_var};
+        }
+        std::string get_name() const override
+        {
+            return "UnitL2DistanceEstimator";
+        }
+    };
+
     void save_estimator_to_file(const Estimator &estimator, const std::string &filename)
     {
         std::ofstream out(filename, std::ios::binary);
@@ -390,6 +419,10 @@ namespace hnswdis
         else if (type == "CosineDistanceEstimator")
         {
             estimator = std::make_shared<CosineDistanceEstimator>();
+        }
+        else if (type == "UnitL2DistanceEstimator")
+        {
+            estimator = std::make_shared<UnitL2DistanceEstimator>();
         }
         else
         {
@@ -511,23 +544,40 @@ namespace hnswdis
         WeightDecayType decay_type = WeightDecayType::Exponential;
 
         // Initialize quantile thresholds based on whether higher or lower is better
+        // Stand-in for the original's boost::math::quantile(normal(0, 1), p), so the extension
+        // builds without Boost. Acklam's rational approximation (relative error < 1.2e-9) plus
+        // one Halley refinement step. The earlier stand-in (Beasley-Springer-Moro with these
+        // c coefficients) returned the wrong sign in both tails (|p - 0.5| >= 0.42): +3.015 for
+        // p = 0.001, where the true quantile is -3.090, so every bottom-based threshold sat
+        // above the mean instead of in the lower tail. tests: test_normal_quantile.py.
         double normal_quantile(double p) {
-            double a0 = 2.50662823884, a1 = -18.61500062529, a2 = 41.39119773534, a3 = -25.44106049637;
-            double b1 = -8.47351093090, b2 = 23.08336743743, b3 = -21.06224101826, b4 = 3.13082909833;
-            double c0 = -2.78718931138, c1 = -2.29796479134, c2 = -4.85014127135, c3 = -2.32121276858;
-            double d1 = 3.54388920042, d2 = 1.63706780097;
-            double r, x, y=p-0.5;
-            if(std::abs(y)<0.42) {
-                r = y*y;
-                x = y*(((a3*r+a2)*r+a1)*r+a0)/((((b4*r+b3)*r+b2)*r+b1)*r+1.0);
+            static const double a[6] = {-3.969683028665376e+01, 2.209460984245205e+02, -2.759285104469687e+02,
+                                        1.383577518672690e+02, -3.066479806614716e+01, 2.506628277459239e+00};
+            static const double b[5] = {-5.447609879822406e+01, 1.615858368580409e+02, -1.556989798598866e+02,
+                                        6.680131188771972e+01, -1.328068155288572e+01};
+            static const double c[6] = {-7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e+00,
+                                        -2.549732539343734e+00, 4.374664141464968e+00, 2.938163982698783e+00};
+            static const double d[4] = {7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e+00,
+                                        3.754408661907416e+00};
+            const double p_low = 0.02425, p_high = 1 - p_low;
+            double q, r, x;
+            if (p < p_low) {
+                q = std::sqrt(-2 * std::log(p));
+                x = (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) /
+                    ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
+            } else if (p <= p_high) {
+                q = p - 0.5;
+                r = q * q;
+                x = (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q /
+                    (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1);
             } else {
-                r = p; if(y>0) r=1.0-p;
-                r = std::log(-std::log(r));
-                x = c0+r*(c1+r*(c2+r*c3));
-                x = x / (1.0+r*(d1+r*d2));
-                if(y<0) x=-x;
+                q = std::sqrt(-2 * std::log(1 - p));
+                x = -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) /
+                    ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
             }
-            return x;
+            double e = 0.5 * std::erfc(-x / std::sqrt(2.0)) - p;
+            double u = e * 2.5066282746310002 * std::exp(x * x / 2);   // sqrt(2 pi)
+            return x - u / (1 + x * u / 2);
         }
 
         void initialize_threshold_z()
