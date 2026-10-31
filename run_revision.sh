@@ -19,6 +19,7 @@
 #
 #   tmux new -s revision   then   bash run_revision.sh            (all phases)
 #   PHASES="1 3" bash run_revision.sh                              (some phases)
+#   SKIP_SEEDS=1 SKIP_BASELINES=1 ...    rerun without the seed repeats / DARTH+LAET training
 # Once, beforehand: pip install --user faiss-cpu diskannpy   (phase 5; a missing one is skipped)
 # Log: revision_<timestamp>.log. Copy back at the end: the command printed on the last line.
 set -u
@@ -79,7 +80,7 @@ fi
 if has 2; then
   for d in $ABLATION; do run "ablation $d" --dataset "$d" --ablation --group-table --quick --settings R; done
   bash run_sweep.sh
-  bash run_seeds.sh
+  [ -n "${SKIP_SEEDS:-}" ] && echo "[$(date)] seeds skipped (SKIP_SEEDS)" || bash run_seeds.sh
   bash run_controlled_experiments.sh > "controlled_$(date +%Y%m%d_%H%M%S).log" 2>&1     && echo "[$(date)] controlled experiments done" || echo "[$(date)] controlled experiments FAILED"
 fi
 
@@ -111,7 +112,11 @@ if has 6; then
     [ -n "$ours" ] && python3 darth/darth_summarize.py "${dir%/}" "$ours" > "${dir}summary_revision.txt" 2>&1 \
       && echo "[$(date)] DARTH summary redone: ${dir} vs $ours"
   done
-  NEW="$DARTH_NEW" LAET_ONLY=" " bash run_baselines.sh      # " ": no LAET-only runs (empty = default list)
+  if [ -n "${SKIP_BASELINES:-}" ]; then                # DARTH/LAET already trained: summaries only (above)
+    echo "[$(date)] DARTH/LAET training skipped (SKIP_BASELINES)"
+  else
+    NEW="$DARTH_NEW" LAET_ONLY=" " bash run_baselines.sh    # " ": no LAET-only runs (empty = default list)
+  fi
 fi
 
 echo "[$(date)] all requested phases done (log: $LOG). Copy back (no index files, no DARTH train logs):"
