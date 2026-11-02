@@ -106,6 +106,9 @@ ap.add_argument("--lat-rounds", type=int, default=3,
                 help="rounds of the latency pass (fixed ef + headline methods; per-query median)")
 ap.add_argument("--ablation", action="store_true",
                 help="probe-length ablation: Ada-ef with a 100-distance probe and ours with 1025 (own results folder)")
+ap.add_argument("--probe-lengths", default=None, metavar="L1,L2,...",
+                help="probe-length sweep: both scores at every listed probe length (e.g. 50,100,300,1025), each "
+                     "Ada-ef length with its own group table; generalises --ablation (own results folder)")
 ap.add_argument("--quick", action="store_true", help="K_clusters=1 and the Isotonic recipe only")
 ap.add_argument("--group-table", action="store_true",
                 help="also run PercEF's score with Ada-ef's group-average ef table (own results folder)")
@@ -135,10 +138,17 @@ ap.add_argument("--graph", choices=["faiss_hnsw", "nsg", "vamana"], default=None
                      "the probe is a search at L = max(k, 100) whose result distances both scores read, and the "
                      "search is redone at the looked-up L only when that is larger. Own index, caches, folder")
 args = ap.parse_args()
-if args.metric == "l2" and args.ablation:
-    ap.error("--ablation runs Ada-ef, which --metric l2 does not")
-if args.graph and (args.pip or args.ablation or args.fixes or args.group_table or args.M != 16):
-    ap.error("--graph runs the headline methods only (no --pip/--ablation/--fixes/--group-table/--M)")
+PROBE_SWEEP = None
+if args.probe_lengths:
+    PROBE_SWEEP = sorted({int(x) for x in args.probe_lengths.split(",") if x.strip()})
+    if not PROBE_SWEEP or min(PROBE_SWEEP) < 1:
+        ap.error("--probe-lengths takes positive integers, e.g. 50,100,300,1025")
+    if args.ablation or args.fixes:
+        ap.error("--probe-lengths replaces --ablation, and its row names clash with --fixes'")
+if args.metric == "l2" and (args.ablation or PROBE_SWEEP):
+    ap.error("--ablation/--probe-lengths run Ada-ef, which --metric l2 does not")
+if args.graph and (args.pip or args.ablation or PROBE_SWEEP or args.fixes or args.group_table or args.M != 16):
+    ap.error("--graph runs the headline methods only (no --pip/--ablation/--probe-lengths/--fixes/--group-table/--M)")
 NATIVE_L2 = args.metric == "l2"
 HAS_ADA = not NATIVE_L2           # Ada-ef's estimators model inner products of unit vectors only
 SWEEP = (args.target_recall is not None or args.k is not None or args.fixes or args.seed is not None
@@ -153,7 +163,8 @@ CACHE_TAG = ((f"_t{args.target_recall:g}" if args.target_recall is not None else
              + (f"_M{args.M}" if args.M != 16 else "") + (f"_{args.graph}" if args.graph else ""))
 SWEEP_TAG = CACHE_TAG + ("_fixes" if args.fixes else "") + ("_l2native" if NATIVE_L2 else "")
 RESULTS_DIR = (f"results_unified_{args.dataset}{'_smoke' if args.smoke else ''}"
-               f"{'_ablation' if (args.ablation or args.group_table) else ''}"
+               f"{'_ablation' if (args.ablation or args.group_table or PROBE_SWEEP) else ''}"
+               f"{'_probes' if PROBE_SWEEP else ''}"
                f"{'_sweep' + SWEEP_TAG if SWEEP else ''}_{TIMESTAMP}")
 if not args.export_darth:
     os.makedirs(RESULTS_DIR, exist_ok=True)
@@ -1275,9 +1286,10 @@ def main():
         # Probe-length ablation (--ablation): each score also runs with the other's probe length, so
         # the thresholds are the only difference left (paper, \S3.3). Ada-ef keeps its own code and
         # group-average table; only statics_length changes. Ours keeps its thresholds and isotonic fit.
+        # --probe-lengths generalises it: both scores at every listed length (the defaults are the main rows).
         ablation_rho = {}
-        if args.ablation:
-            L_A, L_O = PROBE_COUNT, STATICS_LENGTH
+        probe_lengths = (PROBE_SWEEP if PROBE_SWEEP else [PROBE_COUNT, STATICS_LENGTH] if args.ablation else [])
+        for L_A in [L for L in probe_lengths if L != STATICS_LENGTH]:
             a_sc = np.array([idx.adaptive_search_knn_paper(q, K, L_A, scorer, None)[2] for q in calib_q])
             ablation_rho[f"ada_L{L_A}"] = finite_or_none(spearmanr(a_sc, calib_min_ef)[0])
             tab_l = os.path.join(cache, f"ada2_table_{setting}_L{L_A}{CACHE_TAG}.json")
@@ -1291,7 +1303,7 @@ def main():
                     json.dump(dict(table=a_table, wae=a_wae), f, indent=1)
             for variant, table in (("as shipped", a_table), ("WAE floor", {s_: max(e, a_wae) for s_, e in a_table.items()})):
                 sketch = hnsw.AdaEfPaperSketch([(s_, [(e, float(TARGET_RECALL))]) for s_, e in table.items()], TARGET_RECALL)
-                def ada_l_search(i, q, sketch=sketch):
+                def ada_l_search(i, q, sketch=sketch, L_A=L_A):     # bind L_A now: the latency pass runs later
                     labs, _, _, ef_used = idx.adaptive_search_knn_paper(q, K, L_A, scorer, sketch)
                     return labs, ef_used
                 rec, efs, dcs, lat = run_queries(idx, test_q, test_gt, K, ada_l_search)
@@ -1299,6 +1311,8 @@ def main():
                 searchers[row["name"]] = ada_l_search
                 rows.append(row); pq_setting[row["name"]] = pq
                 print(f"  {row['name']:<30} R={row['mean_r']:.4f} p1={row['p1']:.3f} DC={row['total_dc']:.0f}", flush=True)
+            print(f"  [ablation] rho: Ada-ef L={L_A} {ablation_rho[f'ada_L{L_A}']} (L={STATICS_LENGTH}: {rho_ada})", flush=True)
+        for L_O in [L for L in probe_lengths if L != PROBE_COUNT]:
             b1 = bins[1][0].tolist()
             o_sc = np.array([idx.get_dynamic_probe_score_weighted(q, b1, BIN_WEIGHTS, L_O) for q in calib_q], dtype=np.float32)
             ablation_rho[f"ours_L{L_O}"] = finite_or_none(spearmanr(o_sc, calib_min_ef)[0])
@@ -1312,8 +1326,8 @@ def main():
             searchers[row["name"]] = ours_l_search
             rows.append(row); pq_setting[row["name"]] = pq
             print(f"  {row['name']:<30} R={row['mean_r']:.4f} p1={row['p1']:.3f} DC={row['total_dc']:.0f}", flush=True)
-            print(f"  [ablation] rho: Ada-ef L={L_A} {ablation_rho[f'ada_L{L_A}']} (L={STATICS_LENGTH}: {rho_ada}) | "
-                  f"ours L={L_O} {ablation_rho[f'ours_L{L_O}']} (L={PROBE_COUNT}: {rho_ours.get(1)})", flush=True)
+            print(f"  [ablation] rho: ours L={L_O} {ablation_rho[f'ours_L{L_O}']} (L={PROBE_COUNT}: {rho_ours.get(1)})",
+                  flush=True)
 
         # PercEF's score with Ada-ef's ef table (--group-table): per rounded score, the smallest ef at
         # which the calibration queries with that score reach the target on *average* recall, built by
@@ -1401,9 +1415,11 @@ def main():
         # Scorecard against a tuned fixed ef at the same mean recall (DC and latency savings, tail gains)
         main_names = ["Ada-ef (as shipped)", "Ada-ef (WAE floor)", DEFAULT_CONFIG,
                       "Choice (with Ada-ef as shipped)", "Choice (with Ada-ef WAE floor)"]
-        if args.ablation:
-            main_names += [f"Ada-ef L={PROBE_COUNT} (as shipped)", f"Ada-ef L={PROBE_COUNT} (WAE floor)",
-                           f"Ours (K=1, Isotonic, L={STATICS_LENGTH})"]
+        for L in probe_lengths:
+            if L != STATICS_LENGTH:
+                main_names += [f"Ada-ef L={L} (as shipped)", f"Ada-ef L={L} (WAE floor)"]
+            if L != PROBE_COUNT:
+                main_names += [f"Ours (K=1, Isotonic, L={L})"]
         if args.group_table:
             main_names += ["PercEF + group table (as shipped)", "PercEF + group table (WAE floor)"]
         if args.fixes:
