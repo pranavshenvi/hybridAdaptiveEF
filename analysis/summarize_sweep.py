@@ -25,6 +25,8 @@ for d in sorted(glob.glob(os.path.join(root, "results_unified_*"))):
     b = os.path.basename(d)
     if "smoke" in b or "ablation" in b or re.search(r"_sweep_s\d", b) or not os.path.exists(os.path.join(d, "meta.json")):
         continue                                   # seed repeats: analysis/summarize_seeds.py
+    if re.search(r"_sweep_(M\d+|l2native|faiss_hnsw|nsg|vamana)_", b):
+        continue                                   # index/metric variants (run_revision.sh phases 3-5), not the sweep
     m = PAT.match(b)
     if not m:
         continue

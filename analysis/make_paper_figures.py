@@ -343,7 +343,7 @@ def main():
             if pts:
                 ax.scatter([p[0] for p in pts], [p[1] for p in pts], marker=MARKER[m], s=SIZE[m], zorder=3,
                            linewidths=1.2, facecolors="none" if cm else COLOR[m], edgecolors=COLOR[m],
-                           label=m + (" (cross-modal: no adaptation)" if cm else ""))
+                           label=m + (" (cross-modal queries)" if cm else ""))
     ax.set_yticks(np.arange(len(rows2)))
     ax.set_yticklabels([f"{NAMES.get(ds, ds)}  {ks_of[ds]:.3f}" for ds, _, _ in rows2], fontsize=6)
     ax.set_ylim(-0.6, len(rows2) - 0.4)
