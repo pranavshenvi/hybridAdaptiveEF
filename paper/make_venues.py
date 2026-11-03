@@ -180,14 +180,17 @@ def make_zip(out, names):
 p = os.path.join(TPL, "pvldb")
 out = setup("pvldb", [os.path.join(p, f) for f in ("acmart.cls", "pvldb.sty", "ACM-Reference-Format.bst")])
 open(os.path.join(out, "main.tex"), "w", encoding="utf8").write(
-    "\\documentclass[sigconf, nonacm]{acmart}\n\\usepackage{pvldb}\n" + MACROS +
+    "\\documentclass[sigconf, nonacm]{acmart}\n\\usepackage{pvldb}\n\\usepackage{float}\n" + MACROS +
     "\\renewcommand\\vldbdoi{XX.XX/XXX.XX}\n\\renewcommand\\vldbpages{XXX-XXX}\n"
     f"\\renewcommand\\vldbavailabilityurl{{{REPO}}}\n\n\\begin{{document}}\n\\title{{{TITLE}}}\n\n"
     + acm_authors() + "\n" +
     f"\\begin{{abstract}}\n{ABSTRACT}\n\\end{{abstract}}\n\n\\maketitle\n\n\\vldbtopmatter\n"
     + BODY + f"\\begin{{acks}}\n{AI_NOTE}\n\\end{{acks}}\n\n"
-    "\\bibliographystyle{ACM-Reference-Format}\n\\bibliography{refs}\n\n\\appendix\n\\section{Additional results}\n"
-    + OFFLINE_TABLE.sub("", APPENDIX) + "\\clearpage\n\\end{document}\n")
+    # the appendix starts in a fresh column and its figures stay right under the heading ([H]), so the
+    # heading is never left alone at the foot of a column with its figures floated elsewhere
+    "\\bibliographystyle{ACM-Reference-Format}\n\\bibliography{refs}\n\n\\newpage\n\\appendix\n\\section{Additional results}\n"
+    + re.sub(r"\\begin\{figure\}\[[a-z!]*\]", r"\\begin{figure}[H]", OFFLINE_TABLE.sub("", APPENDIX))
+    + "\\clearpage\n\\end{document}\n")
 build(out, "main")
 make_zip(out, ["main"])
 

@@ -1,5 +1,6 @@
 \documentclass[sigconf, nonacm]{acmart}
 \usepackage{pvldb}
+\usepackage{float}
 \usepackage{booktabs}
 \usepackage{xcolor}
 \usepackage{amsmath}
@@ -973,11 +974,12 @@ full responsibility for the content.
 \bibliographystyle{ACM-Reference-Format}
 \bibliography{refs}
 
+\newpage
 \appendix
 \section{Additional results}
 
 
-\begin{figure}[t]
+\begin{figure}[H]
   \centering
   \includegraphics[width=\linewidth]{figures/fig4_controlled.pdf}
   \caption{Ranking advantage of the empirical score (its $|\rho|$ minus Ada-ef's) against KS, for the real datasets and for synthetic data with controlled anisotropy (B) and cluster
@@ -985,7 +987,7 @@ full responsibility for the content.
   \label{fig:controlled}
 \end{figure}
 
-\begin{figure}[h]
+\begin{figure}[H]
   \centering
   \includegraphics[width=\linewidth]{figures/fig3c_latency_cdf.pdf}
   \caption{Per-query latency on Deep1B and MS Turing (setting R). The empirical score spends less
