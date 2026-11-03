@@ -965,11 +965,10 @@ Code, data pointers and every number in this paper are generated from the releas
 \appendix
 \section{Additional results}
 
-\begin{figure}[h]
+\begin{figure}[t]
   \centering
   \includegraphics[width=\linewidth]{figures/fig4_controlled.pdf}
-  \caption{Ranking advantage of the empirical score ($|\rho_\text{ours}| - |\rho_\text{Ada-ef}|$)
-  against KS, for the real datasets and for synthetic data with controlled anisotropy (B) and cluster
+  \caption{Ranking advantage of the empirical score (its $|\rho|$ minus Ada-ef's) against KS, for the real datasets and for synthetic data with controlled anisotropy (B) and cluster
   separation (D).}
   \label{fig:controlled}
 \end{figure}
@@ -998,4 +997,5 @@ Code, data pointers and every number in this paper are generated from the releas
   \input{tables/table4_offline.tex}
 \end{table*}
 
+\clearpage   % flush the appendix floats (fig:controlled was otherwise lost after the last page)
 \end{document}
