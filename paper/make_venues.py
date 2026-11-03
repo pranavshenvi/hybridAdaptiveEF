@@ -111,7 +111,7 @@ def build(out, name, bib=True):
         run("bibtex", name)
     run("pdflatex", "-interaction=nonstopmode", name + ".tex")
     r = run("pdflatex", "-interaction=nonstopmode", name + ".tex")
-    pages = re.search(r"Output written on .*?\((\d+) pages", r.stdout)
+    pages = re.search(r"Output written on .*?\((\d+) pages?", r.stdout)
     log = open(os.path.join(out, name + ".log"), encoding="latin-1").read()
     bad = sorted(set(re.findall(r"(LaTeX Error[^\n]*|Undefined control sequence|Reference `[^']*' on page \d+ undefined"
                                 r"|Citation `[^']*' on page \d+ undefined)", log)))
