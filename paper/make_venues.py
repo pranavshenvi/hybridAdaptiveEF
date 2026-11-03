@@ -7,11 +7,14 @@ prints its page count:
   pvldb   PVLDB Vol. 20, Experiments, Analysis & Benchmark: official VLDB template (acmart 2.19 +
           pvldb.sty, github.com/vldbproceedings/VLDB-Template), single-blind, 12 pages excluding
           references, appendix included in the 12; artifact link in the template's availability block
-  vldbj   The VLDB Journal (Springer): svjour3, two-column, single-blind; appendix kept
+  vldbj   The VLDB Journal (Springer): the journal's own template (svjour3 two-column, from
+          link.springer.com/journal/778/submission-guidelines), single-blind, at most 25 pages,
+          abstract 150-250 words, 4-6 keywords, declarations (competing interests, data
+          availability), LLM use stated in the methods; appendix kept
   tkde    IEEE TKDE: IEEEtran journal/compsoc, single-blind, 12 pages including references (more
           pages are charged), abstract 100-200 words; the appendix becomes a separate
           supplementary PDF (supplement.pdf), as TKDE requires
---tpl: folder holding pvldb/ (the VLDB template) and svjour3/ (svjour3.cls, spmpsci.bst).
+--tpl: folder holding pvldb/ (the VLDB template) and vldbj/ (the VLDB Journal template).
 """
 import argparse, os, re, shutil, subprocess
 
@@ -101,8 +104,17 @@ open(os.path.join(out, "main.tex"), "w", encoding="utf8").write(
 build(out, "main")
 
 # ---- VLDB Journal -------------------------------------------------------------------------------------
-s = os.path.join(TPL, "svjour3")
+# Springer's guidelines: LLM use documented in the methods section (not the acknowledgements), and a
+# declarations section with competing interests and a data availability statement
+s = os.path.join(TPL, "vldbj")
 out = setup("vldbj", [os.path.join(s, f) for f in ("svjour3.cls", "svglov3.clo", "spmpsci.bst")])
+VJ_METHODS = "All searches run on one thread."
+assert BODY.count(VJ_METHODS) == 1
+vj_body = BODY.replace(VJ_METHODS, VJ_METHODS + "\n\n\\paragraph{Use of generative AI.}\n" + AI_NOTE)
+DECLARATIONS = ("\\section*{Declarations}\n\n\\paragraph{Competing interests.} The authors have no competing "
+                "financial or non-financial interests to declare.\n\n\\paragraph{Data availability.} All datasets "
+                "are public; download scripts, code and every result file behind the tables and figures are at "
+                f"\\url{{{REPO}}}.\n\n")
 open(os.path.join(out, "main.tex"), "w", encoding="utf8").write(
     "\\RequirePackage{fix-cm}\n\\documentclass[twocolumn]{svjour3}\n\\smartqed\n\\journalname{The VLDB Journal}\n"
     "\\usepackage{graphicx}\n\\usepackage{url}\n" + MACROS_NON_ACM +
@@ -110,8 +122,7 @@ open(os.path.join(out, "main.tex"), "w", encoding="utf8").write(
     f"\\institute{{{AUTHOR} \\at {AFFIL}, India \\\\ \\email{{{EMAIL}}}}}\n"
     "\\date{Received: date / Accepted: date}\n\\maketitle\n\n"
     f"\\begin{{abstract}}\n{SHORT_ABSTRACT}\n\\keywords{{{' \\and '.join(KEYWORDS)}}}\n\\end{{abstract}}\n"
-    + BODY + f"\\begin{{acknowledgements}}\n{AI_NOTE}\n\\end{{acknowledgements}}\n\n"
-    "\\bibliographystyle{spmpsci}\n\\bibliography{refs}\n\n\\appendix\n\\section{Additional results}\n"
+    + vj_body + DECLARATIONS + "\\bibliographystyle{spmpsci}\n\\bibliography{refs}\n\n\\appendix\n\\section{Additional results}\n"
     + APPENDIX + "\\clearpage\n\\end{document}\n")
 build(out, "main")
 

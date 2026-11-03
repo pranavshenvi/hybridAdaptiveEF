@@ -295,6 +295,12 @@ scores on 50 queries. They are identical on 13 of the 17 datasets. On SIFT-1M, B
 COCO-I2I they differ on some queries, by at most 0.39 in score. Our score is computed inside the same traversal, with the same
 memory prefetching as HNSWlib's own search loop. All searches run on one thread.
 
+\paragraph{Use of generative AI.}
+Generative AI (Claude, Anthropic) was used to write and refactor experiment and analysis code,
+and to draft and edit text. The authors designed the study, chose and checked every
+experiment, verified every reported number against the released result files, and take
+full responsibility for the content.
+
 % ------------------------------------------------------------------------------------------------
 \section{Experiments}
 
@@ -940,12 +946,11 @@ does not adapt to cross-modal queries.
 Code, data pointers and the result files from which every number in this paper is generated are
 available at \url{https://anonymous.4open.science/r/PercEF/}.
 
-\begin{acknowledgements}
-Generative AI (Claude, Anthropic) was used to write and refactor experiment and analysis code,
-and to draft and edit text. The authors designed the study, chose and checked every
-experiment, verified every reported number against the released result files, and take
-full responsibility for the content.
-\end{acknowledgements}
+\section*{Declarations}
+
+\paragraph{Competing interests.} The authors have no competing financial or non-financial interests to declare.
+
+\paragraph{Data availability.} All datasets are public; download scripts, code and every result file behind the tables and figures are at \url{https://anonymous.4open.science/r/PercEF/}.
 
 \bibliographystyle{spmpsci}
 \bibliography{refs}
