@@ -16,7 +16,7 @@ prints its page count:
           supplementary PDF (supplement.pdf), as TKDE requires
 --tpl: folder holding pvldb/ (the VLDB template) and vldbj/ (the VLDB Journal template).
 """
-import argparse, os, re, shutil, subprocess
+import argparse, os, re, shutil, subprocess, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ap = argparse.ArgumentParser()
@@ -92,9 +92,10 @@ OFFLINE_TABLE = re.compile(r"\\begin\{table\*\}\[h\]\s*\\caption\{Offline cost\.
 
 def setup(venue, files):
     out = os.path.join(HERE, "venues", venue)
-    if os.path.exists(out):
-        shutil.rmtree(out)
-    os.makedirs(out)
+    os.makedirs(out, exist_ok=True)
+    for x in os.listdir(out):                  # empty it, keep the folder (a shell may be sitting in it)
+        p_ = os.path.join(out, x)
+        shutil.rmtree(p_) if os.path.isdir(p_) else os.remove(p_)
     for d in ("figures", "tables"):
         shutil.copytree(os.path.join(HERE, d), os.path.join(out, d))
     shutil.copy(os.path.join(HERE, "refs.bib"), out)
@@ -118,6 +119,23 @@ def build(out, name, bib=True):
           f"{pages.group(1) if pages else '?'} pages" + (f"; problems: {bad[:5]}" if bad else ""))
 
 
+def make_zip(out, names):
+    """<venue>_submission.zip next to the folder: the .tex files, their .bbl (so the publisher's
+    compile needs no BibTeX run), class/style files and only the figures and tables they use."""
+    files = []
+    for n in names:
+        t = open(os.path.join(out, n + ".tex"), encoding="utf8").read()
+        files += [n + ".tex"] + ([n + ".bbl"] if os.path.exists(os.path.join(out, n + ".bbl")) else [])
+        files += re.findall(r"\\includegraphics(?:\[[^\]]*\])?\{([^}]*)\}", t)
+        files += [f if f.endswith(".tex") else f + ".tex" for f in re.findall(r"\\input\{([^}]*)\}", t)]
+    files += ["refs.bib"] + [f for f in os.listdir(out) if f.endswith((".cls", ".sty", ".bst", ".clo"))]
+    path = os.path.join(os.path.dirname(out), os.path.basename(out) + "_submission.zip")
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in sorted(set(files)):
+            z.write(os.path.join(out, f), f)
+    print(f"  {os.path.relpath(path, HERE)}: {len(set(files))} files")
+
+
 # ---- PVLDB ------------------------------------------------------------------------------------------
 p = os.path.join(TPL, "pvldb")
 out = setup("pvldb", [os.path.join(p, f) for f in ("acmart.cls", "pvldb.sty", "ACM-Reference-Format.bst")])
@@ -131,6 +149,7 @@ open(os.path.join(out, "main.tex"), "w", encoding="utf8").write(
     "\\bibliographystyle{ACM-Reference-Format}\n\\bibliography{refs}\n\n\\appendix\n\\section{Additional results}\n"
     + OFFLINE_TABLE.sub("", APPENDIX) + "\\clearpage\n\\end{document}\n")
 build(out, "main")
+make_zip(out, ["main"])
 
 # ---- VLDB Journal -------------------------------------------------------------------------------------
 # Springer's guidelines: LLM use documented in the methods section (not the acknowledgements), and a
@@ -158,6 +177,7 @@ open(os.path.join(out, "main.tex"), "w", encoding="utf8").write(
     + vj_body + DECLARATIONS + "\\bibliographystyle{spmpsci}\n\\bibliography{refs}\n\n\\appendix\n\\section{Additional results}\n"
     + APPENDIX + "\\clearpage\n\\end{document}\n")
 build(out, "main")
+make_zip(out, ["main"])
 
 # ---- IEEE TKDE --------------------------------------------------------------------------------------
 out = setup("tkde", [])
@@ -184,3 +204,4 @@ open(os.path.join(out, "supplement.tex"), "w", encoding="utf8").write(
     + APPENDIX + "\\clearpage\n\\end{document}\n")
 build(out, "supplement", bib=False)
 build(out, "main")
+make_zip(out, ["main", "supplement"])
