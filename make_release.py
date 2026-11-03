@@ -33,8 +33,10 @@ CODE = ["benchmark_unified.py", "download_unified_data.py", "survey_ks_vibe.py",
         "survey_tail.py", "benchmark_controlled.py", "benchmark_skewed.py", "diagnose_anisotropy.py",
         "controlled_datasets.py", "summarize_controlled.py", "run_controlled_experiments.sh",
         "run_after_loop.sh", "run_retime_probe_score.sh", "run_sweep.sh", "run_fixes.sh", "run_baselines.sh", "run_seeds.sh",
+        "run_revision.sh", "run_probes.sh", "test_normal_quantile.py",
         "analysis/make_paper_figures.py", "analysis/rescore_scorecard.js", "analysis/query_cost.py",
         "analysis/summarize_sweep.py", "analysis/summarize_seeds.py", "analysis/test_probe_score.py",
+        "analysis/summarize_probes.py", "analysis/make_histogram_figure.py",
         "darth/setup_darth.sh", "darth/run_darth.sh", "darth/darth_train.py", "darth/darth_tune.py",
         "darth/darth_summarize.py", "darth/laet_train.py", "darth/laet_tune.py", "darth/run_laet.sh",
         "darth/README.md"]
@@ -88,12 +90,16 @@ for d in latest.values():                           # main runs: summaries + per
 for d in glob.glob(os.path.join(RES, "results_unified_*_sweep_*")) + glob.glob(os.path.join(RES, "results_unified_*_ablation_*")):
     if "smoke" in d:
         continue
+    ts = re.search(r"_(\d{8})_\d{6}$", d)
+    if ts and ts.group(1) < "20261029" and "_fixes" not in d:
+        continue                                    # before the Ada-ef quantile fix (updateAsOf021126.md §1);
+                                                    # --fixes runs hold PercEF-only rows, unaffected
     for f in os.listdir(d):                         # sweep, fixes, ablation: summaries only
         if f.endswith(".json"):
             copy(os.path.join(d, f), os.path.join(R, os.path.basename(d), f))
 for d in glob.glob(os.path.join(RES, "results_darth_*")):
     for f in os.listdir(d):
-        if f.endswith(".json") or f in ("offline_time.txt", "run.log", "laet.log"):
+        if f.endswith(".json") or f in ("offline_time.txt", "run.log", "laet.log", "summary_revision.txt"):
             copy(os.path.join(d, f), os.path.join(R, os.path.basename(d), f))
 for pat in ("results_controlled_summary_*", "results_tail_survey_*"):    # the scripts read the latest
     for d in sorted(glob.glob(os.path.join(RES, pat)))[-1:]:
@@ -101,10 +107,11 @@ for pat in ("results_controlled_summary_*", "results_tail_survey_*"):    # the s
 for d in sorted(glob.glob(os.path.join(RES, "results_ks_survey_*"))):     # all: each survey adds datasets
     if os.listdir(d):
         copy(d, os.path.join(R, os.path.basename(d)))
-for f in ("sweep_summary.csv", "sweep_counts.csv"):
+for f in ("sweep_summary.csv", "sweep_counts.csv", "probe_summary.csv"):
     if os.path.exists(os.path.join(RES, f)):
         copy(os.path.join(RES, f), os.path.join(R, f))
-po = sorted(glob.glob(os.path.join(RES, "paper_out_*")))[-1]
+po = sorted(glob.glob(os.path.join(RES, "paper_out_*")) + glob.glob(os.path.join(SRC, "paper_out_*")),
+            key=os.path.basename)[-1]                     # latest, made on the server or locally
 copy(os.path.join(SRC, "release_README.md"), os.path.join(OUT, "README.md"))
 copy(os.path.join(SRC, "chao_hybrid_ada_ef", "LICENSE"), os.path.join(OUT, "LICENSE"))
 open(os.path.join(OUT, "requirements.txt"), "w").write(
