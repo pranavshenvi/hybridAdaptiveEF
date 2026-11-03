@@ -84,7 +84,27 @@ REPO = "https://anonymous.4open.science/r/PercEF/"
 MACROS = (r"\usepackage{booktabs}" "\n" r"\usepackage{xcolor}" "\n" r"\usepackage{amsmath}" "\n"
           r"\newcommand{\pending}[1]{\textcolor{red}{[#1]}}" "\n" r"\newcommand{\ef}{\textit{ef}}" "\n"
           r"\newcommand{\KS}{\mathrm{KS}}" "\n")
-MACROS_NON_ACM = MACROS + r"\usepackage{amssymb}" "\n"      # acmart loads amssymb itself
+MACROS_NON_ACM = (MACROS + r"\usepackage{amssymb}" "\n" r"\usepackage{adjustbox}" "\n"   # acmart loads amssymb itself
+                  # narrow justified columns: let interword space stretch rather than run into the margin
+                  # (no font expansion: svjour3 uses Computer Modern bitmap fonts)
+                  r"\usepackage[expansion=false]{microtype}" "\n" r"\setlength{\emergencystretch}{3em}" "\n")
+
+
+def fit_tables(t):
+    """svjour3 and IEEEtran columns are narrower than acmart's: shrink any tabular wider than its column
+    (adjustbox max width leaves narrower ones alone). Tables already scaled by \\resizebox are skipped."""
+    # generated tables pulled in with a bare \input (not already inside \resizebox)
+    t = re.sub(r"(?<!\{!\}\{)\\input\{(tables/[^}]*)\}", r"\\begin{adjustbox}{max width=\\linewidth}\\input{\1}\\end{adjustbox}", t)
+    t = re.sub(r"(?<!\{!\}\{)\\begin\{tabular\}", r"\\begin{adjustbox}{max width=\\linewidth}\\begin{tabular}", t)
+    out, depth = [], 0
+    for part in re.split(r"(\\begin\{adjustbox\}\{max width=\\linewidth\}\\begin\{tabular\}|\\end\{tabular\})", t):
+        if part.startswith("\\begin{adjustbox}"):
+            depth += 1
+        elif part == "\\end{tabular}" and depth:
+            depth -= 1
+            part += "\\end{adjustbox}"
+        out.append(part)
+    return "".join(out)
 # PVLDB counts the appendix in its 12 pages: the full-page offline-cost table stays in the repository
 # (paper_outputs/table4_offline) and the prose of the latency paragraph keeps its numbers
 OFFLINE_TABLE = re.compile(r"\\begin\{table\*\}\[h\]\s*\\caption\{Offline cost\.\}.*?\\end\{table\*\}\s*", re.S)
@@ -115,6 +135,10 @@ def build(out, name, bib=True):
     log = open(os.path.join(out, name + ".log"), encoding="latin-1").read()
     bad = sorted(set(re.findall(r"(LaTeX Error[^\n]*|Undefined control sequence|Reference `[^']*' on page \d+ undefined"
                                 r"|Citation `[^']*' on page \d+ undefined)", log)))
+    # anything sticking out of its column by more than 3pt (a table or line running into the next column)
+    wide = [m.group(0) for m in re.finditer(r"Overfull \\hbox \((\d+\.?\d*)pt too wide\)[^\n]*", log)
+            if float(m.group(1)) > 3]
+    bad += [f"{len(wide)} overfull boxes > 3pt: {wide[:3]}"] if wide else []
     print(f"  {os.path.relpath(os.path.join(out, name + '.pdf'), HERE)}: "
           f"{pages.group(1) if pages else '?'} pages" + (f"; problems: {bad[:5]}" if bad else ""))
 
@@ -158,7 +182,7 @@ s = os.path.join(TPL, "vldbj")
 out = setup("vldbj", [os.path.join(s, f) for f in ("svjour3.cls", "svglov3.clo", "spmpsci.bst")])
 VJ_METHODS = "All searches run on one thread."
 assert BODY.count(VJ_METHODS) == 1
-vj_body = BODY.replace(VJ_METHODS, VJ_METHODS + "\n\n\\paragraph{Use of generative AI.}\n" + AI_NOTE)
+vj_body = fit_tables(BODY).replace(VJ_METHODS, VJ_METHODS + "\n\n\\paragraph{Use of generative AI.}\n" + AI_NOTE)
 # no page limit to meet here (25 pages): limitations and practitioner guidance before the lessons,
 # and the per-dataset robustness tables (analysis/make_vldbj_tables.py) in the appendix
 VJ_LESSONS = "\\section{Lessons}"
@@ -186,7 +210,7 @@ open(os.path.join(out, "main.tex"), "w", encoding="utf8").write(
     "\\date{Received: date / Accepted: date}\n\\maketitle\n\n"
     f"\\begin{{abstract}}\n{SHORT_ABSTRACT}\n\\keywords{{{' \\and '.join(KEYWORDS)}}}\n\\end{{abstract}}\n"
     + vj_body + DECLARATIONS + "\\bibliographystyle{spmpsci}\n\\bibliography{refs}\n\n\\appendix\n\\section{Additional results}\n"
-    + APPENDIX + VJ_TABLES + "\\clearpage\n\\end{document}\n")
+    + fit_tables(APPENDIX) + VJ_TABLES + "\\clearpage\n\\end{document}\n")
 build(out, "main")
 make_zip(out, ["main"])
 shutil.copy(os.path.join(HERE, "vldbj_cover_letter.tex"), os.path.join(out, "cover_letter.tex"))
@@ -196,7 +220,7 @@ build(out, "cover_letter", bib=False)
 out = setup("tkde", [])
 TK_PRE = ("\\documentclass[10pt,journal,compsoc]{IEEEtran}\n\\usepackage[nocompress]{cite}\n"
           "\\usepackage{graphicx}\n\\usepackage{url}\n\\usepackage{xr}\n" + MACROS_NON_ACM)
-body = BODY.replace("in the appendix", "in the supplementary material")
+body = fit_tables(BODY).replace("in the appendix", "in the supplementary material")
 open(os.path.join(out, "main.tex"), "w", encoding="utf8").write(
     TK_PRE + "\\externaldocument[S-]{supplement}\n\\begin{document}\n"
     f"\\title{{{TITLE}}}\n\\author{{" + NAME_LIST.replace(" and ", ", and ") + "%\n\\IEEEcompsocitemizethanks{"
@@ -214,7 +238,7 @@ open(os.path.join(out, "supplement.tex"), "w", encoding="utf8").write(
     TK_PRE.replace("\\usepackage{xr}\n", "") + "\\renewcommand{\\thefigure}{S\\arabic{figure}}\n"
     "\\renewcommand{\\thetable}{S\\arabic{table}}\n\\begin{document}\n"
     f"\\title{{Supplementary Material for ``{TITLE}''}}\n\\author{{{NAME_LIST.replace(' and ', ', and ')}}}\n\\maketitle\n"
-    + APPENDIX + "\\clearpage\n\\end{document}\n")
+    + fit_tables(APPENDIX) + "\\clearpage\n\\end{document}\n")
 build(out, "supplement", bib=False)
 build(out, "main")
 make_zip(out, ["main", "supplement"])

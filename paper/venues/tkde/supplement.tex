@@ -9,6 +9,9 @@
 \newcommand{\ef}{\textit{ef}}
 \newcommand{\KS}{\mathrm{KS}}
 \usepackage{amssymb}
+\usepackage{adjustbox}
+\usepackage[expansion=false]{microtype}
+\setlength{\emergencystretch}{3em}
 \renewcommand{\thefigure}{S\arabic{figure}}
 \renewcommand{\thetable}{S\arabic{table}}
 \begin{document}
@@ -46,7 +49,7 @@
 \begin{table*}[h]
   \caption{Offline cost.}
   \centering\footnotesize
-  \input{tables/table4_offline.tex}
+  \begin{adjustbox}{max width=\linewidth}\input{tables/table4_offline.tex}\end{adjustbox}
 \end{table*}
 
 \clearpage

@@ -11,6 +11,9 @@
 \newcommand{\ef}{\textit{ef}}
 \newcommand{\KS}{\mathrm{KS}}
 \usepackage{amssymb}
+\usepackage{adjustbox}
+\usepackage[expansion=false]{microtype}
+\setlength{\emergencystretch}{3em}
 \begin{document}
 \title{Not All Embeddings Are Gaussian: Revisiting Adaptive HNSW Search}
 \author{Pranav Shenvi \and M G Shrivardhan Swaroop \and Megha Shah \and Kiran Hombal \and Shylaja S S}
@@ -447,7 +450,7 @@ tail it buys. Matched instead on p1, that is, against the cheapest fixed \ef{} t
   the largest extra cost (negative: more work than the fixed \ef{}).}
   \label{tab:counts}
   \centering\footnotesize\setlength{\tabcolsep}{3.5pt}
-  \begin{tabular}{llrrrrr}
+  \begin{adjustbox}{max width=\linewidth}\begin{tabular}{llrrrrr}
     \toprule
     & & \multicolumn{4}{c}{same mean recall} & p1-matched \\
     \cmidrule(lr){3-6}\cmidrule(lr){7-7}
@@ -468,7 +471,7 @@ tail it buys. Matched instead on p1, that is, against the cheapest fixed \ef{} t
     Cross-modal (6)      & Ours        &   2/6 & $-$1.0\%  &   3/6 &   5/6 &   5/6 \\
                          & Ada-ef      &   1/6 & $-$20.2\% &   0/6 &   6/6 &   1/6 \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}\end{adjustbox}
 \end{table}
 
 \begin{figure*}[t]
@@ -575,7 +578,7 @@ table. PercEF changes the first two, so we ran each score with the other's probe
   each probe length $L$ (setting R). Bold: the better score at that probe length.}
   \label{tab:ablation}
   \centering\footnotesize
-  \begin{tabular}{lrrrrr}
+  \begin{adjustbox}{max width=\linewidth}\begin{tabular}{lrrrrr}
     \toprule
     & & \multicolumn{2}{c}{Ada-ef} & \multicolumn{2}{c}{PercEF} \\
     Dataset & KS & $L$=1025 & $L$=100 & $L$=100 & $L$=1025 \\
@@ -587,7 +590,7 @@ table. PercEF changes the first two, so we ran each score with the other's probe
     GloVe     & 0.018 & \textbf{0.88} & 0.62 & 0.61 & 0.76 \\
     MS Turing & 0.010 & \textbf{0.79} & \textbf{0.43} & 0.40 & 0.58 \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}\end{adjustbox}
 \end{table}
 
 \begin{table}[t]
@@ -597,7 +600,7 @@ table. PercEF changes the first two, so we ran each score with the other's probe
   Bottom: each method at its own best $L$.}
   \label{tab:probes}
   \centering\footnotesize\setlength{\tabcolsep}{3.5pt}
-  \begin{tabular}{lrrrr}
+  \begin{adjustbox}{max width=\linewidth}\begin{tabular}{lrrrr}
     \toprule
     $L$ & Higher $|\rho|$ & More work saved & More time saved & Larger p1 gain \\
     \midrule
@@ -608,7 +611,7 @@ table. PercEF changes the first two, so we ran each score with the other's probe
     \midrule
     best $L$ each & -- & 11/17 & 15/17 & -- \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}\end{adjustbox}
 \end{table}
 
 \paragraph{Latency and offline cost.}\label{sec:latency}
@@ -699,7 +702,7 @@ comparison is not meaningful at $k = 10$.
   fixed \ef{} (median time saving). Above: 4 datasets above the band (8 runs); below: 2 below it (4).}
   \label{tab:sweep}
   \centering\footnotesize\setlength{\tabcolsep}{3.5pt}
-  \begin{tabular}{lllrrr}
+  \begin{adjustbox}{max width=\linewidth}\begin{tabular}{lllrrr}
     \toprule
     $\tau$, $k$ & Data & Method & Less work & p1 $\geq$ & p1-matched faster \\
     \midrule
@@ -723,7 +726,7 @@ comparison is not meaningful at $k = 10$.
               & below & Ours   & 2/4 & 3/4 & -- \\
               &       & Ada-ef & 1/4 & 3/4 & -- \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}\end{adjustbox}
 \end{table}
 
 \paragraph{Index degree, seeds and metric.}
@@ -794,7 +797,7 @@ differently:
   the band; the rest above it.}
   \label{tab:darth}
   \centering\footnotesize
-  \begin{tabular}{llrrr}
+  \begin{adjustbox}{max width=\linewidth}\begin{tabular}{llrrr}
     \toprule
     Dataset & Method & p1 gain & DC saving & Latency saving \\
     \midrule
@@ -833,7 +836,7 @@ differently:
                   & Ada-ef & +0.004 & +0.7\% & $-$41.0\% \\
                   & PercEF & +0.028 & \textbf{+2.7\%} & \textbf{+0.4\%} \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}\end{adjustbox}
 \end{table}
 
 \paragraph{Cross-modal queries.}
@@ -1072,7 +1075,7 @@ available at \url{https://anonymous.4open.science/r/PercEF/}.
 \begin{table*}[h]
   \caption{Offline cost.}
   \centering\footnotesize
-  \input{tables/table4_offline.tex}
+  \begin{adjustbox}{max width=\linewidth}\input{tables/table4_offline.tex}\end{adjustbox}
 \end{table*}
 
 
