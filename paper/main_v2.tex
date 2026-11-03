@@ -309,8 +309,7 @@ scoring, sketch and search routines. We made three changes:
 \end{itemize}
 On every dataset that fits in memory, we also built Ada-ef's estimator the original way and compared
 scores on 50 queries. They are identical on 13 of the 17 datasets. On SIFT-1M, BIGANN, DBpedia and
-COCO-I2I they differ slightly, by at most 0.39 in score \pending{check whether this is accumulation
-order in the streamed covariance}. Our score is computed inside the same traversal, with the same
+COCO-I2I they differ on some queries, by at most 0.39 in score. Our score is computed inside the same traversal, with the same
 memory prefetching as HNSWlib's own search loop. All searches run on one thread.
 
 % ------------------------------------------------------------------------------------------------
