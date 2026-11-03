@@ -50,7 +50,36 @@ AI_NOTE = ("Generative AI (Claude, Anthropic) was used to write and refactor exp
            "experiment, verified every reported number against the released result files, and take\n"
            "full responsibility for the content.")
 TITLE = "Not All Embeddings Are Gaussian: Revisiting Adaptive HNSW Search"
-AUTHOR, EMAIL, AFFIL = "Pranav Shenvi", "shenvipranav@gmail.com", r"\pending{affiliation}"
+# authors in order: (name, initials form, email, affiliation key); the first is the corresponding author
+PES = ("PES University", "Bengaluru", "India")
+UIUC = ("University of Illinois Urbana-Champaign", "Urbana, IL", "USA")
+AUTHORS = [("Pranav Shenvi", "P. Shenvi", "shenvipranav@gmail.com", PES),
+           ("M G Shrivardhan Swaroop", "M. G. Shrivardhan Swaroop", "shrivardhanswaroop.mg@gmail.com", PES),
+           ("Megha Shah", "M. Shah", "meghashah1125@gmail.com", PES),
+           ("Kiran Hombal", "K. Hombal", "khombal2@illinois.edu", UIUC),
+           ("Shylaja S S", "S. S. Shylaja", "shylaja.sharath@pes.edu", PES)]
+NAMES = [a[0] for a in AUTHORS]
+NAME_LIST = ", ".join(NAMES[:-1]) + " and " + NAMES[-1]
+
+
+def acm_authors():
+    """acmart (PVLDB) author block: one \\author per person with affiliation and email."""
+    return "".join(f"\\author{{{n}}}\n\\affiliation{{\\institution{{{a[0]}}}\\city{{{a[1]}}}\\country{{{a[2]}}}}}\n"
+                   f"\\email{{{e}}}\n" for n, _, e, a in AUTHORS)
+
+
+def by_affiliation():
+    groups = []
+    for _, short, e, a in AUTHORS:
+        g = next((g for g in groups if g[0] == a), None)
+        if g is None:
+            groups.append(g := (a, []))
+        g[1].append((short, e))
+    return groups
+
+
+def join_names(xs):
+    return xs[0] if len(xs) == 1 else ", ".join(xs[:-1]) + " and " + xs[-1]
 REPO = "https://anonymous.4open.science/r/PercEF/"
 MACROS = (r"\usepackage{booktabs}" "\n" r"\usepackage{xcolor}" "\n" r"\usepackage{amsmath}" "\n"
           r"\newcommand{\pending}[1]{\textcolor{red}{[#1]}}" "\n" r"\newcommand{\ef}{\textit{ef}}" "\n"
@@ -96,7 +125,7 @@ open(os.path.join(out, "main.tex"), "w", encoding="utf8").write(
     "\\documentclass[sigconf, nonacm]{acmart}\n\\usepackage{pvldb}\n" + MACROS +
     "\\renewcommand\\vldbdoi{XX.XX/XXX.XX}\n\\renewcommand\\vldbpages{XXX-XXX}\n"
     f"\\renewcommand\\vldbavailabilityurl{{{REPO}}}\n\n\\begin{{document}}\n\\title{{{TITLE}}}\n\n"
-    f"\\author{{{AUTHOR}}}\n\\affiliation{{\\institution{{{AFFIL}}}\\country{{India}}}}\n\\email{{{EMAIL}}}\n\n"
+    + acm_authors() + "\n" +
     f"\\begin{{abstract}}\n{ABSTRACT}\n\\end{{abstract}}\n\n\\maketitle\n\n\\vldbtopmatter\n"
     + BODY + f"\\begin{{acks}}\n{AI_NOTE}\n\\end{{acks}}\n\n"
     "\\bibliographystyle{ACM-Reference-Format}\n\\bibliography{refs}\n\n\\appendix\n\\section{Additional results}\n"
@@ -118,8 +147,12 @@ DECLARATIONS = ("\\section*{Declarations}\n\n\\paragraph{Competing interests.} T
 open(os.path.join(out, "main.tex"), "w", encoding="utf8").write(
     "\\RequirePackage{fix-cm}\n\\documentclass[twocolumn]{svjour3}\n\\smartqed\n\\journalname{The VLDB Journal}\n"
     "\\usepackage{graphicx}\n\\usepackage{url}\n" + MACROS_NON_ACM +
-    f"\\begin{{document}}\n\\title{{{TITLE}}}\n\\author{{{AUTHOR}}}\n"
-    f"\\institute{{{AUTHOR} \\at {AFFIL}, India \\\\ \\email{{{EMAIL}}}}}\n"
+    f"\\begin{{document}}\n\\title{{{TITLE}}}\n\\author{{{' \\and '.join(NAMES)}}}\n"
+    # svjour3: one \institute entry per affiliation; emails of all authors, the corresponding one marked
+    "\\institute{" + " \\and\n".join(
+        f"{join_names([s_ for s_, _ in g])} \\at {', '.join(a)} \\\\ "
+        + " \\\\ ".join(f"{s_}: \\email{{{e}}}" + (" (corresponding author)" if e == AUTHORS[0][2] else "")
+                        for s_, e in g) for a, g in by_affiliation()) + "}\n"
     "\\date{Received: date / Accepted: date}\n\\maketitle\n\n"
     f"\\begin{{abstract}}\n{SHORT_ABSTRACT}\n\\keywords{{{' \\and '.join(KEYWORDS)}}}\n\\end{{abstract}}\n"
     + vj_body + DECLARATIONS + "\\bibliographystyle{spmpsci}\n\\bibliography{refs}\n\n\\appendix\n\\section{Additional results}\n"
@@ -133,8 +166,11 @@ TK_PRE = ("\\documentclass[10pt,journal,compsoc]{IEEEtran}\n\\usepackage[nocompr
 body = BODY.replace("in the appendix", "in the supplementary material")
 open(os.path.join(out, "main.tex"), "w", encoding="utf8").write(
     TK_PRE + "\\externaldocument[S-]{supplement}\n\\begin{document}\n"
-    f"\\title{{{TITLE}}}\n\\author{{{AUTHOR}%\n\\IEEEcompsocitemizethanks{{\\IEEEcompsocthanksitem {AUTHOR} is with "
-    f"{AFFIL}, India. E-mail: {EMAIL}}}}}\n\n"
+    f"\\title{{{TITLE}}}\n\\author{{" + NAME_LIST.replace(" and ", ", and ") + "%\n\\IEEEcompsocitemizethanks{"
+    + "\n".join(f"\\IEEEcompsocthanksitem {join_names([s_ for s_, _ in g])} "
+                f"{'is' if len(g) == 1 else 'are'} with {', '.join(a)}. "
+                f"E-mail: {', '.join(e for _, e in g)}" for a, g in by_affiliation())
+    + f"\n\\IEEEcompsocthanksitem Corresponding author: {AUTHORS[0][1]}.}}}}\n\n"
     f"\\IEEEtitleabstractindextext{{%\n\\begin{{abstract}}\n{SHORT_ABSTRACT}\n\\end{{abstract}}\n"
     f"\\begin{{IEEEkeywords}}\n{', '.join(KEYWORDS)}\n\\end{{IEEEkeywords}}}}\n\n\\maketitle\n"
     "\\IEEEdisplaynontitleabstractindextext\n\\IEEEpeerreviewmaketitle\n"
@@ -144,7 +180,7 @@ open(os.path.join(out, "main.tex"), "w", encoding="utf8").write(
 open(os.path.join(out, "supplement.tex"), "w", encoding="utf8").write(
     TK_PRE.replace("\\usepackage{xr}\n", "") + "\\renewcommand{\\thefigure}{S\\arabic{figure}}\n"
     "\\renewcommand{\\thetable}{S\\arabic{table}}\n\\begin{document}\n"
-    f"\\title{{Supplementary Material for ``{TITLE}''}}\n\\author{{{AUTHOR}}}\n\\maketitle\n"
+    f"\\title{{Supplementary Material for ``{TITLE}''}}\n\\author{{{NAME_LIST.replace(' and ', ', and ')}}}\n\\maketitle\n"
     + APPENDIX + "\\clearpage\n\\end{document}\n")
 build(out, "supplement", bib=False)
 build(out, "main")
