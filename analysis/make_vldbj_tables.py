@@ -115,6 +115,23 @@ write("vj_seeds.tex", "DC saving against the tuned fixed \\ef{} (setting R) for 
       "and three more seeds of the calibration/test split, P calibration points and KS sample; same index.",
       "tab:vj-seeds", "llrrrr", "Dataset & Method & seed 42 & 1 & 2 & 3", rows)
 
+# ---- Table 1, journal layout (VLDB Journal, TKDE): full text width, readable headers -----------------
+po = sorted(glob.glob(os.path.join(os.path.dirname(OUT), "..", "paper_out_*")) + glob.glob(os.path.join(R, "paper_out_*")),
+            key=os.path.basename)[-1]
+t1 = list(csv.DictReader(open(os.path.join(po, "table1_datasets.csv"), encoding="utf8")))
+rho = lambda x: "--" if x in ("", None) else f"{abs(float(x)):.2f}"           # magnitude: the larger ranks better
+size = lambda n: f"{int(n) / 1e6:.2f}M" if int(n) >= 1_000_000 else f"{int(n) / 1e3:.0f}K"
+rows = [[r["dataset"], r["source"].replace("&", "\\&"), r["in Ada-ef paper"], size(r["corpus"]), r["dim"], r["K"],
+         f"{int(r['test queries']):,}", f"{float(r['KS']):.3f}",
+         f"{rho(r['rho Ada-ef P'])} / {rho(r['rho Ada-ef R'])}", f"{rho(r['rho ours P'])} / {rho(r['rho ours R'])}"]
+        for r in t1]
+with open(os.path.join(OUT, "table1_journal.tex"), "w", encoding="utf8") as fo:
+    fo.write("\\begin{tabular}{lllrrrrrcc}\n\\toprule\n& & In Ada-ef & & & & Test & & \\multicolumn{2}{c}{$|\\rho|$ with "
+             "$\\mathrm{ef}^*$, P / R} \\\\\n\\cmidrule(lr){9-10}\nDataset & Source & paper & $n$ & $d$ & $k$ & queries & KS "
+             "& Ada-ef & PercEF \\\\\n\\midrule\n" + "".join(" & ".join(r) + " \\\\\n" for r in rows)
+             + "\\bottomrule\n\\end{tabular}\n")
+print("wrote table1_journal.tex", len(rows), "rows from", os.path.basename(po))
+
 # ---- PiP ----------------------------------------------------------------------------------------------
 rows = []
 for ds in DS20:

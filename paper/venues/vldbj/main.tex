@@ -363,14 +363,12 @@ the two at equal mean recall. We interpolate in $\log(1 - \text{recall})$ agains
 Interpolating linearly overstates the fixed \ef{}'s cost by 11\% on average in a leave-one-out test
 on our grids (\S\ref{sec:pitfalls}), which would flatter every adaptive method.
 
-\begin{table}[t]
-  \caption{Datasets, sorted by KS (200 queries). $\rho$: rank correlation between each score and
-  the true per-query $\mathrm{ef}^*$ on the calibration set, settings P / R; the larger magnitude
-  ranks queries better. A dash: the score is constant on the calibration queries.}
+\begin{table*}[t]
+  \caption{Datasets, sorted by KS (200 queries). $n$: database vectors; $d$: dimension; $k$: neighbors per query. $|\rho|$: magnitude of the rank correlation between each score and the true per-query $\mathrm{ef}^*$ on the calibration set, settings P / R; the larger ranks queries better. A dash: the score is constant on the calibration queries.}
   \label{tab:datasets}
   \centering\footnotesize
-  \resizebox{\linewidth}{!}{\input{tables/table1_datasets.tex}}
-\end{table}
+  \begin{adjustbox}{max width=\textwidth}\begin{adjustbox}{max width=\linewidth}\input{tables/table1_journal.tex}\end{adjustbox}\end{adjustbox}
+\end{table*}
 
 \subsection{How often does the assumption hold?}\label{sec:holds}
 

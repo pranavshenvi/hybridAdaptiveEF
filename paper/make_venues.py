@@ -90,6 +90,22 @@ MACROS_NON_ACM = (MACROS + r"\usepackage{amssymb}" "\n" r"\usepackage{adjustbox}
                   r"\usepackage[expansion=false]{microtype}" "\n" r"\setlength{\emergencystretch}{3em}" "\n")
 
 
+TABLE1_OLD = re.compile(r"\\begin\{table\}\[t\]\s*\\caption\{Datasets, sorted by KS.*?\\end\{table\}", re.S)
+TABLE1_JOURNAL = (
+    "\\begin{table*}[t]\n  \\caption{Datasets, sorted by KS (200 queries). $n$: database vectors; $d$: dimension; $k$: "
+    "neighbors per query. $|\\rho|$: magnitude of the rank correlation between each score and the true per-query "
+    "$\\mathrm{ef}^*$ on the calibration set, settings P / R; the larger ranks queries better. A dash: the score is "
+    "constant on the calibration queries.}\n  \\label{tab:datasets}\n  \\centering\\footnotesize\n"
+    "  \\begin{adjustbox}{max width=\\textwidth}\\input{tables/table1_journal.tex}\\end{adjustbox}\n\\end{table*}")
+
+
+def journal_table1(t):
+    """VLDB Journal and TKDE: Table 1 at full text width with readable headers (tables/table1_journal.tex,
+    analysis/make_vldbj_tables.py) instead of the one-column version scaled down to fit"""
+    assert len(TABLE1_OLD.findall(t)) == 1
+    return TABLE1_OLD.sub(lambda m: TABLE1_JOURNAL, t)
+
+
 def fit_tables(t):
     """svjour3 and IEEEtran columns are narrower than acmart's: shrink any tabular wider than its column
     (adjustbox max width leaves narrower ones alone). Tables already scaled by \\resizebox are skipped."""
@@ -182,7 +198,7 @@ s = os.path.join(TPL, "vldbj")
 out = setup("vldbj", [os.path.join(s, f) for f in ("svjour3.cls", "svglov3.clo", "spmpsci.bst")])
 VJ_METHODS = "All searches run on one thread."
 assert BODY.count(VJ_METHODS) == 1
-vj_body = fit_tables(BODY).replace(VJ_METHODS, VJ_METHODS + "\n\n\\paragraph{Use of generative AI.}\n" + AI_NOTE)
+vj_body = fit_tables(journal_table1(BODY)).replace(VJ_METHODS, VJ_METHODS + "\n\n\\paragraph{Use of generative AI.}\n" + AI_NOTE)
 # no page limit to meet here (25 pages): limitations and practitioner guidance before the lessons,
 # and the per-dataset robustness tables (analysis/make_vldbj_tables.py) in the appendix
 VJ_LESSONS = "\\section{Lessons}"
@@ -226,7 +242,7 @@ TK_PRE = ("\\documentclass[10pt,journal,compsoc]{IEEEtran}\n\\usepackage[nocompr
             "{-1em}{\\normalfont\\normalsize\\itshape}}\n"
             "\\def\\@IEEEsectpunct{\\ }\n"     # our run-in headings carry their own '.' or '?'
             "\\makeatother\n\\setcounter{secnumdepth}{3}\n")
-body = fit_tables(BODY).replace("in the appendix", "in the supplementary material")
+body = fit_tables(journal_table1(BODY)).replace("in the appendix", "in the supplementary material")
 open(os.path.join(out, "main.tex"), "w", encoding="utf8").write(
     TK_PRE + "\\externaldocument[S-]{supplement}\n\\begin{document}\n"
     f"\\title{{{TITLE}}}\n\\author{{" + NAME_LIST.replace(" and ", ", and ") + "%\n\\IEEEcompsocitemizethanks{"
