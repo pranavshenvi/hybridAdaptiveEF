@@ -219,7 +219,13 @@ build(out, "cover_letter", bib=False)
 # ---- IEEE TKDE --------------------------------------------------------------------------------------
 out = setup("tkde", [])
 TK_PRE = ("\\documentclass[10pt,journal,compsoc]{IEEEtran}\n\\usepackage[nocompress]{cite}\n"
-          "\\usepackage{graphicx}\n\\usepackage{url}\n\\usepackage{xr}\n" + MACROS_NON_ACM)
+          "\\usepackage{graphicx}\n\\usepackage{url}\n\\usepackage{xr}\n" + MACROS_NON_ACM
+          # IEEEtran numbers \paragraph (2.0.0.1) and appends a colon: make it an unnumbered italic run-in
+          # heading, as in the ACM version, so labels under it refer to the enclosing subsection
+          + "\\makeatletter\n\\renewcommand\\paragraph{\\@startsection{paragraph}{4}{\\z@}{1.5ex plus 1ex minus .2ex}"
+            "{-1em}{\\normalfont\\normalsize\\itshape}}\n"
+            "\\def\\@IEEEsectpunct{\\ }\n"     # our run-in headings carry their own '.' or '?'
+            "\\makeatother\n\\setcounter{secnumdepth}{3}\n")
 body = fit_tables(BODY).replace("in the appendix", "in the supplementary material")
 open(os.path.join(out, "main.tex"), "w", encoding="utf8").write(
     TK_PRE + "\\externaldocument[S-]{supplement}\n\\begin{document}\n"

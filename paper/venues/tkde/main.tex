@@ -13,6 +13,11 @@
 \usepackage{adjustbox}
 \usepackage[expansion=false]{microtype}
 \setlength{\emergencystretch}{3em}
+\makeatletter
+\renewcommand\paragraph{\@startsection{paragraph}{4}{\z@}{1.5ex plus 1ex minus .2ex}{-1em}{\normalfont\normalsize\itshape}}
+\def\@IEEEsectpunct{\ }
+\makeatother
+\setcounter{secnumdepth}{3}
 \externaldocument[S-]{supplement}
 \begin{document}
 \title{Not All Embeddings Are Gaussian: Revisiting Adaptive HNSW Search}
