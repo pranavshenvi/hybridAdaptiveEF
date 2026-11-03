@@ -159,6 +159,17 @@ out = setup("vldbj", [os.path.join(s, f) for f in ("svjour3.cls", "svglov3.clo",
 VJ_METHODS = "All searches run on one thread."
 assert BODY.count(VJ_METHODS) == 1
 vj_body = BODY.replace(VJ_METHODS, VJ_METHODS + "\n\n\\paragraph{Use of generative AI.}\n" + AI_NOTE)
+# no page limit to meet here (25 pages): limitations and practitioner guidance before the lessons,
+# and the per-dataset robustness tables (analysis/make_vldbj_tables.py) in the appendix
+VJ_LESSONS = "\\section{Lessons}"
+assert vj_body.count(VJ_LESSONS) == 1
+vj_body = vj_body.replace(VJ_LESSONS, open(os.path.join(HERE, "vldbj_extra.tex"), encoding="utf8").read()
+                          + "\n" + VJ_LESSONS)
+VJ_TABLES = ("\n\\paragraph{Per-dataset robustness results.} Tables~\\ref{tab:vj-probes}--\\ref{tab:vj-pip} give the "
+             "per-dataset numbers behind the probe-length sweep (\\S\\ref{sec:ablation}), the HNSW degree, seed and "
+             "metric checks (\\S\\ref{sec:sweep}) and the PiP baseline. Savings are against the tuned fixed \\ef{} at "
+             "the same mean recall, in percent; positive is better.\n\n"
+             + "".join(f"\\input{{tables/{t}}}\n" for t in ("vj_probes", "vj_m", "vj_seeds", "vj_l2", "vj_pip")))
 DECLARATIONS = ("\\section*{Declarations}\n\n\\paragraph{Competing interests.} The authors have no competing "
                 "financial or non-financial interests to declare.\n\n\\paragraph{Data availability.} All datasets "
                 "are public; download scripts, code and every result file behind the tables and figures are at "
@@ -175,9 +186,11 @@ open(os.path.join(out, "main.tex"), "w", encoding="utf8").write(
     "\\date{Received: date / Accepted: date}\n\\maketitle\n\n"
     f"\\begin{{abstract}}\n{SHORT_ABSTRACT}\n\\keywords{{{' \\and '.join(KEYWORDS)}}}\n\\end{{abstract}}\n"
     + vj_body + DECLARATIONS + "\\bibliographystyle{spmpsci}\n\\bibliography{refs}\n\n\\appendix\n\\section{Additional results}\n"
-    + APPENDIX + "\\clearpage\n\\end{document}\n")
+    + APPENDIX + VJ_TABLES + "\\clearpage\n\\end{document}\n")
 build(out, "main")
 make_zip(out, ["main"])
+shutil.copy(os.path.join(HERE, "vldbj_cover_letter.tex"), os.path.join(out, "cover_letter.tex"))
+build(out, "cover_letter", bib=False)
 
 # ---- IEEE TKDE --------------------------------------------------------------------------------------
 out = setup("tkde", [])

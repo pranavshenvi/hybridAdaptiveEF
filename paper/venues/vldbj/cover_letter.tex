@@ -1,0 +1,51 @@
+\documentclass[10pt]{letter}
+\usepackage[margin=0.75in,top=0.6in]{geometry}
+\longindentation=0pt
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{url}
+\signature{Pranav Shenvi\\(corresponding author, on behalf of all authors)\\PES University, Bengaluru, India\\\url{shenvipranav@gmail.com}}
+\address{}
+\begin{document}
+\begin{letter}{The Editors-in-Chief\\The VLDB Journal}
+\opening{Dear Editors,}
+
+We submit the manuscript \emph{``Not All Embeddings Are Gaussian: Revisiting Adaptive HNSW Search''}
+by Pranav Shenvi, M G Shrivardhan Swaroop, Megha Shah (PES University), Kiran Hombal (University of
+Illinois Urbana-Champaign) and Shylaja S S (PES University) for consideration as a research article in
+The VLDB Journal.
+
+The paper is an experimental study of per-query search breadth in graph-based nearest-neighbor
+search. Ada-ef (SIGMOD 2026) chooses the search breadth (\emph{ef}) of each HNSW query from a score
+that assumes a query's similarities to the database are Gaussian. We test that assumption query by
+query on 41 public datasets and re-evaluate the method end to end on 20 of them. The baseline is a
+hindsight-tuned fixed \emph{ef}, matched on both mean and worst-case recall. The main findings are:
+\begin{itemize}
+\item The Gaussian departs significantly on nine datasets, six of them learned image, audio and
+  recommendation embeddings, and the data type does not predict which.
+\item The departure hurts Ada-ef's ranking of queries less than its size suggests. The score
+  collapses only on the most extreme datasets, and in controlled data where the hard queries move
+  away from the bulk.
+\item What limits Ada-ef in practice is its fixed per-query overhead: a 1025-distance probe and a
+  $d \times d$ variance computation. It is slower than the tuned fixed \emph{ef} in 28 of 34 runs.
+  A sweep of probe lengths for both methods on 17 datasets separates the two costs.
+\item A nonparametric variant that reads its thresholds from the data (PercEF) ranks queries about as
+  well at equal probe length, and is cheaper than the tuned fixed \emph{ef} in 32 of 34 runs.
+\end{itemize}
+The study also compares DARTH, LAET and Patience in Proximity. It checks robustness to target
+recall, $k$, HNSW degree, random seed and metric. It reports seven pitfalls in evaluating adaptive
+search, including one that affected our own first evaluation of Ada-ef, and ends with guidelines
+for practitioners.
+
+We believe the paper fits The VLDB Journal's interest in thorough experimental analyses of data
+management techniques. Its length (18 pages in the journal's two-column template) allows the full
+per-dataset results that a conference version would leave out. All code, run scripts and the result
+files behind every table and figure are available at
+\url{https://anonymous.4open.science/r/PercEF/}; every number can be regenerated from them in minutes.
+
+This manuscript is original, has not been published, and is not under consideration for publication
+elsewhere. All authors have approved the submission. The authors declare no competing interests.
+
+\closing{Sincerely,}
+\end{letter}
+\end{document}

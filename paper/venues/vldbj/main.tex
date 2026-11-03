@@ -901,6 +901,89 @@ any adaptive-\ef{} method.
 \end{itemize}
 
 % ------------------------------------------------------------------------------------------------
+% Sections added only to the VLDB Journal version (make_venues.py inserts them before "Lessons").
+% Every number here comes from the same result files as the rest of the paper.
+\section{Threats to validity and limitations}\label{sec:limitations}
+
+\paragraph{Hardware and timing.}
+All runs use one machine and one search thread. Latency is the per-query median over three rounds
+with the method order rotated. Even so, repeated timings of the same searches move by several
+percentage points: PercEF's latency saving on DeepImage is $-$8.3\% in the headline run and
+$-$13.2\% in the probe-length sweep. We therefore treat latency differences of a few points as
+noise, and report distance computations (DC) alongside latency throughout. Multi-threaded
+throughput and other processors may rank the methods differently where their margins are small.
+
+\paragraph{Datasets.}
+Cohere-1024 and LAION-I2I are subsets that fit in 62\,GB of memory (5 of 10 files and 20 of 31
+shards). Our MS MARCO set is a MiniLM-384 stand-in for the embeddings of the Ada-ef paper. The
+Big-ANN datasets are 2M-vector prefixes. Results on the full collections may differ, most likely in
+absolute savings rather than in which method wins.
+
+\paragraph{Protocol coverage.}
+The main protocol fixes $M = 16$, $\mathit{ef}_{\mathrm{construction}} = 500$ and $\tau = 0.95$. We
+varied $M$ on four datasets (Table~\ref{tab:vj-m}), the target recall and $k$ on six
+(Table~\ref{tab:sweep}), the random split on four (Table~\ref{tab:vj-seeds}), and the probe length on
+all 17 same-modality datasets (Table~\ref{tab:vj-probes}). We did not vary
+$\mathit{ef}_{\mathrm{construction}}$. Small $k$ remains open: at $k = 10$ neither method saves work.
+
+\paragraph{Baselines.}
+DARTH and LAET run in their authors' FAISS fork and are compared with a fixed \ef{} of the same
+library, so their numbers are not directly comparable with the HNSWlib ones. DARTH is trained on
+1,500 queries, against 10,000 in its paper; more training data could improve its tail but not its
+per-step model cost, which is what makes it slow on short searches. PiP is the implementation
+shipped with Ada-ef's code; even tuned on our calibration queries, its mean recall on the test
+queries reaches the 0.95 target on only 5 of the 20 datasets (Table~\ref{tab:vj-pip}).
+
+\paragraph{Other graph indexes.}
+FAISS HNSW and NSG were run through a wrapper around their search call. Neither library can
+continue a search after the probe, so every adaptive query pays for a fresh search. We therefore
+report only rank correlations for these indexes, not savings. A DiskANN (Vamana) run was not
+usable: its returned identifiers were wrong under our software environment. An adaptive search
+integrated into these libraries, as it is in HNSWlib, is future work.
+
+\paragraph{Our reimplementation of Ada-ef.}
+We run Ada-ef through its authors' code with three changes (\S3.4): a streaming loader for its
+statistics, a Boost-free normal quantile checked against SciPy's, and an estimator in the units of
+our L2 index. Scores from the streamed and the in-memory statistics are identical on 13 of 17
+datasets and differ on some queries, by at most 0.39, on the other four. An earlier version of our
+quantile had the wrong sign in the tail (\S\ref{sec:pitfalls}). Every Ada-ef number in this paper
+comes from the corrected code.
+
+\section{Guidelines for practitioners}\label{sec:guidelines}
+
+The results suggest a short procedure for choosing a per-query \ef{} method. It needs the raw
+vectors, a few hundred held-out queries and a fixed-\ef{} sweep, all of which a deployment has
+before it serves traffic.
+\begin{enumerate}
+\item \textbf{Tune a fixed \ef{} first, and keep it as the baseline.} Compare every adaptive method
+  with the best fixed \ef{} at the same mean recall and at the same p1, on held-out queries. Against
+  this baseline, adaptive methods saved at most a few percent of the work on most of our datasets,
+  and lost it on some.
+\item \textbf{Run the KS test on the raw vectors} (seconds). A low KS ($< 0.044$, typical of text
+  embeddings) means Ada-ef's model is accurate. A high KS does not by itself mean Ada-ef fails
+  (\S\ref{sec:predict}). What it fails on, a calibration that maps to only one or two \ef{} values,
+  shows up directly in its table.
+\item \textbf{Check the cost of the probe against the length of the search.} Ada-ef adds a
+  1025-distance probe and a $d^2$ variance to every query. On searches of several milliseconds with
+  $d \le 128$, these are a small share. On high-dimensional data they dominate: even with a
+  100-distance probe, Ada-ef is 39\% and 85\% slower than the fixed \ef{} at $d = 1536$ and
+  $d = 2048$.
+\item \textbf{Choose:}
+  \begin{itemize}
+  \item Near-Gaussian data, long searches, and tail recall as the priority: \emph{Ada-ef with its
+    WAE floor}. It saves 26--27\% of the work on GloVe and is faster than the fixed \ef{} there.
+  \item High dimension, short searches, or a predictable cost as the priority: \emph{PercEF}. It is
+    cheaper than the tuned fixed \ef{} in 32 of 34 runs and faster in 29, and at its best probe
+    length it is faster than the fixed \ef{} on 15 of 17 datasets. A probe of 50--300 distances works
+    about equally well.
+  \item Queries from another modality than the data, or $k = 10$: \emph{a tuned fixed \ef{}}.
+    Neither method saved work there at a cost we would accept.
+  \end{itemize}
+\item \textbf{Recheck when the data or the queries change.} Both methods' tables are calibrated on
+  held-out queries. PercEF's thresholds take seconds to recompute, Ada-ef's statistics a streaming
+  pass over the data.
+\end{enumerate}
+
 \section{Lessons}
 
 \textbf{Test the assumption per dataset, not per data type.} The Gaussian holds for most modern
@@ -992,5 +1075,13 @@ available at \url{https://anonymous.4open.science/r/PercEF/}.
   \input{tables/table4_offline.tex}
 \end{table*}
 
+
+\paragraph{Per-dataset robustness results.} Tables~\ref{tab:vj-probes}--\ref{tab:vj-pip} give the per-dataset numbers behind the probe-length sweep (\S\ref{sec:ablation}), the HNSW degree, seed and metric checks (\S\ref{sec:sweep}) and the PiP baseline. Savings are against the tuned fixed \ef{} at the same mean recall, in percent; positive is better.
+
+\input{tables/vj_probes}
+\input{tables/vj_m}
+\input{tables/vj_seeds}
+\input{tables/vj_l2}
+\input{tables/vj_pip}
 \clearpage
 \end{document}
