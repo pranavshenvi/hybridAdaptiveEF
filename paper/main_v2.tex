@@ -39,8 +39,10 @@ non-Gaussian datasets.
 To separate the model from the rest of the design, we build PercEF, which keeps Ada-ef's score but
 takes its thresholds from the database's empirical distance percentiles and probes 100 distances.
 PercEF ranks queries less well than Ada-ef on most datasets, yet it is cheaper than the tuned fixed
-\ef{} in 32 of 34 runs, never more than 2.5\% more expensive, and faster in 29. An ablation traces
-most of the latency gap to the probe length rather than to the thresholds. Where the Gaussian fits,
+\ef{} in 32 of 34 runs, never more than 2.5\% more expensive, and faster in 29. Running both methods
+at four probe lengths shows that the probe is not the whole story. At equal probe length the two
+scores rank queries about equally well, yet PercEF is faster on 14 of 16 datasets. Its margin grows
+with the dimension, because Ada-ef evaluates $q^\top\Sigma q$ for every query. Where the Gaussian fits,
 Ada-ef buys larger gains in tail recall. Our diagnostic test needs only the raw vectors and runs in
 seconds. We also report pitfalls in evaluating adaptive search, one of which affected our own first
 evaluation.
@@ -133,10 +135,18 @@ the non-Gaussian datasets.
 Ada-ef in a controlled way. PercEF reads the thresholds from the database's empirical distance
 percentiles and probes 100 distances instead of 1025. It ranks queries less well than Ada-ef on most
 datasets, but it is cheaper than the fixed \ef{} in 32 of 34 runs, never more than 2.5\% more
-expensive, and faster in 29. An ablation shows that the shorter probe accounts for most of this
-difference. With a 100-distance probe, Ada-ef's own score is about as cheap as PercEF on four of six
-datasets, but it loses most of its ranking edge on the two near-Gaussian ones. Where the Gaussian
-holds, Ada-ef's score and \ef{} table together buy larger tail gains. Learned early termination
+expensive, and faster in 29. To see whether the shorter probe explains this, we ran both scores at
+probe lengths of 50, 100, 300 and 1025 on all 17 same-modality datasets.
+\begin{itemize}
+\item At equal length, the two rank queries about equally well: PercEF ranks better on 7 to 9 of the
+  17 datasets.
+\item PercEF still saves more latency on 14 to 15 of the datasets at every length, and more work at
+  most lengths.
+\item The latency gap grows with the dimension (Spearman 0.88). Ada-ef computes $q^\top\Sigma q$, a
+  $d^2$ product, for every query; this alone makes it 39--85\% slower than the fixed \ef{} on the
+  1536- and 2048-dimensional datasets, even with a 100-distance probe.
+\end{itemize}
+Where the Gaussian holds, Ada-ef's score and \ef{} table together buy larger tail gains. Learned early termination
 (DARTH, LAET) buys the largest tail gains of all, at up to 2.8 times the time of a fixed \ef{}.
 
 The overarching lesson is that \emph{a distributional assumption can fail a goodness-of-fit test
@@ -548,12 +558,21 @@ table. PercEF changes the first two, so we ran each score with the other's probe
 \item \textbf{Probe length and the near-Gaussian edge.} Ada-ef's edge on GloVe and MS Turing comes
   from its long probe. Cut to 100 distances, its rank correlation falls from 0.88 to 0.62 on GloVe
   and from 0.79 to 0.43 on MS Turing.
-\item \textbf{Probe length and cost.} The probe also explains most of the cost difference. With 100
-  distances, Ada-ef's own score is within 2.5 percentage points of PercEF's latency saving on SIFT-1M,
-  Deep1B and BIGANN, and ahead of it on DeepImage. With 1025 distances it is 18--28 points behind on
-  SIFT-1M, Deep1B and BIGANN. On GloVe and MS Turing it stays about 5 points behind at either length. Conversely, PercEF with a 1025-distance probe is 15--24\% slower than the fixed \ef{} on
-  SIFT-1M, DeepImage, BIGANN and Deep1B, and 2\% faster on GloVe and MS Turing, where searches are
-  long.
+\item \textbf{Probe length and cost.} The probe explains part of the cost difference, not all of
+  it. We ran both scores at 50, 100, 300 and 1025 distances on all 17 same-modality datasets
+  (Table~\ref{tab:probes}).
+  \begin{itemize}
+  \item At equal length, PercEF saves more latency than Ada-ef on 14--15 datasets and more work on
+    10--16. Its rank correlation is higher on only 7--9.
+  \item Each method at its own best probe length: PercEF is faster than the fixed \ef{} on 15 of the
+    17 datasets, Ada-ef on 4, and Ada-ef with the WAE floor on 8.
+  \item The latency gap at equal length correlates with the dimension at 0.88 (Spearman, 16
+    datasets). Ada-ef computes $q^\top\Sigma q$ for every query, a $d^2$ product: with a 100-distance
+    probe it is still 39\% slower than the fixed \ef{} on DBpedia ($d = 1536$) and 85\% on iNaturalist
+    ($d = 2048$), but within 3\% on all six datasets with $d \le 128$.
+  \end{itemize}
+  So on low-dimensional data, Ada-ef with a short probe costs about what PercEF does. On
+  high-dimensional data, its per-query variance does not.
 \item \textbf{Tail.} Better ranking alone does not buy Ada-ef's tail. With 1025 distances, PercEF's
   p1 gain on GloVe stays at 0.028 against Ada-ef's 0.082. With Ada-ef's own table (each score group
   gets the smallest \ef{} at which the group's average recall reaches the target), PercEF's p1 gain on
@@ -578,6 +597,27 @@ table. PercEF changes the first two, so we ran each score with the other's probe
     SIFT-1B   & 0.029 & 0.61 & 0.65 & \textbf{0.74} & \textbf{0.72} \\
     GloVe     & 0.018 & \textbf{0.88} & 0.62 & 0.61 & 0.76 \\
     MS Turing & 0.010 & \textbf{0.79} & \textbf{0.43} & 0.40 & 0.58 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[t]
+  \caption{Probe-length sweep, both scores at each probe length $L$, 17 same-modality datasets,
+  setting R: datasets on which PercEF is ahead of Ada-ef (as shipped) at the same $L$. Savings are
+  against the tuned fixed \ef{} at the same mean recall; a dataset counts where both have a value.
+  Bottom: each method at its own best $L$.}
+  \label{tab:probes}
+  \centering\footnotesize\setlength{\tabcolsep}{3.5pt}
+  \begin{tabular}{lrrrr}
+    \toprule
+    $L$ & Higher $|\rho|$ & More work saved & More time saved & Larger p1 gain \\
+    \midrule
+    50   &  8/17 & 16/17 & 15/17 & 10/17 \\
+    100  &  9/17 & 12/16 & 14/16 &  8/16 \\
+    300  &  8/17 & 12/16 & 14/16 &  7/16 \\
+    1025 &  7/17 & 10/17 & 15/17 &  6/17 \\
+    \midrule
+    best $L$ each & -- & 11/17 & 15/17 & -- \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -885,8 +925,8 @@ where the hard queries leave the bulk. Whether a model is accurate and whether i
 separate questions, and both need measuring.
 
 \textbf{Fixed per-query overhead decides the outcome.} Ada-ef's ranking edge comes largely from a
-1025-distance probe. That probe is affordable on searches of several milliseconds and dominates
-shorter ones. A shorter probe with fixed empirical thresholds gives up some ranking and is cheaper
+1025-distance probe, and every query also pays for a $d^2$ variance. Both are affordable on searches
+of several milliseconds, and they dominate shorter searches and high dimensions. A shorter probe with fixed empirical thresholds gives up some ranking and is cheaper
 and faster than a tuned fixed \ef{} almost everywhere. Learned early termination shows the same
 trade at a larger scale.
 
