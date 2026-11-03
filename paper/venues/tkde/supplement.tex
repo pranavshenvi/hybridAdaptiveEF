@@ -1,0 +1,53 @@
+\documentclass[10pt,journal,compsoc]{IEEEtran}
+\usepackage[nocompress]{cite}
+\usepackage{graphicx}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\newcommand{\pending}[1]{\textcolor{red}{[#1]}}
+\newcommand{\ef}{\textit{ef}}
+\newcommand{\KS}{\mathrm{KS}}
+\usepackage{amssymb}
+\renewcommand{\thefigure}{S\arabic{figure}}
+\renewcommand{\thetable}{S\arabic{table}}
+\begin{document}
+\title{Supplementary Material for ``Not All Embeddings Are Gaussian: Revisiting Adaptive HNSW Search''}
+\author{Pranav Shenvi}
+\maketitle
+
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{figures/fig4_controlled.pdf}
+  \caption{Ranking advantage of the empirical score (its $|\rho|$ minus Ada-ef's) against KS, for the real datasets and for synthetic data with controlled anisotropy (B) and cluster
+  separation (D).}
+  \label{fig:controlled}
+\end{figure}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\linewidth]{figures/fig3c_latency_cdf.pdf}
+  \caption{Per-query latency on Deep1B and MS Turing (setting R). The empirical score spends less
+  time on easy queries and more on hard ones; a fixed \ef{} spends about the same on all.}
+  \label{fig:cdf}
+\end{figure}
+
+\begin{table*}[t]
+  \caption{Time per distance computation, relative to fixed-\ef{} queries with the same distance count
+  (settings P and R). Hard and easy: the 20\% of queries PercEF gives the largest and smallest \ef{},
+  timed under the fixed \ef{} closest to PercEF's mean recall. Last column: PercEF's share of its
+  distance computations spent on its hard queries.}
+  \label{tab:querycost}
+  \centering\footnotesize
+  \resizebox{\linewidth}{!}{\input{tables/table3c_query_cost.tex}}
+\end{table*}
+
+\begin{table*}[h]
+  \caption{Offline cost.}
+  \centering\footnotesize
+  \input{tables/table4_offline.tex}
+\end{table*}
+
+\clearpage
+\end{document}
